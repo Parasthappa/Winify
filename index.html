@@ -2,9 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://sdk.scdn.co blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://*.scdn.co; media-src 'self' blob: https://*.scdn.co; connect-src 'self' https://api.spotify.com https://*.spotify.com wss://*.spotify.com https://*.scdn.co; frame-src 'self' https://sdk.scdn.co blob:; worker-src 'self' blob:; child-src 'self' blob:">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Spotamp — Sign in</title>
+<title>Winify — Sign in</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:ital,wght@0,600;0,700;0,900;1,900&amp;family=JetBrains+Mono:wght@400;500;700&amp;family=Saira+Condensed:wght@600;700&amp;display=swap">
 <style>
   body { margin: 0; background: #0b0d0f; font-family: 'Archivo', ui-sans-serif, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
@@ -47,7 +47,22 @@
 </head>
 <body>
 <section id="login-screen" class="sa-screen is-active"><div id="sa-stage"></div></section>
-<section id="app-screen" class="sa-screen"><div><p id="status">Not logged in</p><button id="signout" type="button">Sign out</button></div></section>
+<section id="app-screen" class="sa-screen"><div>
+  <p id="status">Not logged in</p>
+  <p id="player-status">Player: not started</p>
+  <!-- Temporary test rig: proves in-app audio works. The Winamp skin will
+       replace these controls and call window.WinifyPlayer.* instead. -->
+  <p>
+    <button id="btn-prev" type="button">Prev</button>
+    <button id="btn-play" type="button">Play</button>
+    <button id="btn-pause" type="button">Pause</button>
+    <button id="btn-next" type="button">Next</button>
+    <button id="btn-transfer" type="button">Transfer playback here</button>
+  </p>
+  <p><label>Volume <input id="vol" type="range" min="0" max="100" value="50"></label></p>
+  <p><label>Seek <input id="seek" type="range" min="0" max="100" value="0"></label></p>
+  <p><button id="signout" type="button">Sign out</button></p>
+</div></section>
 <template id="sa-template">
 <div style="width: 1280px; height: 1070px; position: relative; box-sizing: border-box; background: radial-gradient(120% 90% at 50% 34%, #23282d 0%, #12151a 46%, #08090b 100%); overflow: hidden;">
 
@@ -204,7 +219,7 @@
 
   <!-- ============ TITLE BAR ============ -->
   <div style="position: absolute; left: 134px; top: 136px; width: 1017px; height: 50px; display: flex; align-items: center; gap: 26px;">
-    <span style="font-family: 'Saira Condensed', 'Archivo', sans-serif; font-weight: 700; font-size: 36px; letter-spacing: 3px; color: #262c32; text-shadow: 0 1px 0 rgba(255,255,255,.85);">SPOTAMP</span>
+    <span style="font-family: 'Saira Condensed', 'Archivo', sans-serif; font-weight: 700; font-size: 36px; letter-spacing: 3px; color: #262c32; text-shadow: 0 1px 0 rgba(255,255,255,.85);">WINIFY</span>
     <span style="display: flex; flex-direction: column; gap: 4px; width: 32px;">
       <span style="display: block; height: 5px; background: #565e66; box-shadow: 0 1px 0 rgba(255,255,255,.7);"></span>
       <span style="display: block; height: 5px; background: #565e66; box-shadow: 0 1px 0 rgba(255,255,255,.7);"></span>
@@ -245,7 +260,7 @@
           </div>
 
           <div style="position: absolute; left: 0px; top: 112px; width: 996px; display: flex; justify-content: center;">
-            <img src="assets/spotamp-logo.svg" alt="Spotamp" width="600" height="195" style="display: block; width: 600px; height: 195px; opacity: 0.82; filter: drop-shadow(0 0 34px rgba(252,166,0,.34)) drop-shadow(0 2px 3px rgba(0,0,0,.55))">
+            <img src="assets/winify-logo.svg" alt="Winify" width="600" height="195" style="display: block; width: 600px; height: 195px; opacity: 0.82; filter: drop-shadow(0 0 34px rgba(252,166,0,.34)) drop-shadow(0 2px 3px rgba(0,0,0,.55))">
           </div>
 
           <div class="{{liveClass}}" style="position: absolute; right: 39px; bottom: 73px; height: 60px; display: flex; align-items: flex-end; gap: 4px; width: 126px">
@@ -305,7 +320,10 @@
 
 </div>
 </template>
-<script src="spotamp.js"></script>
+<script src="winify.js"></script>
+<script src="drm-debug.js"></script>
+<script src="player.js"></script>
+<script src="https://sdk.scdn.co/spotify-player.js"></script>
 <script src="renderer.js"></script>
 </body>
 </html>

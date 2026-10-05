@@ -1,19 +1,45 @@
-const { app, BrowserWindow, Menu, Tray, ipcMain, nativeImage, shell } = require('electron');
+const { app, BrowserWindow, Menu, Tray, components, dialog, ipcMain, nativeImage, session, shell } = require('electron');
 const crypto = require('crypto');
 const fs = require('fs');
 const http = require('http');
 const path = require('path');
 
+// Winify ships with no credentials. Every user registers their own Spotify
+// app and supplies its Client ID through a gitignored .env file, or through a
+// SPOTIFY_CLIENT_ID environment variable. See README.md.
 try {
   process.loadEnvFile(path.join(__dirname, '.env'));
 } catch {
-  // No .env file; login reports the missing Client ID.
+  // No .env file -- an environment variable may still supply the Client ID.
 }
 
-const CLIENT_ID = process.env.SPOTIFY_CLIENT_ID;
+const CLIENT_ID = (process.env.SPOTIFY_CLIENT_ID || '').trim();
+
+// PKCE is used, so no Client Secret is required and none is read.
+
+const SETUP_HELP = [
+  'Winify needs your own Spotify Client ID.',
+  '',
+  '1. Create an app at https://developer.spotify.com/dashboard',
+  '2. Add this Redirect URI, exactly:',
+  '     http://127.0.0.1:8888/callback',
+  '3. Copy .env.example to .env and put your Client ID in it',
+  '',
+  'Alternatively, set SPOTIFY_CLIENT_ID in your environment before launching.',
+  '',
+  'Full instructions are in README.md.',
+].join('\n');
+
+function reportMissingClientId() {
+  console.error('\n[config] SPOTIFY_CLIENT_ID is not set.\n');
+  console.error(SETUP_HELP + '\n');
+  dialog.showErrorBox('Winify: Spotify Client ID missing', SETUP_HELP);
+}
 const REDIRECT_URI = 'http://127.0.0.1:8888/callback';
 const SCOPES = [
   'user-read-private', // required for the Premium check on /v1/me
+  'user-read-email', // the Web Playback SDK expects this alongside user-read-private
+  'streaming', // required to play audio through the in-app device
   'user-read-playback-state',
   'user-read-currently-playing',
   'user-modify-playback-state',
@@ -38,6 +64,71 @@ let remember = false; // mirrors the "remember me" lamp
 let tray = null;
 let connected = false; // real Spotify connection state, shown in the menu bar
 let isQuitting = false;
+const DRM_DEBUG = process.argv.includes('--drm-debug');
+let appServer = null;
+let appOrigin = null;
+
+// --- Local origin ---------------------------------------------------------
+// The app used to load over file://, which has an opaque origin. Widevine
+// keys its per-origin storage by origin, and a cross-origin iframe (which is
+// where the playback SDK does its EME work) can only be granted the
+// encrypted-media permission by a parent that has a real one. Serving over
+// http://127.0.0.1 gives us a normal, potentially-trustworthy origin.
+
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.json': 'application/json',
+};
+
+function startAppServer() {
+  return new Promise((resolve, reject) => {
+    const server = http.createServer((req, res) => {
+      let pathname;
+      try {
+        pathname = decodeURIComponent(new URL(req.url, 'http://127.0.0.1').pathname);
+      } catch {
+        res.writeHead(400).end();
+        return;
+      }
+      if (pathname === '/') pathname = '/index.html';
+
+      // Only ever serve known static asset types, never dotfiles: this server
+      // sits on the same directory as .env, and must not hand it out.
+      const ext = path.extname(pathname).toLowerCase();
+      if (!MIME[ext] || pathname.split('/').some((seg) => seg.startsWith('.'))) {
+        res.writeHead(404).end();
+        return;
+      }
+
+      const filePath = path.normalize(path.join(__dirname, pathname));
+      if (!filePath.startsWith(__dirname + path.sep)) {
+        res.writeHead(403).end();
+        return;
+      }
+
+      fs.readFile(filePath, (err, data) => {
+        if (err) {
+          res.writeHead(404).end();
+          return;
+        }
+        res.writeHead(200, { 'Content-Type': MIME[ext], 'Cache-Control': 'no-store' });
+        res.end(data);
+      });
+    });
+
+    server.on('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      appServer = server;
+      appOrigin = `http://127.0.0.1:${server.address().port}`;
+      console.log('[app] serving from', appOrigin, '(was file://)');
+      resolve(appOrigin);
+    });
+  });
+}
 
 function send(channel, payload) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
@@ -56,13 +147,25 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      // Chromium throttles timers in hidden/occluded windows, which starves
+      // the playback SDK's buffering and causes stalls and skipped tracks.
+      // This window is meant to be tucked away, so throttling must be off.
+      backgroundThrottling: false,
     },
   });
   // Demo hook preserved: `npm start -- --outcome=network` (or free-account)
   // replays the designed simulation instead of touching the real API.
   const flag = process.argv.find((a) => a.startsWith('--outcome='));
   const outcome = flag ? flag.slice('--outcome='.length) : '';
-  win.loadFile(path.join(__dirname, 'index.html'), outcome ? { search: `outcome=${outcome}` } : undefined);
+
+  const search = [];
+  if (outcome) search.push(`outcome=${outcome}`);
+  if (DRM_DEBUG) {
+    search.push('drmdebug=1');
+    attachDrmDebug(win);
+  }
+  const query = search.length ? `?${search.join('&')}` : '';
+  win.loadURL(`${appOrigin}/index.html${query}`);
 
   // Closing the window tucks the app away rather than quitting it; the
   // menu-bar item is how you bring it back or quit for real.
@@ -74,6 +177,139 @@ function createWindow() {
 
   win.on('show', buildTray);
   win.on('hide', buildTray);
+}
+
+// --- DRM diagnostics ------------------------------------------------------
+// Opt-in with `npm start -- --drm-debug`. The playback SDK runs its EME inside
+// a cross-origin iframe, so the only way to see its licence traffic and media
+// errors is through the DevTools protocol at the webContents level.
+
+function attachDrmDebug(win) {
+  const t0 = Date.now();
+  const stamp = () => '+' + ((Date.now() - t0) / 1000).toFixed(1) + 's';
+  const dbg = win.webContents.debugger;
+
+  try {
+    dbg.attach('1.3');
+  } catch (err) {
+    console.error('[drm] could not attach debugger:', err && err.message);
+    return;
+  }
+  // Bump this whenever the diagnostics change, so a capture can never be
+  // mistaken for one produced by an older, still-running instance.
+  console.log('[drm] diagnostics ON - build DIAG-3 (http origin + cross-origin frame capture)');
+
+  // Mirror the renderer's console into this terminal so the EME hooks, the SDK
+  // errors and the licence traffic all land in one transcript.
+  win.webContents.on('console-message', (event) => {
+    const text = (event && event.message) || '';
+    if (/^\[(drm|winify)/.test(text)) console.log(`[renderer] ${stamp()} ${text}`);
+  });
+
+  // Spotify's Widevine licences go to a spclient host; audio segments come
+  // from audio-* / *.scdn.co. Both matter: a licence failure and a segment
+  // failure look identical from the outside but have different causes.
+  const isLicence = (url) => /widevine|licen[cs]e/i.test(url);
+  const isInteresting = (url) => isLicence(url) || /spclient|scdn\.co|audio-/i.test(url);
+  const inflight = new Map();
+
+  dbg.on('message', async (_event, method, params, sessionId) => {
+    try {
+      // The playback SDK's iframe is cross-origin, so under site isolation it
+      // lives in its own renderer process with its own CDP target. Without
+      // attaching to it we see none of its licence traffic or media errors.
+      if (method === 'Target.attachedToTarget') {
+        const sid = params.sessionId;
+        const info = params.targetInfo || {};
+        console.log(`[drm] ${stamp()} ATTACHED to ${info.type} ${String(info.url || '').slice(0, 100)}`);
+        for (const cmd of ['Network.enable', 'Media.enable', 'Runtime.enable', 'Log.enable']) {
+          dbg.sendCommand(cmd, {}, sid).catch(() => {});
+        }
+        dbg.sendCommand('Target.setAutoAttach',
+          { autoAttach: true, waitForDebuggerOnStart: false, flatten: true }, sid).catch(() => {});
+        dbg.sendCommand('Runtime.runIfWaitingForDebugger', {}, sid).catch(() => {});
+        return;
+      }
+
+      // Console output from inside the SDK's own frame.
+      if (method === 'Runtime.consoleAPICalled') {
+        const text = (params.args || []).map((a) => a.value || a.description || a.type).join(' ');
+        if (text) console.log(`[drm] ${stamp()} SDK CONSOLE [${params.type}] ${text.slice(0, 400)}`);
+        return;
+      }
+      if (method === 'Runtime.exceptionThrown') {
+        const d = params.exceptionDetails || {};
+        console.log(`[drm] ${stamp()} SDK EXCEPTION ${(d.exception && d.exception.description || d.text || '').slice(0, 400)}`);
+        return;
+      }
+      if (method === 'Log.entryAdded') {
+        const e = params.entry || {};
+        if (e.level === 'error' || /licen|drm|eme|key|media/i.test(e.text || '')) {
+          console.log(`[drm] ${stamp()} BROWSER LOG [${e.level}] ${String(e.text).slice(0, 400)} ${String(e.url || '').slice(0, 120)}`);
+        }
+        return;
+      }
+
+      if (method === 'Network.requestWillBeSent') {
+        const url = params.request.url;
+        if (isInteresting(url)) {
+          inflight.set(params.requestId, url);
+          if (isLicence(url)) console.log(`[drm] ${stamp()} LICENCE REQUEST ${params.request.method} ${url.slice(0, 160)}`);
+        }
+      } else if (method === 'Network.responseReceived') {
+        const url = inflight.get(params.requestId);
+        if (!url) return;
+        const st = params.response.status;
+        if (isLicence(url)) {
+          console.log(`[drm] ${stamp()} LICENCE RESPONSE ${st} ${params.response.statusText || ''} ${url.slice(0, 160)}`);
+        } else if (st >= 400) {
+          console.log(`[drm] ${stamp()} SEGMENT/API ${st} ${url.slice(0, 160)}`);
+        }
+      } else if (method === 'Network.loadingFinished') {
+        const url = inflight.get(params.requestId);
+        if (url && isLicence(url)) {
+          try {
+            const body = await dbg.sendCommand('Network.getResponseBody', { requestId: params.requestId }, sessionId);
+            const text = body.base64Encoded
+              ? `<binary licence blob, ${Buffer.from(body.body, 'base64').length} bytes>`
+              : String(body.body).slice(0, 500);
+            console.log(`[drm] ${stamp()} LICENCE BODY ${text}`);
+          } catch (err) {
+            console.log(`[drm] ${stamp()} LICENCE BODY unavailable: ${err && err.message}`);
+          }
+        }
+        inflight.delete(params.requestId);
+      } else if (method === 'Network.loadingFailed') {
+        const url = inflight.get(params.requestId);
+        if (url) {
+          console.log(`[drm] ${stamp()} REQUEST FAILED ${params.errorText} ${url.slice(0, 160)}`);
+          inflight.delete(params.requestId);
+        }
+      } else if (method === 'Media.playerErrorsRaised') {
+        for (const e of params.errors || []) {
+          console.log(`[drm] ${stamp()} MEDIA ERROR ${JSON.stringify(e).slice(0, 800)}`);
+        }
+      } else if (method === 'Media.playerEventsAdded') {
+        for (const e of params.events || []) {
+          const v = String(e.value || '');
+          if (v) console.log(`[drm] ${stamp()} MEDIA EVENT ${v.slice(0, 500)}`);
+        }
+      } else if (method === 'Media.playerPropertiesChanged') {
+        for (const pr of params.properties || []) {
+          console.log(`[drm] ${stamp()} MEDIA PROP ${pr.name}=${String(pr.value).slice(0, 200)}`);
+        }
+      }
+    } catch (err) {
+      console.error('[drm] handler error:', err && err.message);
+    }
+  });
+
+  dbg.sendCommand('Network.enable');
+  dbg.sendCommand('Media.enable');
+  dbg.sendCommand('Log.enable').catch(() => {});
+  dbg.sendCommand('Target.setAutoAttach',
+    { autoAttach: true, waitForDebuggerOnStart: false, flatten: true }).catch((e) =>
+    console.error('[drm] could not auto-attach to sub-targets:', e && e.message));
 }
 
 // --- Menu bar -------------------------------------------------------------
@@ -97,7 +333,7 @@ function buildTray() {
     { label: connected ? 'Connected' : 'Not connected', enabled: false },
     { type: 'separator' },
     {
-      label: visible ? 'Hide Spotamp' : 'Show Spotamp',
+      label: visible ? 'Hide Winify' : 'Show Winify',
       click: () => (visible ? win.hide() : showWindow()),
     },
     {
@@ -110,7 +346,7 @@ function buildTray() {
     },
     { type: 'separator' },
     {
-      label: 'Quit Spotamp',
+      label: 'Quit Winify',
       accelerator: 'Command+Q',
       click: () => {
         isQuitting = true;
@@ -125,7 +361,7 @@ function createTray() {
   const icon = nativeImage.createFromPath(path.join(__dirname, 'assets', 'trayTemplate.png'));
   icon.setTemplateImage(true);
   tray = new Tray(icon);
-  tray.setToolTip('Spotamp');
+  tray.setToolTip('Winify');
   buildTray();
 }
 
@@ -210,12 +446,37 @@ async function requestToken(params) {
     accessToken: data.access_token,
     refreshToken: data.refresh_token || (tokens && tokens.refreshToken),
     expiresAt: Date.now() + data.expires_in * 1000,
+    scope: data.scope || (tokens && tokens.scope) || '',
   };
   saveTokens();
 }
 
+// Spotify rotates the refresh token on every use, so two overlapping refreshes
+// mean the second one presents an already-spent token and gets invalid_grant --
+// which used to sign the session out mid-track. Both callers (the 5s poll and
+// the SDK's token request) now share one in-flight refresh.
+let refreshInFlight = null;
+
 function refreshTokens() {
-  return requestToken({ grant_type: 'refresh_token', refresh_token: tokens.refreshToken });
+  if (refreshInFlight) return refreshInFlight;
+
+  refreshInFlight = requestToken({
+    grant_type: 'refresh_token',
+    refresh_token: tokens.refreshToken,
+  })
+    .then(() => {
+      console.log('[auth] access token refreshed, valid for',
+        Math.round((tokens.expiresAt - Date.now()) / 1000), 'seconds');
+    })
+    .catch((err) => {
+      console.error('[auth] token refresh FAILED:', err && err.message);
+      throw err;
+    })
+    .finally(() => {
+      refreshInFlight = null;
+    });
+
+  return refreshInFlight;
 }
 
 function api(pathname) {
@@ -233,7 +494,8 @@ function login() {
   tokens = null;
 
   if (!CLIENT_ID) {
-    setStatus('Missing SPOTIFY_CLIENT_ID in .env');
+    setStatus('No Spotify Client ID configured - see README.md');
+    reportMissingClientId();
     send('auth:error', 'network');
     return;
   }
@@ -336,6 +598,14 @@ async function restoreSession() {
 
   if (!saved || !saved.refreshToken || !CLIENT_ID) return;
 
+  const granted = String(saved.scope || '').split(' ');
+  const missing = SCOPES.filter((scope) => !granted.includes(scope));
+  if (missing.length) {
+    console.log('[auth] stored session is missing scopes:', missing.join(', '), '- re-login required');
+    forgetTokens();
+    return;
+  }
+
   remember = true; // the file only exists if the lamp was lit
   tokens = saved;
   try {
@@ -400,6 +670,40 @@ function startPolling() {
 
 // --- App lifecycle --------------------------------------------------------
 
+// The Web Playback SDK asks for a token whenever it needs one.
+ipcMain.handle('get-token', async () => {
+  if (!tokens) return null;
+  if (Date.now() > tokens.expiresAt - 30000) {
+    try {
+      await refreshTokens();
+    } catch (err) {
+      return null;
+    }
+  }
+  return tokens.accessToken;
+});
+
+// Makes the in-app device the active Spotify Connect target.
+ipcMain.handle('transfer-playback', async (_event, deviceId, startPlaying) => {
+  if (!tokens || !deviceId) return { ok: false, error: 'not connected' };
+  try {
+    const res = await fetch('https://api.spotify.com/v1/me/player', {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${tokens.accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ device_ids: [deviceId], play: startPlaying === true }),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    if (res.status === 204 || res.status === 202) return { ok: true };
+    const body = await res.text();
+    return { ok: false, error: `HTTP ${res.status} ${body}`.trim() };
+  } catch (err) {
+    return { ok: false, error: String(err && err.message) };
+  }
+});
+
 ipcMain.on('ready', restoreSession);
 ipcMain.on('login', login);
 ipcMain.on('cancel-login', cancelAuth);
@@ -416,7 +720,48 @@ app.on('before-quit', () => {
   isQuitting = true;
 });
 
-app.whenReady().then(() => {
+// Widevine ships as a separate component that castLabs' Electron downloads on
+// first run. Playback needs it, so wait for it before opening the window and
+// say plainly whether it came up -- a silent failure here is the usual way
+// DRM playback mysteriously does nothing later.
+async function initWidevine() {
+  try {
+    await components.whenReady();
+    console.log('[widevine] ready:', JSON.stringify(components.status()));
+    return true;
+  } catch (err) {
+    console.error('[widevine] FAILED to initialise:', err && err.message);
+    console.error('[widevine] the app will still run, but audio playback will not work');
+    return false;
+  }
+}
+
+app.whenReady().then(async () => {
+  // Say so immediately rather than letting the first sign-in attempt fail
+  // with a misleading connection error.
+  if (!CLIENT_ID) reportMissingClientId();
+
+  await initWidevine();
+  try {
+    await startAppServer();
+  } catch (err) {
+    console.error('[app] could not start local server:', err && err.message);
+    return;
+  }
+
+  // Surface any permission the page is denied -- a silently refused
+  // encrypted-media request would look exactly like our playback failure.
+  if (DRM_DEBUG) {
+    session.defaultSession.setPermissionRequestHandler((wc, permission, callback) => {
+      console.log('[drm] PERMISSION REQUEST', permission, '-> granted');
+      callback(true);
+    });
+    session.defaultSession.setPermissionCheckHandler((wc, permission) => {
+      console.log('[drm] PERMISSION CHECK', permission, '-> granted');
+      return true;
+    });
+  }
+
   createWindow();
   createTray();
 });

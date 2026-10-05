@@ -11,6 +11,11 @@ contextBridge.exposeInMainWorld('spotify', {
   disconnect: () => ipcRenderer.send('disconnect'),
   setRemember: (value) => ipcRenderer.send('set-remember', value),
 
+  // Playback support
+  getToken: () => ipcRenderer.invoke('get-token'),
+  transferPlayback: (deviceId, startPlaying) =>
+    ipcRenderer.invoke('transfer-playback', deviceId, startPlaying),
+
   // Main -> renderer
   onStatus: on('status'),
   onAuthStep: on('auth:step'),

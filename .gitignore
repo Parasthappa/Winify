@@ -1,3 +1,6 @@
 .env
 node_modules/
 .DS_Store
+
+# The template must stay tracked; only real credentials are ignored.
+!.env.example
