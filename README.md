@@ -54,11 +54,62 @@ Alternatively, set it in your environment instead of using a file:
 export SPOTIFY_CLIENT_ID=your_client_id_here
 ```
 
-### 3. Install and run
+### 3. Install dependencies
 
 ```bash
 npm install
 ```
+
+This pulls in castLabs' Widevine-enabled Electron build rather than stock
+Electron. Spotify's audio is DRM-protected, and stock Electron cannot decrypt
+it.
+
+### 4. Sign the Electron binary (required for audio)
+
+**Without this step audio will not play.** Sign-in and device registration will
+work, then every track will skip after a second or two, and the licence request
+will fail with `HTTP 500`.
+
+Spotify's licence server validates the Verified Media Path (VMP) signature on
+the Electron binary. The prebuilt castLabs binaries carry only a development
+signature, which the production licence server rejects. Signing with castLabs'
+EVS service fixes it. An EVS account is free.
+
+```bash
+python3 -m pip install --upgrade castlabs-evs
+```
+
+```bash
+python3 -m castlabs_evs.account signup
+```
+
+Signup asks for an email address, your name, an organization, an account name
+and a password, then emails a confirmation code. The password must contain a
+symbol character, along with upper case, lower case and a digit — signup fails
+with `InvalidPasswordException` otherwise.
+
+Then sign the Electron distribution that `npm install` placed in
+`node_modules`:
+
+```bash
+python3 -m castlabs_evs.vmp sign-pkg node_modules/electron/dist
+```
+
+Check it worked:
+
+```bash
+python3 -m castlabs_evs.vmp verify-pkg node_modules/electron/dist
+```
+
+A signed binary reports `Signature is valid: streaming` and a validity period
+of a few years.
+
+> **Re-sign after every `npm install` that reinstalls Electron.** The signature
+> lives inside `node_modules`, which is not tracked by git and is replaced
+> wholesale on reinstall. If playback suddenly starts skipping again, run
+> `verify-pkg` first — an unsigned binary is the usual cause.
+
+### 5. Run
 
 ```bash
 npm start
@@ -110,35 +161,35 @@ Playback is driven through `window.WinifyPlayer` — `play()`, `pause()`,
 `togglePlay()`, `nextTrack()`, `previousTrack()`, `setVolume()`, `seek()` — so
 the interface can be replaced without touching playback logic.
 
-## Known limitation: audio playback
+## Troubleshooting playback
 
-Spotify's licence server currently rejects playback licence requests from
-Winify with `HTTP 500`, so tracks skip after a moment instead of playing.
+Audio plays inside Winify once the Electron binary is VMP-signed (step 4
+above). If tracks skip after a second or two, the signature is almost always
+the cause:
 
-Sign-in, device registration, Widevine initialisation and the Spotify Web API
-all work. The failure is isolated to the final licence request:
+```bash
+python3 -m castlabs_evs.vmp verify-pkg node_modules/electron/dist
+```
+
+The symptom of an unsigned binary is specific: the device registers fine, a
+queue loads, and then each track is abandoned almost immediately while the
+licence request returns `HTTP 500`:
 
 ```
 POST https://api.spotify.com/v1/widevine-license/v1/audio/license  ->  500
 ```
 
-This is a known issue with Widevine-enabled Electron builds. Spotify's
-production licence server validates the Verified Media Path (VMP) signature on
-the application binary, and prebuilt castLabs Electron binaries carry only a
-development signature. Resolving it requires packaging the app and VMP-signing
-it through castLabs' EVS service.
+Note that Spotify does not list Electron as a supported platform for the Web
+Playback SDK, so this setup is unsupported by Spotify even when it works.
 
-Note also that Spotify does not list Electron as a supported platform for the
-Web Playback SDK.
-
-To capture diagnostics:
+To capture DRM diagnostics — licence traffic, media-pipeline events and EME
+key-status changes, including inside the SDK's cross-origin iframe:
 
 ```bash
 npm start -- --drm-debug
 ```
 
-This logs licence traffic, media-pipeline events and EME key-status changes. It
-is off by default.
+This is off by default.
 
 ## Licence
 
@@ -156,7 +207,8 @@ app settings does not exactly match `http://127.0.0.1:8888/callback`.
 
 **Sign-in hangs** — something else may be using port 8888.
 
-**Tracks skip after a second** — the licence issue described above.
+**Tracks skip after a second** — the Electron binary is not VMP-signed. See
+[Troubleshooting playback](#troubleshooting-playback).
 
 **Signed out unexpectedly** — your stored token was rejected. Sign in again; if
 it persists, use **Disconnect** from the menu bar to clear it.
