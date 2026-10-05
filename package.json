@@ -1,0 +1,11 @@
+{
+  "name": "winamp-spotify",
+  "version": "1.0.0",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^44.4.3"
+  }
+}

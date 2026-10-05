@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'" />
+    <title>winamp-spotify</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <!-- =====================================================================
+         SCREEN 1 — login / landing. Self-contained: all of its styling lives
+         under #login-screen in styles.css.
+         ===================================================================== -->
+    <section id="login-screen" class="screen is-active">
+      <div class="window">
+        <div class="titlebar">
+          <span class="titlebar-grip"></span>
+          <span class="titlebar-text">WINAMP SPOTIFY PLAYER</span>
+          <span class="titlebar-grip"></span>
+          <span class="titlebar-buttons">
+            <span></span><span></span><span></span>
+          </span>
+        </div>
+
+        <!-- ARTWORK. To use your own image, replace this entire
+             <div class="logo-art"> block with:
+             <img class="logo-img" src="logo.png" alt="" /> -->
+        <div class="artwork">
+          <div class="logo-art">LOGO</div>
+        </div>
+
+        <h1 class="title">Winamp Spotify Player</h1>
+        <p class="subtitle">&#9642; Sign in to continue &#9642;</p>
+
+        <div class="actions">
+          <button id="login-button" class="spotify-button" type="button">
+            <!-- PLACEHOLDER MARK — not the Spotify logo. To use the real one,
+                 download the official icon from Spotify's design guidelines
+                 and replace this <svg> with:
+                 <img class="icon" src="spotify-icon.svg" alt="" /> -->
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="11" fill="#ffffff" />
+              <path
+                d="M10 16.5V8.2l6-1.4v7.6"
+                fill="none"
+                stroke="#1ed760"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+              <circle cx="8.6" cy="16.6" r="1.9" fill="#1ed760" />
+              <circle cx="14.6" cy="15.2" r="1.9" fill="#1ed760" />
+            </svg>
+            Log in with Spotify
+          </button>
+        </div>
+
+        <p id="login-status" class="status">Not logged in</p>
+      </div>
+    </section>
+
+    <!-- =====================================================================
+         SCREEN 2 — the existing app view. Unstyled on purpose; this is what
+         becomes the Winamp interface later.
+         ===================================================================== -->
+    <section id="app-screen" class="screen">
+      <p id="status">Not logged in</p>
+    </section>
+
+    <script src="renderer.js"></script>
+  </body>
+</html>
