@@ -80,7 +80,16 @@
     var eqDur   = [1050, 1550, 920, 1310, 1750, 1160, 1460, 1000, 1650, 1240];
     var eqDelay = [-220, -1040, -460, -1500, -70, -800, -1220, -600, -320, -950];
     var eqShape = [1, 2, 3, 1, 3, 2, 1, 3, 2, 1];
+    // The EQ reflects the connection: it dances only once audio can actually
+    // flow. Before that it idles as a slow wave, and on failure it stops dead.
+    var eqWave = live && !connected && !failed;
     var eqBars = eqHeights.map(function (h, i) {
+      if (eqWave) {
+        // Evenly staggered delays turn ten independent bars into a single
+        // wave travelling across them; one shared keyframe keeps it smooth,
+        // so the per-bar shape variants are dropped here on purpose.
+        return { h: h, d: -(i * 170), t: 1700, cls: 'sa-bar' };
+      }
       return { h: h, d: eqDelay[i], t: eqDur[i], cls: 'sa-bar' + (eqShape[i] > 1 ? ' sa-v' + eqShape[i] : '') };
     });
 
@@ -132,7 +141,7 @@
       standbyText: 'STANDBY',
       standbyDot: this.alpha(accent, 0.5),
 
-      liveClass: live ? 'sa-live' : '',
+      liveClass: !live ? '' : (failed ? 'sa-still' : (connected ? 'sa-live' : 'sa-wave')),
       eqBars: eqBars,
 
       ctaLabel: ctaLabel,

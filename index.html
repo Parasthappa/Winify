@@ -26,6 +26,11 @@
   @keyframes sa-eq3 { 0% { transform: scaleY(.15); } 30% { transform: scaleY(.7); } 55% { transform: scaleY(.3); } 100% { transform: scaleY(1); } }
   .sa-live .sa-bar.sa-v2 { animation-name: sa-eq2; }
   .sa-live .sa-bar.sa-v3 { animation-name: sa-eq3; }
+  /* Not connected: a shallow sine, low amplitude, phase-offset per bar. */
+  @keyframes sa-wave { 0% { transform: scaleY(.26); } 100% { transform: scaleY(.58); } }
+  .sa-wave .sa-bar { animation: sa-wave 1700ms ease-in-out infinite alternate; }
+  /* Error: no movement at all, held flat. */
+  .sa-still .sa-bar { animation: none; transform: scaleY(.2); }
   @keyframes sa-pulse { 0% { opacity: .5; } 38% { opacity: 1; } 52% { opacity: .72; } 70% { opacity: 1; } 84% { opacity: .82; } 100% { opacity: 1; } }
   .sa-led { animation: sa-pulse 5.4s ease-in-out infinite alternate; }
   @keyframes sa-sweep { 0% { transform: translateX(-120%); } 100% { transform: translateX(320%); } }
@@ -260,7 +265,7 @@
           </div>
 
           <div style="position: absolute; left: 0px; top: 112px; width: 996px; display: flex; justify-content: center;">
-            <img src="assets/winify-logo.svg" alt="Winify" width="600" height="195" style="display: block; width: 600px; height: 195px; opacity: 0.82; filter: drop-shadow(0 0 34px rgba(252,166,0,.34)) drop-shadow(0 2px 3px rgba(0,0,0,.55))">
+            <img src="assets/winify-logo.svg" alt="Winify" width="540" height="183" style="display: block; width: 540px; height: 183px; opacity: 0.82; filter: drop-shadow(0 0 34px rgba(252,166,0,.34)) drop-shadow(0 2px 3px rgba(0,0,0,.55))">
           </div>
 
           <div class="{{liveClass}}" style="position: absolute; right: 39px; bottom: 73px; height: 60px; display: flex; align-items: flex-end; gap: 4px; width: 126px">
