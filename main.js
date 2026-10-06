@@ -70,6 +70,8 @@ let pollTimer = null;
 let authServer = null;
 let authTimer = null;
 let remember = false; // mirrors the "remember me" lamp
+let capturingAudio = false; // mirrors the renderer's capture state, for menu labels
+let webampDoubled = true; // mirrors Webamp's double-size mode, for the menu
 let tray = null;
 let connected = false; // real Spotify connection state, shown in the menu bar
 let isQuitting = false;
@@ -87,6 +89,7 @@ let appOrigin = null;
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
@@ -138,6 +141,11 @@ function startAppServer() {
     let attempt = 0;
     server.on('error', (err) => {
       if (err && err.code === 'EADDRINUSE' && attempt < APP_PORTS.length - 1) {
+        // Falling back changes the origin, and media permissions are keyed to
+        // it -- so say so loudly rather than drifting quietly.
+        console.warn(`[app] port ${APP_PORTS[attempt]} is in use; falling back.`,
+          'The origin changes with it, so macOS may ask for microphone access again.',
+          'Usually this means another Winify is still running.');
         attempt += 1;
         server.listen(APP_PORTS[attempt], '127.0.0.1');
         return;
@@ -166,8 +174,10 @@ function setStatus(text) {
 
 function createWindow() {
   win = new BrowserWindow({
-    width: 1120,
-    height: 940,
+    // Roomy enough for the full window stack at double size, which is three
+    // 232px-tall windows plus margins.
+    width: 1200,
+    height: 1000,
     backgroundColor: '#08090b',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -404,6 +414,30 @@ function buildTray() {
       label: visible ? 'Hide Winify' : 'Show Winify',
       click: () => (visible ? win.hide() : showWindow()),
     },
+    { type: 'separator' },
+    {
+      label: 'Transfer playback here',
+      enabled: connected,
+      click: () => send('ui:command', { name: 'transfer-playback' }),
+    },
+    {
+      label: capturingAudio ? 'Stop audio capture' : 'Start audio capture',
+      enabled: connected,
+      click: () => send('ui:command', { name: capturingAudio ? 'audio-stop' : 'audio-start' }),
+    },
+    {
+      label: 'Double size',
+      type: 'checkbox',
+      checked: webampDoubled,
+      enabled: connected,
+      click: () => send('ui:command', { name: 'toggle-doublesize' }),
+    },
+    {
+      label: 'Load skin...',
+      enabled: connected,
+      click: chooseSkin,
+    },
+    { type: 'separator' },
     {
       label: 'Disconnect',
       enabled: connected,
@@ -422,6 +456,29 @@ function buildTray() {
       },
     },
   ]));
+}
+
+// The renderer cannot read files, so the skin is loaded here and handed over
+// as bytes.
+async function chooseSkin() {
+  const result = await dialog.showOpenDialog({
+    title: 'Load a Winamp skin',
+    filters: [{ name: 'Winamp skin', extensions: ['wsz', 'zip'] }],
+    properties: ['openFile'],
+  });
+  if (result.canceled || !result.filePaths.length) return;
+  const file = result.filePaths[0];
+  try {
+    const data = fs.readFileSync(file);
+    send('ui:command', {
+      name: 'load-skin',
+      fileName: path.basename(file),
+      data: data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength),
+    });
+    console.log('[skin] sent', path.basename(file), data.length, 'bytes');
+  } catch (err) {
+    dialog.showErrorBox('Winify: could not read skin', String(err && err.message));
+  }
 }
 
 function createTray() {
@@ -772,6 +829,16 @@ ipcMain.handle('transfer-playback', async (_event, deviceId, startPlaying) => {
   }
 });
 
+ipcMain.on('webamp-state', (_event, doubled) => {
+  webampDoubled = doubled === true;
+  buildTray();
+});
+
+ipcMain.on('audio-state', (_event, capturing) => {
+  capturingAudio = capturing === true;
+  buildTray();
+});
+
 ipcMain.on('ready', restoreSession);
 ipcMain.on('login', login);
 ipcMain.on('cancel-login', cancelAuth);
@@ -783,6 +850,22 @@ ipcMain.on('set-remember', (_event, value) => {
   if (remember) saveTokens();
   else forgetTokens();
 });
+
+// Only one Winify at a time. Without this, launching again while one is
+// already running starts a rival that loads its own copy of the UI and binds a
+// different port -- which has already caused a stale window to be mistaken for
+// the current build, and moves the origin that media permissions are keyed to.
+// Closing the window only hides it, so a second launch is easy to do by
+// accident.
+if (!app.requestSingleInstanceLock()) {
+  console.log('[app] another Winify is already running - focusing it and exiting');
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    console.log('[app] second launch attempted - focusing the existing window');
+    showWindow();
+  });
+}
 
 app.on('before-quit', () => {
   isQuitting = true;

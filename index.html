@@ -47,33 +47,16 @@
      .is-active reproduces the centring the stage had as a flex child of body. */
   .sa-screen { display: none; }
   .sa-screen.is-active { display: flex; width: 100%; height: 100%; align-items: center; justify-content: center; }
-  #app-screen { color: #c9d1d9; font-family: 'JetBrains Mono', ui-monospace, monospace; }
+  /* Webamp owns the whole post-login view. It positions its windows
+     absolutely and hit-tests real pointer events against them, so nothing may
+     sit over it or nest it inside another stacking context. */
+  #app-screen.is-active { display: block; width: 100%; height: 100%; }
+  #webamp-root { position: fixed; left: 0; top: 0; right: 0; bottom: 0; }
 </style>
 </head>
 <body>
 <section id="login-screen" class="sa-screen is-active"><div id="sa-stage"></div></section>
-<section id="app-screen" class="sa-screen"><div>
-  <p id="status">Not logged in</p>
-  <p id="player-status">Player: not started</p>
-  <!-- Temporary test rig: proves in-app audio works. The Winamp skin will
-       replace these controls and call window.WinifyPlayer.* instead. -->
-  <p>
-    <button id="btn-prev" type="button">Prev</button>
-    <button id="btn-play" type="button">Play</button>
-    <button id="btn-pause" type="button">Pause</button>
-    <button id="btn-next" type="button">Next</button>
-    <button id="btn-transfer" type="button">Transfer playback here</button>
-  </p>
-  <p><label>Volume <input id="vol" type="range" min="0" max="100" value="50"></label></p>
-  <p><label>Seek <input id="seek" type="range" min="0" max="100" value="0"></label></p>
-  <p><button id="btn-audio-start" type="button">Start audio capture</button>
-     <button id="btn-audio-stop" type="button">Stop audio capture</button>
-     <span id="audio-level">audio: idle</span></p>
-  <!-- Throwaway: proves the analyser data is live. Replaced by Webamp's
-       visualizer and Butterchurn later. -->
-  <p><canvas id="viz-test" width="480" height="120"></canvas></p>
-  <p><button id="signout" type="button">Sign out</button></p>
-</div></section>
+<section id="app-screen" class="sa-screen"><div id="webamp-root"></div></section>
 <template id="sa-template">
 <div style="width: 1280px; height: 1070px; position: relative; box-sizing: border-box; background: radial-gradient(120% 90% at 50% 34%, #23282d 0%, #12151a 46%, #08090b 100%); overflow: hidden;">
 
@@ -338,5 +321,6 @@
 <script src="visualizer-test.js"></script>
 <script src="https://sdk.scdn.co/spotify-player.js"></script>
 <script src="renderer.js"></script>
+<script type="module" src="webamp-ui.js"></script>
 </body>
 </html>

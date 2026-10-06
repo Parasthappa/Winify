@@ -1,65 +1,50 @@
-// The sign-in screen is driven by winify.js. This drives the plain app view
-// that takes over once you're connected, including the temporary playback
-// test rig. All playback goes through window.WinifyPlayer.
-const appStatus = document.getElementById('status');
+// The post-login view is Webamp and nothing else. Actions that used to live
+// on throwaway buttons are now menu-bar items, routed here as commands.
+// Playback itself still goes through window.WinifyPlayer, untouched.
 
-window.spotify.onStatus((text) => {
-  appStatus.textContent = text;
-});
+// Mount the Winamp face once signed in; take it down on sign-out.
+const mountWebamp = async () => {
+  if (!window.WinifyWebamp) return;
+  await window.WinifyWebamp.mount('webamp-root');
+  window.spotify.webampStateChanged(window.WinifyWebamp.isDoubled());
+};
+window.spotify.onAuthConnected(mountWebamp);
+window.spotify.onAuthRestored(mountWebamp);
+window.spotify.onSignedOut(() => window.WinifyWebamp && window.WinifyWebamp.unmount());
 
-// Bring the in-app device up once we're actually connected, and take it down
-// on sign-out so a stale device doesn't linger in Spotify Connect.
-window.spotify.onAuthConnected(() => window.WinifyPlayer.start());
-window.spotify.onAuthRestored(() => window.WinifyPlayer.start());
-window.spotify.onSignedOut(() => window.WinifyPlayer.stop());
-
-const on = (id, event, handler) =>
-  document.getElementById(id).addEventListener(event, handler);
-
-on('btn-prev', 'click', () => window.WinifyPlayer.previousTrack());
-on('btn-play', 'click', () => window.WinifyPlayer.play());
-on('btn-pause', 'click', () => window.WinifyPlayer.pause());
-on('btn-next', 'click', () => window.WinifyPlayer.nextTrack());
-on('btn-transfer', 'click', () => window.WinifyPlayer.transferPlaybackHere(true));
-
-on('vol', 'input', (e) => window.WinifyPlayer.setVolume(Number(e.target.value) / 100));
-
-// Seek is a percentage of the current track, so it needs the live duration.
-on('seek', 'change', async (e) => {
-  const state = await window.WinifyPlayer.getState();
-  if (!state || !state.duration) return;
-  window.WinifyPlayer.seek((Number(e.target.value) / 100) * state.duration);
-});
-
-// Signs out, clears any stored token, and returns to the Winify screen.
-on('signout', 'click', () => window.spotify.disconnect());
-
-// --- Stage 1 audio capture test rig ---------------------------------------
-// Throwaway controls to prove system audio is being picked up.
-const audioLevel = document.getElementById('audio-level');
-
-window.WinifyAudio.onEvent((event, detail) => {
-  if (event === 'level') {
-    const bars = '#'.repeat(Math.min(30, Math.round(detail.rms * 150)));
-    audioLevel.textContent = `audio: ${detail.rms > 0.001 ? 'SIGNAL' : 'silence'} ` +
-      `rms ${detail.rms.toFixed(4)} [${bars.padEnd(30, '.')}]`;
-  } else {
-    audioLevel.textContent = `audio: ${event}${detail && detail.message ? ' - ' + detail.message : ''}`;
+// Keep the main process in step so its menu labels reflect reality.
+window.WinifyAudio.onEvent((event) => {
+  if (event === 'started') window.spotify.audioStateChanged(true);
+  if (event === 'stopped' || event === 'ended' || event === 'error') {
+    window.spotify.audioStateChanged(false);
   }
 });
 
-on('btn-audio-start', 'click', () => window.WinifyAudio.start());
-on('btn-audio-stop', 'click', () => window.WinifyAudio.stop());
-
-// Stage 3: attach the throwaway visualizer once audio is running, and drop it
-// when capture stops. It is just another subscriber, so removing it later is
-// a matter of deleting this block and the canvas.
-window.WinifyAudio.onEvent((event) => {
-  if (event === 'started') window.WinifyTestVisualizer.attach('viz-test');
-  if (event === 'stopped' || event === 'ended') window.WinifyTestVisualizer.detach();
+window.spotify.onCommand(async (command) => {
+  switch (command.name) {
+    case 'transfer-playback':
+      window.WinifyPlayer.transferPlaybackHere(true);
+      break;
+    case 'audio-start':
+      window.WinifyAudio.start();
+      break;
+    case 'audio-stop':
+      window.WinifyAudio.stop();
+      break;
+    case 'toggle-doublesize':
+      window.spotify.webampStateChanged(window.WinifyWebamp.toggleDoubleSize());
+      break;
+    case 'load-skin': {
+      // Main reads the file; the renderer has no filesystem access.
+      const blob = new Blob([command.data], { type: 'application/zip' });
+      await window.WinifyWebamp.loadSkinFile(
+        new File([blob], command.fileName || 'skin.wsz'));
+      break;
+    }
+  }
 });
 
-// Pause visualizer rendering when the window is tucked away. The analyser keeps
-// running, so levels stay live and anything that opted into whenHidden still
-// receives frames.
+// Pause visualizer rendering when the window is tucked away; the analyser
+// keeps running. document.hidden does not reflect win.hide() in Electron, so
+// this has to come from the main process.
 window.spotify.onVisibility((visible) => window.WinifyAudio.setVisible(visible));

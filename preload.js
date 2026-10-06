@@ -26,4 +26,8 @@ contextBridge.exposeInMainWorld('spotify', {
   // document.hidden does not reflect win.hide() in Electron, so visibility
   // has to be pushed from the main process.
   onVisibility: on('window:visibility'),
+  // Menu-bar actions arrive here now that the test buttons are gone.
+  onCommand: on('ui:command'),
+  audioStateChanged: (capturing) => ipcRenderer.send('audio-state', capturing),
+  webampStateChanged: (doubled) => ipcRenderer.send('webamp-state', doubled),
 });

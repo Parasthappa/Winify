@@ -334,7 +334,13 @@
     // win.hide() in Electron, so the renderer cannot work this out alone.
     setVisible: function (v) {
       visible = !!v;
-      log('window', visible ? 'visible - rendering resumed' : 'hidden - rendering paused, analyser still running');
+      // Report what is actually true: with no capture running there is no
+      // analyser to keep running, and claiming otherwise sends you hunting
+      // for a process that does not exist.
+      var what = !stream ? 'no capture running'
+        : (visible ? 'analyser running' : 'analyser still running');
+      log('window', visible ? 'visible' : 'hidden',
+        '- rendering', visible ? 'resumed' : 'paused', '-', what);
     },
     isVisible: function () { return visible; },
 
