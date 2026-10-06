@@ -76,12 +76,24 @@
     return devices.filter(function (d) { return d.kind === 'audioinput'; });
   }
 
-  function pickDevice(inputs) {
+  // Strict by design. Falling back to the default input means silently
+  // capturing the microphone -- the room instead of the music -- which looks
+  // like it is working and is not. Refusing is the honest failure.
+  function pickLoopback(inputs) {
     for (var i = 0; i < inputs.length; i++) {
-      if (LOOPBACK_RE.test(inputs[i].label)) return { device: inputs[i], isLoopback: true };
+      if (LOOPBACK_RE.test(inputs[i].label)) return inputs[i];
     }
-    return { device: inputs[0] || null, isLoopback: false };
+    return null;
   }
+
+  var NO_LOOPBACK_HELP =
+    'No loopback audio device found. Winify analyses the sound leaving your ' +
+    'speakers, which macOS cannot provide without a virtual device.\n' +
+    'Install one and route audio through it:\n' +
+    '  brew install blackhole-2ch   (then reboot)\n' +
+    '  Audio MIDI Setup -> Create Multi-Output Device -> tick your speakers AND BlackHole\n' +
+    '  System Settings -> Sound -> Output -> that Multi-Output Device\n' +
+    'See README, "System audio capture".';
 
   // ---- Lifecycle --------------------------------------------------------
 
@@ -95,9 +107,18 @@
       // request may be needed before the loopback device can be recognised.
       inputs = await listDevices();
       if (inputs.length && !inputs[0].label) {
+        // Device labels are hidden until this origin has been granted media
+        // access once, and without labels the loopback device cannot be
+        // identified. This opens the default input -- the microphone -- so it
+        // lights the macOS recording indicator briefly. It should happen only
+        // on the very first run: the app is served from a stable origin so the
+        // grant persists. Seeing this on every launch means the origin moved.
+        log('first run for this origin: briefly opening the default input to reveal device labels');
         var warm = await navigator.mediaDevices.getUserMedia({ audio: true });
         warm.getTracks().forEach(function (t) { t.stop(); });
         inputs = await listDevices();
+      } else {
+        log('device labels already available - microphone not touched');
       }
     } catch (err) {
       log('*** COULD NOT LIST DEVICES ***', String(err && err.name), String(err && err.message));
@@ -107,23 +128,48 @@
 
     log('audio inputs:', inputs.map(function (d) { return d.label || '(unlabelled)'; }).join(' | ') || '(none)');
 
-    var chosen = opts.deviceId
-      ? { device: inputs.filter(function (d) { return d.deviceId === opts.deviceId; })[0], isLoopback: false }
-      : pickDevice(inputs);
+    var device = null;
+    var isLoopback = false;
 
-    if (!chosen.device) {
-      log('*** NO AUDIO INPUT DEVICE ***');
-      emit('error', { message: 'no audio input device' });
-      return false;
+    if (opts.deviceId) {
+      // Explicit override: the caller named a device, so honour it, but still
+      // say plainly whether it is a loopback device.
+      device = inputs.filter(function (d) { return d.deviceId === opts.deviceId; })[0] || null;
+      isLoopback = !!(device && LOOPBACK_RE.test(device.label));
+      if (!device) {
+        log('*** REQUESTED DEVICE NOT FOUND ***', opts.deviceId);
+        emit('error', { message: 'requested device not found' });
+        return false;
+      }
+    } else {
+      device = pickLoopback(inputs);
+      isLoopback = !!device;
+
+      if (!device) {
+        if (!opts.allowAnyDevice) {
+          log('*** NO LOOPBACK DEVICE - REFUSING TO CAPTURE ***');
+          log(NO_LOOPBACK_HELP);
+          log('audio inputs seen:', inputs.map(function (d) { return d.label || '(unlabelled)'; }).join(' | ') || '(none)');
+          emit('error', { message: 'no loopback device', help: NO_LOOPBACK_HELP, devices: inputs.map(function (d) { return d.label; }) });
+          return false;
+        }
+        // Opt-in escape hatch, used only for testing the pipeline itself.
+        device = inputs[0] || null;
+        if (!device) {
+          log('*** NO AUDIO INPUT DEVICE AT ALL ***');
+          emit('error', { message: 'no audio input device' });
+          return false;
+        }
+        log('!!! allowAnyDevice: capturing a NON-loopback device - this hears the room, not the app');
+      }
     }
 
-    log('using device:', chosen.device.label,
-      chosen.isLoopback ? '(system loopback)' : '(NOT a loopback device - this hears the room, not the app)');
+    log('==> CAPTURE DEVICE:', device.label, isLoopback ? '[system loopback]' : '[NOT LOOPBACK]');
 
     try {
       stream = await navigator.mediaDevices.getUserMedia({
         audio: {
-          deviceId: { exact: chosen.device.deviceId },
+          deviceId: { exact: device.deviceId },
           // Speech processing would wreck a music spectrum.
           echoCancellation: false, noiseSuppression: false, autoGainControl: false,
         },
@@ -144,6 +190,13 @@
     }
 
     log('audio track:', JSON.stringify(describeTrack(track)));
+    // The device that actually opened, read back from the live track rather
+    // than from what we asked for.
+    if (!LOOPBACK_RE.test(track.label)) {
+      log('*** WARNING: the OPEN TRACK is not a loopback device:', track.label);
+    } else {
+      log('confirmed: the open track is the loopback device,', track.label);
+    }
     track.addEventListener('ended', function () {
       log('*** TRACK ENDED ***');
       emit('ended', {});
@@ -173,8 +226,8 @@
 
     startLoop();
     emit('started', {
-      sampleRate: context.sampleRate, device: chosen.device.label,
-      isLoopback: chosen.isLoopback, binCount: analyser.frequencyBinCount,
+      sampleRate: context.sampleRate, device: track.label,
+      isLoopback: LOOPBACK_RE.test(track.label), binCount: analyser.frequencyBinCount,
     });
     return true;
   }
@@ -289,6 +342,19 @@
     getAudioContext: function () { return context; },
     getSourceNode: function () { return sourceNode; },
     getAnalyser: function () { return analyser; },
+
+    // What is actually open right now, read from the live track.
+    getDeviceInfo: function () {
+      if (!stream) return null;
+      var tracks = stream.getAudioTracks();
+      if (!tracks.length) return null;
+      return {
+        label: tracks[0].label,
+        readyState: tracks[0].readyState,
+        isLoopback: LOOPBACK_RE.test(tracks[0].label),
+        trackCount: tracks.length,
+      };
+    },
 
     setFftSize: function (n) {
       if (!analyser) return false;

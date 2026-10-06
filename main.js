@@ -93,6 +93,12 @@ const MIME = {
   '.json': 'application/json',
 };
 
+// A stable port matters more than it looks: the origin is what macOS keys
+// media permissions to, so a random port every launch meant the microphone
+// grant never persisted and the device-label warm-up re-opened the mic on
+// every start. 8888 is left alone -- that is the OAuth callback.
+const APP_PORTS = [8899, 8900, 8901, 8902, 8903];
+
 function startAppServer() {
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
@@ -129,13 +135,24 @@ function startAppServer() {
       });
     });
 
-    server.on('error', reject);
-    server.listen(0, '127.0.0.1', () => {
+    let attempt = 0;
+    server.on('error', (err) => {
+      if (err && err.code === 'EADDRINUSE' && attempt < APP_PORTS.length - 1) {
+        attempt += 1;
+        server.listen(APP_PORTS[attempt], '127.0.0.1');
+        return;
+      }
+      reject(err);
+    });
+
+    const onListening = () => {
       appServer = server;
       appOrigin = `http://127.0.0.1:${server.address().port}`;
-      console.log('[app] serving from', appOrigin, '(was file://)');
+      console.log('[app] serving from', appOrigin);
       resolve(appOrigin);
-    });
+    };
+    server.on('listening', onListening);
+    server.listen(APP_PORTS[0], '127.0.0.1');
   });
 }
 
