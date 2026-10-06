@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, components, dialog, ipcMain, nativeImage, session, shell } = require('electron');
+const { app, BrowserWindow, Menu, Tray, components, desktopCapturer, dialog, ipcMain, nativeImage, session, shell } = require('electron');
 const crypto = require('crypto');
 const fs = require('fs');
 const http = require('http');
@@ -14,6 +14,15 @@ try {
 }
 
 const CLIENT_ID = (process.env.SPOTIFY_CLIENT_ID || '').trim();
+
+// Loopback audio capture is behind Chromium feature flags on macOS, and they
+// have to be set before the app is ready. Without them getDisplayMedia rejects
+// the audio: 'loopback' constraint outright.
+app.commandLine.appendSwitch('enable-features', [
+  'MacLoopbackAudioForScreenShare',
+  'MacSckSystemAudioLoopbackOverride',
+  'MacCatapSystemAudioLoopbackCapture',
+].join(','));
 
 // PKCE is used, so no Client Secret is required and none is read.
 
@@ -177,6 +186,48 @@ function createWindow() {
 
   win.on('show', buildTray);
   win.on('hide', buildTray);
+
+  // Audio capture is diagnosed from the terminal, so its logs are mirrored
+  // there always -- not only under --drm-debug, where they used to hide.
+  win.webContents.on('console-message', (event) => {
+    const text = (event && event.message) || '';
+    if (DRM_DEBUG) return; // the debug path already mirrors everything
+    if (text.startsWith('[winify/audio]')) console.log(text);
+  });
+}
+
+// --- System audio capture -------------------------------------------------
+// The visualizers read the sound actually leaving the speakers: Spotify's audio
+// is DRM-protected, so its waveform cannot be read from the playback SDK, and
+// the audio-analysis endpoints were restricted in 2024. Electron 39+ supports
+// loopback capture natively, so this needs no extra dependency -- which also
+// means nothing here can disturb the VMP-signed Electron binary.
+function enableLoopbackAudio() {
+  session.defaultSession.setDisplayMediaRequestHandler(
+    async (request, callback) => {
+      try {
+        // getDisplayMedia refuses an audio-only request, so a video source has
+        // to be named even though the renderer throws the video track away.
+        const sources = await desktopCapturer.getSources({ types: ['screen'] });
+        if (!sources.length) {
+          console.error('[audio] no screen source available for loopback capture');
+          callback({});
+          return;
+        }
+        console.log('[audio] granting loopback audio capture');
+        callback({ video: sources[0], audio: 'loopback' });
+      } catch (err) {
+        console.error('[audio] could not grant loopback capture:',
+          (err && (err.stack || err.message)) || String(err));
+        callback({});
+      }
+    },
+    // Stage 1 hit the documented Electron bug: with useSystemPicker false the
+    // loopback track is created and then immediately 'ended', delivering no
+    // audio. Handing the picker to macOS is the known workaround; the cost is
+    // that the user picks a source once per capture session.
+    { useSystemPicker: true }
+  );
 }
 
 // --- DRM diagnostics ------------------------------------------------------
@@ -751,6 +802,17 @@ app.whenReady().then(async () => {
 
   // Surface any permission the page is denied -- a silently refused
   // encrypted-media request would look exactly like our playback failure.
+  // Audio capture needs the media permission granted; without a handler the
+  // request can be denied silently and look like a capture bug.
+  session.defaultSession.setPermissionRequestHandler((wc, permission, callback) => {
+    if (permission === 'media' || permission === 'audioCapture') {
+      console.log('[audio] granting', permission, 'permission');
+      callback(true);
+      return;
+    }
+    callback(true);
+  });
+
   if (DRM_DEBUG) {
     session.defaultSession.setPermissionRequestHandler((wc, permission, callback) => {
       console.log('[drm] PERMISSION REQUEST', permission, '-> granted');
@@ -762,6 +824,7 @@ app.whenReady().then(async () => {
     });
   }
 
+  enableLoopbackAudio();
   createWindow();
   createTray();
 });

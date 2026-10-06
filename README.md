@@ -134,6 +134,79 @@ launches. Leave it off and nothing is written to disk.
 Winify keeps a menu-bar item showing connection status, with Show/Hide,
 Disconnect and Quit. Closing the window hides it rather than quitting.
 
+## System audio capture (for the visualizers)
+
+The visualizers run frequency analysis on the audio actually leaving your
+speakers. This is necessary rather than preferred: Spotify's audio is
+DRM-protected, so its waveform cannot be read from the Web Playback SDK, and
+Spotify's audio-analysis and beat-data endpoints were restricted in late 2024.
+
+Playback works without any of this. Only the visualizers need it.
+
+### macOS: BlackHole + a Multi-Output Device
+
+macOS has no built-in way for an app to read its own system output, so a
+virtual loopback device is needed.
+
+```bash
+brew install blackhole-2ch
+```
+
+**Reboot after installing** — the installer says so, and the driver will not
+appear until you do.
+
+Then split your audio so it reaches both your ears and Winify:
+
+1. Open **Audio MIDI Setup** (Applications → Utilities)
+2. Click **+** at the bottom left → **Create Multi-Output Device**
+3. Tick **both** your speakers/headphones **and** BlackHole 2ch
+4. Set your speakers as the **Master Device** (clock drift is referenced to it)
+5. Tick **Drift Correction** on the BlackHole row, not the speakers row
+6. **System Settings → Sound → Output** → select the Multi-Output Device
+
+Winify detects the loopback device by name and will log which one it picked:
+
+```
+using device: BlackHole 2ch (Virtual) (system loopback)
+```
+
+If it instead says `(NOT a loopback device - this hears the room, not the app)`
+it fell back to your microphone, which means the Multi-Output Device is not the
+current output.
+
+> **This breaks your macOS volume keys.** macOS cannot control the volume of an
+> aggregate device, so the volume keys and the menu-bar slider stop working
+> while a Multi-Output Device is your output. Set volume inside Winify instead,
+> or switch your output back to your speakers when you are not using the
+> visualizers. This is a limitation of Multi-Output Devices, not of Winify.
+
+If you only ever hear silence after switching, your speakers are probably not
+ticked in the Multi-Output Device — it is easy to tick only BlackHole, which
+has no hardware behind it.
+
+### Why a driver is needed at all
+
+Electron can capture system audio natively via `setDisplayMediaRequestHandler`
+with `audio: 'loopback'`, which would need no driver and no user setup. On
+macOS it does not currently work: the audio track is created, correctly
+labelled `System audio`, and is already in `readyState: 'ended'` the first time
+it is observed, so no samples ever arrive. See
+[electron/electron#52738](https://github.com/electron/electron/issues/52738).
+
+This was tested thoroughly before falling back to a driver. Ruled out: every
+combination of the `MacLoopbackAudioForScreenShare`,
+`MacSckSystemAudioLoopbackOverride` and `MacCatapSystemAudioLoopbackCapture`
+feature flags; both `loopback` and `loopbackWithMute`; `useSystemPicker` true
+and false; stock Electron as well as the castLabs build, which fail
+identically; and an invalid code signature, which was repaired without changing
+the result. macOS 15.6.1, which is new enough for the Core Audio tap API.
+
+One variable remains untested: a packaged application with a real Developer ID
+signature and notarization. Every test above ran unpackaged with an ad-hoc
+identity and no Team ID, and macOS may treat a properly identified app
+differently. Worth retesting when the app is packaged for release — if it
+works, the BlackHole requirement disappears.
+
 ## Permissions requested
 
 | Scope | Why |
@@ -144,6 +217,11 @@ Disconnect and Quit. Closing the window hides it rather than quitting.
 | `user-read-playback-state` | Read what is playing |
 | `user-read-currently-playing` | Show the current track |
 | `user-modify-playback-state` | Play, pause, skip, seek |
+
+Separately, macOS will ask once for **microphone** access the first time you
+start audio capture. Winify reads the loopback device as an ordinary audio
+input, which is what that permission covers; it does not record you. Before the
+app is packaged the prompt names *Electron* rather than Winify.
 
 ## Project layout
 

@@ -33,3 +33,28 @@ on('seek', 'change', async (e) => {
 
 // Signs out, clears any stored token, and returns to the Winify screen.
 on('signout', 'click', () => window.spotify.disconnect());
+
+// --- Stage 1 audio capture test rig ---------------------------------------
+// Throwaway controls to prove system audio is being picked up.
+const audioLevel = document.getElementById('audio-level');
+
+window.WinifyAudio.onEvent((event, detail) => {
+  if (event === 'level') {
+    const bars = '#'.repeat(Math.min(30, Math.round(detail.rms * 150)));
+    audioLevel.textContent = `audio: ${detail.rms > 0.001 ? 'SIGNAL' : 'silence'} ` +
+      `rms ${detail.rms.toFixed(4)} [${bars.padEnd(30, '.')}]`;
+  } else {
+    audioLevel.textContent = `audio: ${event}${detail && detail.message ? ' - ' + detail.message : ''}`;
+  }
+});
+
+on('btn-audio-start', 'click', () => window.WinifyAudio.start());
+on('btn-audio-stop', 'click', () => window.WinifyAudio.stop());
+
+// Stage 3: attach the throwaway visualizer once audio is running, and drop it
+// when capture stops. It is just another subscriber, so removing it later is
+// a matter of deleting this block and the canvas.
+window.WinifyAudio.onEvent((event) => {
+  if (event === 'started') window.WinifyTestVisualizer.attach('viz-test');
+  if (event === 'stopped' || event === 'ended') window.WinifyTestVisualizer.detach();
+});

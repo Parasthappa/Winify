@@ -66,6 +66,12 @@
   </p>
   <p><label>Volume <input id="vol" type="range" min="0" max="100" value="50"></label></p>
   <p><label>Seek <input id="seek" type="range" min="0" max="100" value="0"></label></p>
+  <p><button id="btn-audio-start" type="button">Start audio capture</button>
+     <button id="btn-audio-stop" type="button">Stop audio capture</button>
+     <span id="audio-level">audio: idle</span></p>
+  <!-- Throwaway: proves the analyser data is live. Replaced by Webamp's
+       visualizer and Butterchurn later. -->
+  <p><canvas id="viz-test" width="480" height="120"></canvas></p>
   <p><button id="signout" type="button">Sign out</button></p>
 </div></section>
 <template id="sa-template">
@@ -328,6 +334,8 @@
 <script src="winify.js"></script>
 <script src="drm-debug.js"></script>
 <script src="player.js"></script>
+<script src="audio-source.js"></script>
+<script src="visualizer-test.js"></script>
 <script src="https://sdk.scdn.co/spotify-player.js"></script>
 <script src="renderer.js"></script>
 </body>
