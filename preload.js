@@ -23,4 +23,7 @@ contextBridge.exposeInMainWorld('spotify', {
   onAuthConnected: on('auth:connected'),
   onAuthRestored: on('auth:restored'),
   onSignedOut: on('auth:signed-out'),
+  // document.hidden does not reflect win.hide() in Electron, so visibility
+  // has to be pushed from the main process.
+  onVisibility: on('window:visibility'),
 });

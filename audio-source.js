@@ -34,6 +34,9 @@
   var timeBuf = null;
 
   var subscribers = [];
+  // Rendering is pointless while the window is hidden, but the analyser keeps
+  // reading so levels and state stay current for whatever is watching.
+  var visible = true;
   var listeners = [];
   var logging = true;
   var lastLogAt = 0;
@@ -224,8 +227,12 @@
     };
 
     for (var j = 0; j < subscribers.length; j++) {
+      var sub = subscribers[j];
+      // Visualizers idle while nobody can see them; subscribers that asked to
+      // run regardless still get every frame.
+      if (!visible && !sub.whenHidden) continue;
       // One broken visualizer must not take down the others.
-      try { subscribers[j](frame); } catch (e) { /* ignore */ }
+      try { sub.fn(frame); } catch (e) { /* ignore */ }
     }
 
     if (logging) {
@@ -257,14 +264,26 @@
     listDevices: listDevices,
 
     // Per-frame byte data. Returns an unsubscribe function.
-    subscribe: function (fn) {
+    // By default a subscriber is treated as a visualizer and is skipped while
+    // the window is hidden. Pass { whenHidden: true } for consumers that need
+    // every frame regardless of whether anything is on screen.
+    subscribe: function (fn, opts) {
       if (typeof fn !== 'function') throw new TypeError('subscribe expects a function');
-      subscribers.push(fn);
+      var entry = { fn: fn, whenHidden: !!(opts && opts.whenHidden) };
+      subscribers.push(entry);
       return function () {
-        subscribers = subscribers.filter(function (s) { return s !== fn; });
+        subscribers = subscribers.filter(function (s) { return s !== entry; });
       };
     },
     subscriberCount: function () { return subscribers.length; },
+
+    // Driven from the main process: document.hidden does not reflect
+    // win.hide() in Electron, so the renderer cannot work this out alone.
+    setVisible: function (v) {
+      visible = !!v;
+      log('window', visible ? 'visible - rendering resumed' : 'hidden - rendering paused, analyser still running');
+    },
+    isVisible: function () { return visible; },
 
     // Butterchurn and anything else that wants to attach its own analysis.
     getAudioContext: function () { return context; },

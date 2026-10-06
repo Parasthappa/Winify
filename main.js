@@ -184,8 +184,8 @@ function createWindow() {
     win.hide();
   });
 
-  win.on('show', buildTray);
-  win.on('hide', buildTray);
+  win.on('show', () => { buildTray(); send('window:visibility', true); });
+  win.on('hide', () => { buildTray(); send('window:visibility', false); });
 
   // Audio capture is diagnosed from the terminal, so its logs are mirrored
   // there always -- not only under --drm-debug, where they used to hide.

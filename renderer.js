@@ -58,3 +58,8 @@ window.WinifyAudio.onEvent((event) => {
   if (event === 'started') window.WinifyTestVisualizer.attach('viz-test');
   if (event === 'stopped' || event === 'ended') window.WinifyTestVisualizer.detach();
 });
+
+// Pause visualizer rendering when the window is tucked away. The analyser keeps
+// running, so levels stay live and anything that opted into whenHidden still
+// receives frames.
+window.spotify.onVisibility((visible) => window.WinifyAudio.setVisible(visible));
