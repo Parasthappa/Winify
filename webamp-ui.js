@@ -19,11 +19,13 @@ import * as inert from './webamp-inert.js';
 let webamp = null;
 let mounted = false;
 
-// Classic skins are small bitmaps designed for 1998 screens. On a Retina
-// display the 1x windows are tiny, so double size is the sensible default.
-// Webamp already renders skin sprites with image-rendering: pixelated, so
-// doubling stays blocky rather than going soft.
-const DOUBLE_SIZE_BY_DEFAULT = true;
+// Everything starts at 1x, so the main window and the playlist share one
+// scale and one width. Webamp cannot double the playlist (it stays 1x when
+// the rest doubles), so a doubled default left the two mismatched. Double
+// size is one click away on the D button, sprites stay blocky when doubled
+// (Webamp renders them with image-rendering: pixelated), and the choice is
+// remembered with the rest of the layout.
+const DOUBLE_SIZE_BY_DEFAULT = false;
 
 const OPTIONS = {
   // No tracks: the playlist holds one stand-in entry that mirrors Spotify,
@@ -45,12 +47,11 @@ const OPTIONS = {
   enableDoubleSizeMode: DOUBLE_SIZE_BY_DEFAULT,
 };
 
-// The playlist's default size, in Webamp's 25x29 px resize segments: 11 wide
-// makes it 550px, the doubled main window's width; 5 tall gives 15 rows.
-// The playlist itself stays 1x: Webamp does not double it, and scaling it
-// with CSS put its corner-resize grip and double-click out of step with the
-// pointer.
-const DEFAULT_PLAYLIST_SIZE = [11, 5];
+// The playlist's default size, in Webamp's 25x29 px resize segments: no extra
+// width keeps it 275px, the 1x main window's width; 5 tall gives 15 rows.
+// Scaling the playlist to 2x with CSS was tried: its corner-resize grip then
+// moved at twice the pointer's speed, so it stays at Webamp's own 1x.
+const DEFAULT_PLAYLIST_SIZE = [0, 5];
 
 // Window positions, shade, the playlist size and double size are remembered across
 // launches, as classic Winamp did. Per-machine convenience only, so the
