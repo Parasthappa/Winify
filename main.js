@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, components, desktopCapturer, dialog, ipcMain, nativeImage, session, shell, systemPreferences } = require('electron');
+const { app, BrowserWindow, Menu, Tray, components, desktopCapturer, dialog, ipcMain, nativeImage, screen, session, shell, systemPreferences } = require('electron');
 const crypto = require('crypto');
 const fs = require('fs');
 const http = require('http');
@@ -177,10 +177,11 @@ function setStatus(text) {
 
 function createWindow() {
   win = new BrowserWindow({
-    // Roomy enough for the full window stack at double size, which is three
-    // 232px-tall windows plus margins.
-    width: 1200,
-    height: 1000,
+    // Opens at the sign-in chassis's size (winify.js: 1252x983 design px at
+    // 0.356); the page then fits the window to whatever it shows.
+    width: 446,
+    height: 350,
+    useContentSize: true,
     backgroundColor: '#08090b',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -922,6 +923,29 @@ ipcMain.on('ready', () => {
   send('window:visibility', isOnScreen());
   restoreSession();
 });
+// The page sizes the window to what it shows: the sign-in chassis, or the
+// player's windows. center re-centres it (switching screens); otherwise it
+// keeps its place and stays within the display.
+ipcMain.on('window:fit', (_event, size) => {
+  if (!win || win.isDestroyed() || !size) return;
+  const area = screen.getDisplayMatching(win.getBounds()).workArea;
+  const frame = win.getBounds().height - win.getContentBounds().height;   // title bar
+  const width = Math.max(100, Math.min(Math.round(size.width), area.width));
+  const height = Math.max(100, Math.min(Math.round(size.height), area.height - frame));
+  win.setContentSize(width, height);
+  const b = win.getBounds();
+  if (size.center) {
+    // Exactly centred: macOS's own centring sits the window off-centre.
+    win.setPosition(
+      Math.round(area.x + (area.width - b.width) / 2),
+      Math.round(area.y + (area.height - b.height) / 2));
+    return;
+  }
+  win.setPosition(
+    Math.min(Math.max(b.x, area.x), area.x + area.width - b.width),
+    Math.min(Math.max(b.y, area.y), area.y + area.height - b.height));
+});
+
 // Webamp's close (x) and minimize (_) buttons, and its Exit menu item.
 ipcMain.on('window-command', (_event, command) => {
   if (command === 'hide') hideWindow();

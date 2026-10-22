@@ -32,4 +32,6 @@ contextBridge.exposeInMainWorld('spotify', {
   webampStateChanged: (doubled) => ipcRenderer.send('webamp-state', doubled),
   // Webamp's own close and minimize buttons act on the Winify window.
   windowCommand: (command) => ipcRenderer.send('window-command', command),
+  // Winify's window follows what it shows: the sign-in chassis, or the player.
+  fitWindow: (size) => ipcRenderer.send('window:fit', size),
 });

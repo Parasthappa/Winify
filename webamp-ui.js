@@ -64,6 +64,14 @@ const STALE_LAYOUT_KEYS = ['winify.layout.v1'];
 const LAYOUT_WINDOWS = ['main', 'equalizer', 'playlist'];
 const SAVE_DELAY_MS = 400;
 
+// Winify's window wraps the player: its size follows the layout, edge to
+// edge. Positions are therefore relative to the layout (its top-left window
+// sits at the window's corner) rather than to a fixed window. No margin:
+// Webamp snaps a dragged window to the container's edges within 15px, so a
+// margin would not survive the first drag.
+const PLAYER_MARGIN = 0;
+const REFIT_DELAY_MS = 150;
+
 function log(...args) {
   console.log('[winify/webamp]', ...args);
 }
@@ -133,9 +141,28 @@ function windowSizes(doubled, playlistSize, shade = {}) {
   };
 }
 
+// The windows that are showing. Layouts saved before open/closed was
+// recorded had every window open; the main window always opens.
+function shownWindows(layout) {
+  return LAYOUT_WINDOWS.filter((id) => id === 'main' || !layout.open || layout.open[id] !== false);
+}
+
+// The bounding box of the showing windows.
+function layoutBox(layout) {
+  const sizes = windowSizes(layout.doubled, layout.playlistSize, layout.shade);
+  const ids = shownWindows(layout);
+  const p = layout.positions;
+  return {
+    l: Math.min(...ids.map((id) => p[id].x)),
+    t: Math.min(...ids.map((id) => p[id].y)),
+    r: Math.max(...ids.map((id) => p[id].x + sizes[id].w)),
+    b: Math.max(...ids.map((id) => p[id].y + sizes[id].h)),
+  };
+}
+
 // Why a layout cannot be used, or null if it can. Invalid means a window is
-// missing, wholly off screen, or mostly covering another one.
-function layoutProblem(layout, container) {
+// missing, wholly off the display, or mostly covering another one.
+function layoutProblem(layout) {
   const pos = layout && layout.positions;
   if (!pos) return 'no positions';
   for (const id of LAYOUT_WINDOWS) {
@@ -143,10 +170,9 @@ function layoutProblem(layout, container) {
   }
   const sizes = windowSizes(layout.doubled, layout.playlistSize, layout.shade);
   const rect = (id) => ({ l: pos[id].x, t: pos[id].y, r: pos[id].x + sizes[id].w, b: pos[id].y + sizes[id].h });
-  const W = container.clientWidth;
-  const H = container.clientHeight;
-  // Layouts saved before open/closed was recorded had every window open.
-  const shown = LAYOUT_WINDOWS.filter((id) => id === 'main' || !layout.open || layout.open[id] !== false);
+  const W = window.screen.availWidth;
+  const H = window.screen.availHeight;
+  const shown = shownWindows(layout);
   for (const id of shown) {
     const r = rect(id);
     if (r.r <= 0 || r.b <= 0 || r.l >= W || r.t >= H) return id + ' window is off screen';
@@ -165,11 +191,11 @@ function layoutProblem(layout, container) {
 }
 
 // The default layout: the main window with the playlist docked directly below
-// it, left edges aligned, the pair centred in Winify's window. The equalizer
-// starts closed (the EQ button opens it); it is parked below the playlist so
-// it docks there when opened. Used at first launch, on Reset window layout,
-// and when a saved layout is unusable.
-function applyDefaultLayout(container) {
+// it, left edges aligned, and Winify's window fitted around the pair. The
+// equalizer starts closed (the EQ button opens it); it is parked below the
+// playlist so it docks there when opened. Used at first launch, on Reset
+// window layout, and when a saved layout is unusable.
+async function applyDefaultLayout(container) {
   setDoubleSize(DOUBLE_SIZE_BY_DEFAULT);
   const state = webamp.store.getState();
   for (const id of LAYOUT_WINDOWS) {
@@ -180,29 +206,76 @@ function applyDefaultLayout(container) {
   }
   webamp.store.dispatch({ type: 'WINDOW_SIZE_CHANGED', windowId: 'playlist', size: DEFAULT_PLAYLIST_SIZE });
   const sizes = windowSizes(isDoubled(), DEFAULT_PLAYLIST_SIZE);
-  const width = Math.max(sizes.main.w, sizes.playlist.w);
-  const height = sizes.main.h + sizes.playlist.h;
-  const x = Math.max(0, Math.round((container.clientWidth - width) / 2));
-  const y = Math.max(0, Math.round((container.clientHeight - height) / 2));
-  webamp.store.dispatch({
-    type: 'UPDATE_WINDOW_POSITIONS',
-    positions: {
-      main: { x, y },
-      playlist: { x, y: y + sizes.main.h },
-      equalizer: { x, y: y + sizes.main.h + sizes.playlist.h },
-    },
-    absolute: true,
+  const x = PLAYER_MARGIN;
+  const y = PLAYER_MARGIN;
+  const layout = currentLayout();
+  layout.positions = {
+    main: { x, y },
+    playlist: { x, y: y + sizes.main.h },
+    equalizer: { x, y: y + sizes.main.h + sizes.playlist.h },
+  };
+  await placeLayout(container, layout, { center: true });
+}
+
+// Fit Winify's window around a layout and put the windows in it: the layout
+// is moved so its top-left window sits at the margin, the window is resized
+// to the layout plus the margin, and the positions are applied once the
+// window has its new size. center re-centres the window on screen (sign-in,
+// reset); otherwise it grows or shrinks in place.
+async function placeLayout(container, layout, { center = false } = {}) {
+  if (!(window.spotify && window.spotify.fitWindow)) {
+    webamp.store.dispatch({ type: 'UPDATE_WINDOW_POSITIONS', positions: layout.positions, absolute: true });
+    await keepOnScreen(container);
+    return;
+  }
+  const box = layoutBox(layout);
+  const dx = PLAYER_MARGIN - box.l;
+  const dy = PLAYER_MARGIN - box.t;
+  const positions = {};
+  for (const id of LAYOUT_WINDOWS) {
+    positions[id] = { x: layout.positions[id].x + dx, y: layout.positions[id].y + dy };
+  }
+  const width = box.r - box.l + 2 * PLAYER_MARGIN;
+  const height = box.b - box.t + 2 * PLAYER_MARGIN;
+  // Positions first, then the window size. When the browser window resizes,
+  // Webamp checks the layout still fits; if not, it resets every window's
+  // size and restacks them. Placed first, the layout always fits the new size.
+  webamp.store.dispatch({ type: 'UPDATE_WINDOW_POSITIONS', positions, absolute: true });
+  window.spotify.fitWindow({ width, height, center });
+  // The display may be too small to grow that far; then keepOnScreen below
+  // slides the group into whatever room there is.
+  const until = performance.now() + 1500;
+  while ((container.clientWidth < width - 1 || container.clientHeight < height - 1) &&
+         performance.now() < until) {
+    await nextFrame();
+  }
+  webamp.store.dispatch({ type: 'UPDATE_WINDOW_POSITIONS', positions, absolute: true });
+  await keepOnScreen(container);
+}
+
+// Whether a window shares an edge with any other showing window.
+function touchesAnother(layout, id) {
+  const sizes = windowSizes(layout.doubled, layout.playlistSize, layout.shade);
+  const p = layout.positions;
+  const a = { l: p[id].x, t: p[id].y, r: p[id].x + sizes[id].w, b: p[id].y + sizes[id].h };
+  return shownWindows(layout).some((other) => {
+    if (other === id) return false;
+    const b = { l: p[other].x, t: p[other].y, r: p[other].x + sizes[other].w, b: p[other].y + sizes[other].h };
+    const sideBySide = (Math.abs(a.r - b.l) <= 1 || Math.abs(b.r - a.l) <= 1) && a.t < b.b && b.t < a.b;
+    const stacked = (Math.abs(a.b - b.t) <= 1 || Math.abs(b.b - a.t) <= 1) && a.l < b.r && b.l < a.r;
+    return sideBySide || stacked;
   });
 }
 
-// Opening the equalizer puts it where it was last left, unless that spot is
-// off screen or on top of another window; then it docks below the playlist
-// (or the main window, if the playlist is closed), and the group slides up
-// if that runs off the bottom of Winify's window.
-async function placeOpenedEqualizer(container) {
+// Opening the equalizer puts it where it was last left, docked to the
+// player. A closed window does not move with the others, so if the player
+// has moved since, or the spot is off the display or on another window, it
+// docks below the playlist (or the main window, if the playlist is closed).
+// Winify's window then grows to take it in.
+function placeOpenedEqualizer() {
   const layout = currentLayout();
-  const problem = layoutProblem(layout, container);
-  if (problem && /equalizer/.test(problem)) {
+  const problem = layoutProblem(layout);
+  if ((problem && /equalizer/.test(problem)) || !touchesAnother(layout, 'equalizer')) {
     const sizes = windowSizes(layout.doubled, layout.playlistSize, layout.shade);
     const under = layout.open.playlist ? 'playlist' : 'main';
     const p = layout.positions[under];
@@ -211,14 +284,12 @@ async function placeOpenedEqualizer(container) {
       positions: { equalizer: { x: p.x, y: p.y + sizes[under].h } },
       absolute: true,
     });
-    log('equalizer docked below the', under, '(' + problem + ')');
+    log('equalizer docked below the', under, '(' + (problem || 'was not docked to the player') + ')');
   }
-  // Even where it belongs, it can hang off the bottom of Winify's window.
-  await keepOnScreen(container);
 }
 
-// Saved positions are absolute. If Winify's window is now smaller than when
-// they were saved, slide the whole group back on screen, keeping it docked.
+// If Winify's window could not grow to fit the layout (a small display), slide
+// the whole group into the room there is, keeping it docked.
 async function keepOnScreen(container) {
   await nextFrame();
   const box = container.getBoundingClientRect();
@@ -245,12 +316,12 @@ async function keepOnScreen(container) {
 
 async function restoreLayout(container) {
   const saved = readLayout();
-  if (!saved) { applyDefaultLayout(container); return; }
-  const problem = layoutProblem(saved, container);
+  if (!saved) { await applyDefaultLayout(container); return; }
+  const problem = layoutProblem(saved);
   if (problem) {
     log('saved layout unusable (' + problem + ') - using the default layout');
     try { localStorage.removeItem(LAYOUT_KEY); } catch (e) { /* storage unavailable */ }
-    applyDefaultLayout(container);
+    await applyDefaultLayout(container);
     return;
   }
   if (typeof saved.doubled === 'boolean') setDoubleSize(saved.doubled);
@@ -269,31 +340,60 @@ async function restoreLayout(container) {
       webamp.store.dispatch({ type: 'TOGGLE_WINDOW', windowId: id });
     }
   }
-  // Absolute, like Winamp: otherwise Webamp re-centres the group.
-  webamp.store.dispatch({ type: 'UPDATE_WINDOW_POSITIONS', positions: saved.positions, absolute: true });
-  await keepOnScreen(container);
+  const layout = currentLayout();
+  layout.positions = saved.positions;
+  await placeLayout(container, layout, { center: true });
   log('layout restored');
 }
 
 // Menu bar > Reset window layout: forget the saved layout and go back to the
 // default: main and playlist, unshaded, with the equalizer closed.
-function resetLayout() {
+async function resetLayout() {
   try { localStorage.removeItem(LAYOUT_KEY); } catch (e) { /* storage unavailable */ }
   if (!webamp || !mounted) { log('layout reset (applies at next sign-in)'); return; }
-  applyDefaultLayout(document.getElementById(mountedInto));
+  await applyDefaultLayout(document.getElementById(mountedInto));
   log('layout reset to default');
 }
 
 let unsubscribeLayout = null;
+// The layout's shape: what changes the size Winify's window should be.
+// Moving a window does not; opening, closing, shading, resizing or doubling
+// one does.
+function layoutShape() {
+  const { doubled, open, shade, playlistSize } = currentLayout();
+  return JSON.stringify({ doubled, open, shade, playlistSize });
+}
+
+// A pointer button is down: something is being dragged or resized. Refitting
+// the window then would move things under the pointer, so it waits.
+let pointerDown = false;
+const onPointerDown = () => { pointerDown = true; };
+const onPointerUp = () => { pointerDown = false; };
+
 function watchLayout(container) {
   let last = JSON.stringify(currentLayout());
   let timer = null;
+  let refitTimer = null;
+  document.addEventListener('pointerdown', onPointerDown, true);
+  document.addEventListener('pointerup', onPointerUp, true);
+  const refit = () => {
+    if (!webamp) return;
+    if (pointerDown) { refitTimer = setTimeout(refit, REFIT_DELAY_MS); return; }
+    placeLayout(container, currentLayout());
+  };
+  let shape = layoutShape();
   let eqOpen = currentLayout().open.equalizer;
   unsubscribeLayout = webamp.store.subscribe(() => {
     if (!webamp) return;
     const isOpen = !!webamp.store.getState().windows.genWindows.equalizer.open;
-    if (isOpen && !eqOpen) placeOpenedEqualizer(container);
+    if (isOpen && !eqOpen) placeOpenedEqualizer();
     eqOpen = isOpen;
+    const nowShape = layoutShape();
+    if (nowShape !== shape) {
+      shape = nowShape;
+      clearTimeout(refitTimer);
+      refitTimer = setTimeout(refit, REFIT_DELAY_MS);
+    }
     const now = JSON.stringify(currentLayout());
     if (now === last) return;
     last = now;
@@ -301,7 +401,7 @@ function watchLayout(container) {
     timer = setTimeout(() => {
       // Never persist a layout that would itself be rejected at next launch.
       if (!(container.clientWidth > 0 && container.clientHeight > 0)) return;
-      const problem = layoutProblem(JSON.parse(now), container);
+      const problem = layoutProblem(JSON.parse(now));
       if (problem) { log('not saving layout (' + problem + ')'); return; }
       try { localStorage.setItem(LAYOUT_KEY, now); } catch (e) { /* storage unavailable */ }
     }, SAVE_DELAY_MS);
@@ -357,6 +457,8 @@ function unmount() {
   generation++;
   if (!webamp) return;
   if (unsubscribeLayout) { unsubscribeLayout(); unsubscribeLayout = null; }
+  document.removeEventListener('pointerdown', onPointerDown, true);
+  document.removeEventListener('pointerup', onPointerUp, true);
   inert.detach();
   detach();
   try { webamp.dispose(); } catch (e) { /* already gone */ }

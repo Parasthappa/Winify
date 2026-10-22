@@ -7,6 +7,13 @@
   try { var q = new URLSearchParams(location.search).get('outcome'); if (q) { PROPS.outcome = q; DEMO = true; } } catch (e) {}
   var IPC = (typeof window !== 'undefined' && window.spotify) ? window.spotify : null;
   var W = 1280, H = 1070;
+  // The chassis within the design (its outline spans 42..1238 x 55..982),
+  // plus a margin for its glow and drop shadow. The window shows only this.
+  var CHASSIS = { x: 14, y: 27, w: 1252, h: 983 };
+  // The sign-in screen's size: half the 0.712 it was drawn at before, in a
+  // 1200x790 window on a 1440x900 display. A uniform scale of the whole
+  // design, so nothing is rearranged.
+  var SIGN_IN_SCALE = 0.356;
 
   var queued = false, comp = null, vals = {}, bindings = [];
   function schedule() {
@@ -337,9 +344,23 @@
     for (var i = 0; i < bindings.length; i++) bindings[i]();
   }
 
+  // Scale the design so the chassis fills the window, and centre the chassis
+  // (not the whole design, which has more room below than above it).
   function fit(stage) {
-    var s = Math.min(window.innerWidth / W, window.innerHeight / H, 1);
-    stage.style.transform = 'scale(' + s + ')';
+    var s = Math.min(window.innerWidth / CHASSIS.w, window.innerHeight / CHASSIS.h, 1);
+    var dx = (W / 2 - (CHASSIS.x + CHASSIS.w / 2)) * s;
+    var dy = (H / 2 - (CHASSIS.y + CHASSIS.h / 2)) * s;
+    stage.style.transform = 'translate(' + dx + 'px, ' + dy + 'px) scale(' + s + ')';
+  }
+
+  // Size Winify's window to the chassis at the sign-in scale, centred.
+  function fitWindowToSignIn() {
+    if (!IPC || !IPC.fitWindow) return;
+    IPC.fitWindow({
+      width: Math.round(CHASSIS.w * SIGN_IN_SCALE),
+      height: Math.round(CHASSIS.h * SIGN_IN_SCALE),
+      center: true,
+    });
   }
 
   document.addEventListener('DOMContentLoaded', function () {
@@ -393,8 +414,10 @@
     IPC.onSignedOut(function () {
       comp.setState({ status: 'idle', step: 0, failKind: null });
       showApp(false);
+      fitWindowToSignIn();
     });
 
+    fitWindowToSignIn();
     IPC.ready();
   });
 })();
