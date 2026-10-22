@@ -45,9 +45,12 @@ const OPTIONS = {
   enableDoubleSizeMode: DOUBLE_SIZE_BY_DEFAULT,
 };
 
-// The playlist window's default height: 4 extra 29px segments, about 12
-// rows, instead of Webamp's 4. Also exactly the main window's doubled height.
-const DEFAULT_PLAYLIST_SIZE = [0, 4];
+// The playlist's default size, in Webamp's 25x29 px resize segments: 11 wide
+// makes it 550px, the doubled main window's width; 5 tall gives 15 rows.
+// The playlist itself stays 1x: Webamp does not double it, and scaling it
+// with CSS put its corner-resize grip and double-click out of step with the
+// pointer.
+const DEFAULT_PLAYLIST_SIZE = [11, 5];
 
 // Window positions, shade, the playlist size and double size are remembered across
 // launches, as classic Winamp did. Per-machine convenience only, so the
