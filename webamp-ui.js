@@ -52,7 +52,11 @@ const DEFAULT_PLAYLIST_SIZE = [0, 4];
 // Window positions, shade, the playlist size and double size are remembered across
 // launches, as classic Winamp did. Per-machine convenience only, so the
 // browser's own storage is enough; losing it just means the default layout.
-const LAYOUT_KEY = 'winify.layout.v1';
+// v2: layouts saved by earlier builds were recorded while windows could be
+// laid out in a hidden, 0x0 container, which pushed them to the top-left.
+// Those cannot be trusted, so they are dropped rather than restored.
+const LAYOUT_KEY = 'winify.layout.v2';
+const STALE_LAYOUT_KEYS = ['winify.layout.v1'];
 const LAYOUT_WINDOWS = ['main', 'equalizer', 'playlist'];
 const SAVE_DELAY_MS = 400;
 
@@ -61,6 +65,9 @@ function log(...args) {
 }
 
 function readLayout() {
+  for (const key of STALE_LAYOUT_KEYS) {
+    try { localStorage.removeItem(key); } catch (e) { /* storage unavailable */ }
+  }
   let raw = null;
   try { raw = localStorage.getItem(LAYOUT_KEY); } catch (e) { return null; }
   if (raw == null) return null;
