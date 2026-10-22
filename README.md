@@ -133,6 +133,20 @@ The Winamp controls drive Spotify: Play, Pause, Stop (pauses), Next,
 Previous, the seek bar, volume, Shuffle and Repeat. Balance, the equalizer
 and Eject have no Spotify equivalent and do nothing.
 
+The playlist window lists the album or playlist being played, with the
+current track highlighted; double-click a track to play it. Spotify only lets
+apps read the contents of playlists you own or collaborate on, so for any
+other playlist, and for Liked Songs, artists and radio, it shows the current
+track and Spotify's Up Next queue instead.
+
+To switch playlists, press **Eject** (in the main window or the playlist
+window), or choose **LIST OPTS > load list**. Pick Liked Songs or any of your
+playlists; type to filter. It plays from track 1. Escape closes it.
+
+Close (x) and Exit hide the Winify window and minimize (_) minimizes it, as
+the window's own buttons do. Controls with no Spotify equivalent (balance,
+the equalizer, adding or removing files, saving lists) do nothing.
+
 **Remember me** stores your refresh token so you stay signed in between
 launches. Leave it off and nothing is written to disk.
 
@@ -222,6 +236,12 @@ works, the BlackHole requirement disappears.
 | `user-read-playback-state` | Read what is playing |
 | `user-read-currently-playing` | Show the current track |
 | `user-modify-playback-state` | Play, pause, skip, seek |
+| `playlist-read-private` | List your playlists, and the tracks in your private ones |
+| `playlist-read-collaborative` | List the tracks in collaborative playlists |
+| `user-library-read` | List Liked Songs |
+
+If Winify gains a permission after you signed in, the sign-in screen says
+**NEW PERMISSIONS · SIGN IN AGAIN** at launch; signing in once grants it.
 
 Separately, macOS will ask once for **microphone** access the first time you
 start audio capture. Winify reads the loopback device as an ordinary audio
@@ -240,6 +260,9 @@ app is packaged the prompt names *Electron* rather than Winify.
 | `renderer.js` | App view wiring |
 | `webamp-ui.js` | Mounts the Winamp interface (Webamp) |
 | `webamp-spotify.js` | Connects Webamp's controls and display to Spotify |
+| `webamp-playlist.js` | Fills the playlist window from the current Spotify context |
+| `webamp-picker.js` | The playlist picker (Eject, LIST OPTS > load list) |
+| `webamp-inert.js` | Keeps controls with no Spotify meaning quiet |
 | `drm-debug.js` | EME instrumentation, inert unless debugging |
 
 Playback is driven through `window.WinifyPlayer` — `play()`, `pause()`,

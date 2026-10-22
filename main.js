@@ -52,6 +52,9 @@ const SCOPES = [
   'user-read-playback-state',
   'user-read-currently-playing',
   'user-modify-playback-state',
+  'playlist-read-private', // list your private playlists in the playlist window
+  'playlist-read-collaborative', // ...and collaborative ones
+  'user-library-read', // list Liked Songs
 ];
 const POLL_MS = 5000;
 const REQUEST_TIMEOUT_MS = 10000;
@@ -211,6 +214,14 @@ function createWindow() {
     hideWindow();
   });
   watchVisibility();
+
+  // Links that ask for a new window (Webamp's logo, its "Webamp..." menu item)
+  // open in the default browser instead of a bare in-app window. Only web
+  // links: anything else is refused.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https:\/\//i.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
 
   // Audio capture is diagnosed from the terminal, so its logs are mirrored
   // there always -- not only under --drm-debug, where they used to hide.
@@ -733,6 +744,12 @@ async function completeLogin(code, verifier) {
     return;
   }
 
+  const granted = String(tokens.scope || '').split(' ');
+  const notGranted = SCOPES.filter((scope) => !granted.includes(scope));
+  if (notGranted.length) {
+    console.warn('[auth] Spotify did not grant:', notGranted.join(', '));
+  }
+
   // Step 2: the real Premium check.
   send('auth:step', STEP_PREMIUM);
   let profile;
@@ -773,8 +790,13 @@ async function restoreSession() {
   const granted = String(saved.scope || '').split(' ');
   const missing = SCOPES.filter((scope) => !granted.includes(scope));
   if (missing.length) {
-    console.log('[auth] stored session is missing scopes:', missing.join(', '), '- re-login required');
+    // Winify now needs permissions this session was never granted. Say so on
+    // the sign-in screen rather than silently running with fewer features.
+    console.log('[auth] stored session is missing scopes:', missing.join(', '), '- asking to sign in again');
     forgetTokens();
+    remember = true; // the file only exists if the lamp was lit; keep it lit
+    setStatus('Sign in again to grant new permissions');
+    send('auth:error', 'rescope');
     return;
   }
 
@@ -891,6 +913,11 @@ ipcMain.on('ready', () => {
   // the truth rather than from whatever events happened before it loaded.
   send('window:visibility', isOnScreen());
   restoreSession();
+});
+// Webamp's close (x) and minimize (_) buttons, and its Exit menu item.
+ipcMain.on('window-command', (_event, command) => {
+  if (command === 'hide') hideWindow();
+  if (command === 'minimize' && win && !win.isDestroyed()) win.minimize();
 });
 ipcMain.on('login', login);
 ipcMain.on('cancel-login', cancelAuth);

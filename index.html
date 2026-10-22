@@ -52,6 +52,9 @@
      sit over it or nest it inside another stacking context. */
   #app-screen.is-active { display: block; width: 100%; height: 100%; }
   #webamp-root { position: fixed; left: 0; top: 0; right: 0; bottom: 0; }
+  /* Spotify's audio is DRM-protected, so its bitrate and sample rate cannot
+     be read; Webamp shows 0 for a missing value. Blank, not invented. */
+  #webamp #kbps, #webamp #khz { visibility: hidden !important; }
 </style>
 </head>
 <body>

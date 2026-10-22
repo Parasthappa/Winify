@@ -30,4 +30,6 @@ contextBridge.exposeInMainWorld('spotify', {
   onCommand: on('ui:command'),
   audioStateChanged: (capturing) => ipcRenderer.send('audio-state', capturing),
   webampStateChanged: (doubled) => ipcRenderer.send('webamp-state', doubled),
+  // Webamp's own close and minimize buttons act on the Winify window.
+  windowCommand: (command) => ipcRenderer.send('window-command', command),
 });

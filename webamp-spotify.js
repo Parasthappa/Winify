@@ -18,18 +18,18 @@
  *                                      position N", indistinguishable by then
  *
  * Webamp's title, total time and seek bar read from its playlist's current
- * track, and Play on an empty playlist opens a file picker. So the playlist
- * holds exactly one stand-in entry, rewritten to whatever Spotify is playing.
+ * track, and Play on an empty playlist opens a file picker. What the playlist
+ * holds, and which entry is current, is webamp-playlist.js's job.
  *
  * __customMediaClass and __customMiddlewares are underscore-prefixed private
  * options. The Webamp version is pinned in package.json, and attach() checks
  * that Webamp actually used them rather than failing silently.
  */
 
+import * as playlist from './webamp-playlist.js';
+import * as picker from './webamp-picker.js';
+
 const API = 'https://api.spotify.com/v1';
-const STANDIN_ID = 424242;          // our one playlist entry; Webamp counts from 0
-const STANDIN_URL = 'winify:spotify';
-const IDLE_NAME = 'Winify - press Play to resume Spotify';
 const SDK_POLL_MS = 1000;           // local SDK state, no network
 const API_POLL_MS = 3000;           // Web API, the only view of other devices
 const TICK_MS = 250;                // time display
@@ -50,6 +50,8 @@ const now = {
   where: 'none',                    // 'winify' | 'elsewhere' | 'none'
   deviceName: null,
   trackUri: null,
+  linkedFromUri: null,              // the listed track, when Spotify relinked it
+  contextUri: null,                 // playlist / album / ... being played
   title: null,
   artist: null,
   album: null,
@@ -62,6 +64,16 @@ const now = {
   volume: null,                     // 0-100, Winify's device only
 };
 let stoppedByUser = false;          // Stop pauses Spotify but should look stopped
+
+// Webamp's "clear the list" (REM > all, LIST OPTS > new list, and loading
+// dropped files) sends STOP before emptying the playlist. The list mirrors
+// Spotify and is never cleared, so that STOP must not pause Spotify either.
+// Set by those triggers, it covers only the STOP dispatched in the same turn.
+let stopIgnored = false;
+export function ignoreStopFromListClear() {
+  stopIgnored = true;
+  setTimeout(() => { stopIgnored = false; }, 0);
+}
 const heldUntil = {};               // field -> time before which polls are ignored
 
 const hold = (field) => { heldUntil[field] = performance.now() + HOLD_MS; };
@@ -123,35 +135,6 @@ function say(message) {
   }, 3000);
 }
 
-function installStandIn() {
-  dispatchRemote({
-    type: 'ADD_TRACK_FROM_URL',
-    id: STANDIN_ID,
-    url: STANDIN_URL,
-    defaultName: IDLE_NAME,
-    duration: null,
-    atIndex: 0,
-  });
-  // BUFFER_TRACK makes it current without starting anything; the media
-  // class ignores the load request that comes with it.
-  dispatchRemote({ type: 'BUFFER_TRACK', id: STANDIN_ID });
-}
-
-function showTrack() {
-  dispatchRemote({
-    type: 'SET_MEDIA_TAGS',
-    id: STANDIN_ID,
-    title: now.title,
-    artist: now.artist,
-    album: now.album,
-  });
-  dispatchRemote({
-    type: 'SET_MEDIA_DURATION',
-    id: STANDIN_ID,
-    duration: now.durationMs ? now.durationMs / 1000 : null,
-  });
-}
-
 // Bring Webamp's controls into line with `now`.
 function render() {
   if (!webamp) return;
@@ -180,28 +163,30 @@ function render() {
       state.userInput.focus !== 'volume' && state.media.volume !== now.volume) {
     dispatchRemote({ type: 'SET_VOLUME', volume: now.volume });
   }
+
+  playlist.sync();
 }
 
-function setTrack(uri, title, artist, album, durationMs) {
+function setTrack(uri, title, artist, album, durationMs, linkedFromUri) {
   if (uri === now.trackUri && durationMs === now.durationMs) return;
   now.trackUri = uri;
+  now.linkedFromUri = linkedFromUri || null;
   now.title = title;
   now.artist = artist;
   now.album = album;
   now.durationMs = durationMs || 0;
-  showTrack();
 }
 
 function clearTrack() {
   if (now.trackUri == null && now.title == null) return;
   now.trackUri = null;
+  now.linkedFromUri = null;
+  now.contextUri = null;
   now.title = null;
   now.artist = null;
   now.album = null;
   now.durationMs = 0;
   now.positionMs = 0;
-  // An absent title falls back to the stand-in's default name.
-  showTrack();
 }
 
 // ---- Reading Spotify ------------------------------------------------------
@@ -212,9 +197,10 @@ function applySdkState(s) {
   const t = s.track_window && s.track_window.current_track;
   now.where = 'winify';
   now.deviceName = 'Winify';
+  now.contextUri = (s.context && s.context.uri) || null;
   if (t) {
     setTrack(t.uri, t.name, t.artists.map((a) => a.name).join(', '),
-      t.album && t.album.name, s.duration || t.duration_ms);
+      t.album && t.album.name, s.duration || t.duration_ms, t.linked_from && t.linked_from.uri);
   }
   if (!isHeld('position')) {
     now.positionMs = s.position;
@@ -249,6 +235,7 @@ function applyApiState(p) {
   }
   now.where = 'elsewhere';
   now.deviceName = p.device.name;
+  now.contextUri = (p.context && p.context.uri) || null;
   const item = p.item;
   if (item) {
     setTrack(item.uri, item.name,
@@ -482,7 +469,7 @@ export class SpotifyMedia {
 
   async play() { if (!applyingRemote && attached) await commandPlay(); }
   pause() { if (!applyingRemote && attached) commandPause(); }
-  stop() { if (!applyingRemote && attached) commandStop(); }
+  stop() { if (!applyingRemote && attached && !stopIgnored) commandStop(); }
   seekToPercentComplete(percent) { if (!applyingRemote && attached) commandSeek(percent); }
 
   // Webamp calls this once while constructing, to push its default volume.
@@ -521,12 +508,13 @@ export class SpotifyMedia {
 // ---- Hook 2: the store middleware ------------------------------------------
 
 // Webamp's playlist logic still runs on Next/Previous/track-end and asks to
-// move to another entry. There is only the stand-in, and Spotify decides
-// what plays next, so those requests are dropped. Playlist editing is a
-// later stage; until then the stand-in cannot be removed or joined.
+// move to another entry. Spotify decides what plays next, so those requests
+// are dropped -- except a double-clicked row, which plays that track. The
+// list mirrors Spotify, so editing or reordering it locally is dropped too.
 const DISCARD = new Set([
   'PLAY_TRACK', 'BUFFER_TRACK', 'IS_STOPPED',
   'ADD_TRACK_FROM_URL', 'REMOVE_TRACKS', 'REMOVE_ALL_TRACKS',
+  'DRAG_SELECTED', 'SET_TRACK_ORDER', 'REVERSE_LIST', 'RANDOMIZE_LIST',
   // Spotify has no balance or EQ. Dropping these keeps the sliders still,
   // rather than moving and doing nothing.
   'SET_BALANCE', 'SET_BAND_VALUE',
@@ -534,6 +522,11 @@ const DISCARD = new Set([
 
 export const middleware = (store) => (next) => (action) => {
   if (applyingRemote || !attached) return next(action);
+  if (action.type === 'PLAY_TRACK' && playlist.takeDoubleClick()) {
+    playlist.playEntry(action.id);
+    return undefined;
+  }
+  if (action.type === 'STOP' && stopIgnored) return undefined;
   if (DISCARD.has(action.type)) return undefined;
 
   const result = next(action);
@@ -574,7 +567,7 @@ function guardMediaFilePrompt() {
   realInputClick = HTMLInputElement.prototype.click;
   HTMLInputElement.prototype.click = function () {
     if (attached && this.type === 'file' && !this.accept && !this.isConnected) {
-      log('Eject / add files ignored - playlist loading comes in a later stage');
+      log('file prompt suppressed (Spotify has no local files to open)');
       return undefined;
     }
     return realInputClick.call(this);
@@ -586,7 +579,9 @@ function guardMediaFilePrompt() {
 export function handleTrackDropEvent(e) {
   const files = Array.from((e.dataTransfer && e.dataTransfer.files) || []);
   if (files.some((f) => /\.(wsz|zip)$/i.test(f.name))) return null;
-  if (files.length) log('dropped files ignored - playlist loading comes in a later stage');
+  if (files.length) log('dropped files ignored - Spotify has no local files to play');
+  // Webamp clears the list (and sends STOP) before loading what this returns.
+  ignoreStopFromListClear();
   return [];
 }
 
@@ -603,7 +598,15 @@ export function attach(instance) {
     return false;
   }
 
-  installStandIn();
+  playlist.init({
+    webamp, now, api, say, log, warn, refreshSoon,
+    dispatch: dispatchRemote,
+    deviceId: winifyDeviceId,
+  });
+  picker.init({
+    webamp, now, api, say, log, warn, refreshSoon,
+    deviceId: winifyDeviceId,
+  });
   attached = true;
   guardMediaFilePrompt();
   document.addEventListener('click', onClickCapture, true);
@@ -623,7 +626,7 @@ export function attach(instance) {
   if (webamp.store.getState().playlist.trackOrder.length !== before) {
     console.error('[winify/controls] *** Webamp did not use __customMiddlewares -',
       'shuffle/repeat are NOT connected. Check the pinned webamp version.');
-    installStandIn();
+    playlist.showStandIn();
   }
 
   log('connected to Spotify (Winify device', winifyDeviceId() ? 'ready)' : 'not registered yet)');
@@ -632,13 +635,16 @@ export function attach(instance) {
 
 export function detach() {
   attached = false;
+  playlist.reset();
+  picker.reset();
   timers.forEach(clearInterval);
   timers = [];
   document.removeEventListener('click', onClickCapture, true);
   webamp = null;
   media = null;
   Object.assign(now, {
-    where: 'none', deviceName: null, trackUri: null, title: null, artist: null,
+    where: 'none', deviceName: null, trackUri: null, linkedFromUri: null,
+    contextUri: null, title: null, artist: null,
     album: null, durationMs: 0, positionMs: 0, paused: true, volume: null,
   });
   stoppedByUser = false;

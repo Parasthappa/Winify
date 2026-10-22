@@ -13,6 +13,8 @@
  */
 import Webamp from './node_modules/webamp/built/webamp.bundle.min.mjs';
 import { SpotifyMedia, middleware, handleTrackDropEvent, attach, detach } from './webamp-spotify.js';
+import { open as openPicker } from './webamp-picker.js';
+import * as inert from './webamp-inert.js';
 
 let webamp = null;
 let mounted = false;
@@ -33,13 +35,108 @@ const OPTIONS = {
   __customMediaClass: SpotifyMedia,
   __customMiddlewares: [middleware],
   handleTrackDropEvent,
+  // LIST OPTS > load list opens the playlist picker; returning null leaves
+  // Webamp's playlist alone (the picker plays the choice itself).
+  handleLoadListEvent: () => { openPicker(); return null; },
+  handleAddUrlEvent: inert.handleAddUrlEvent,
+  handleSaveListEvent: inert.handleSaveListEvent,
   // Webamp's own double-size path: it resizes the windows and then re-lays
   // out the stack so they still dock edge to edge.
   enableDoubleSizeMode: DOUBLE_SIZE_BY_DEFAULT,
 };
 
+// The playlist window's default height: 4 extra 29px segments, about 12
+// rows, instead of Webamp's 4. Also exactly the main window's doubled height.
+const DEFAULT_PLAYLIST_SIZE = [0, 4];
+
+// Window positions, the playlist size and double size are remembered across
+// launches, as classic Winamp did. Per-machine convenience only, so the
+// browser's own storage is enough; losing it just means the default layout.
+const LAYOUT_KEY = 'winify.layout.v1';
+const LAYOUT_WINDOWS = ['main', 'equalizer', 'playlist'];
+const SAVE_DELAY_MS = 400;
+
 function log(...args) {
   console.log('[winify/webamp]', ...args);
+}
+
+function readLayout() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(LAYOUT_KEY));
+    return saved && saved.positions ? saved : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function currentLayout() {
+  const state = webamp.store.getState();
+  const positions = {};
+  for (const id of LAYOUT_WINDOWS) {
+    const w = state.windows.genWindows[id];
+    if (w) positions[id] = { x: w.position.x, y: w.position.y };
+  }
+  return {
+    doubled: state.display.doubled,
+    positions,
+    playlistSize: state.windows.genWindows.playlist.size,
+  };
+}
+
+const nextFrame = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
+
+// Saved positions are absolute. If Winify's window is now smaller than when
+// they were saved, slide the whole group back on screen, keeping it docked.
+async function keepOnScreen(container) {
+  await nextFrame();
+  const box = container.getBoundingClientRect();
+  const rects = LAYOUT_WINDOWS
+    .map((id) => document.querySelector('#webamp #' + (id === 'main' ? 'main-window' : id + '-window')))
+    .filter(Boolean)
+    .map((el) => el.getBoundingClientRect());
+  if (!rects.length) return;
+  const left = Math.min(...rects.map((r) => r.left)) - box.left;
+  const top = Math.min(...rects.map((r) => r.top)) - box.top;
+  const right = Math.max(...rects.map((r) => r.right)) - box.left;
+  const bottom = Math.max(...rects.map((r) => r.bottom)) - box.top;
+  const dx = left < 0 ? -left : Math.min(0, box.width - right);
+  const dy = top < 0 ? -top : Math.min(0, box.height - bottom);
+  if (!dx && !dy) return;
+  const { positions } = currentLayout();
+  for (const id of Object.keys(positions)) {
+    positions[id] = { x: Math.max(0, positions[id].x + dx), y: Math.max(0, positions[id].y + dy) };
+  }
+  webamp.store.dispatch({ type: 'UPDATE_WINDOW_POSITIONS', positions, absolute: true });
+  log('layout moved back on screen by', dx, dy);
+}
+
+async function restoreLayout(container) {
+  const saved = readLayout();
+  if (!saved) return;
+  if (typeof saved.doubled === 'boolean') setDoubleSize(saved.doubled);
+  if (Array.isArray(saved.playlistSize)) {
+    webamp.store.dispatch({ type: 'WINDOW_SIZE_CHANGED', windowId: 'playlist', size: saved.playlistSize });
+  }
+  // Absolute, like Winamp: otherwise Webamp re-centres the group.
+  webamp.store.dispatch({ type: 'UPDATE_WINDOW_POSITIONS', positions: saved.positions, absolute: true });
+  await keepOnScreen(container);
+  log('layout restored');
+}
+
+let unsubscribeLayout = null;
+function watchLayout() {
+  let last = JSON.stringify(currentLayout());
+  let timer = null;
+  unsubscribeLayout = webamp.store.subscribe(() => {
+    if (!webamp) return;
+    const now = JSON.stringify(currentLayout());
+    if (now === last) return;
+    last = now;
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      try { localStorage.setItem(LAYOUT_KEY, now); } catch (e) { /* storage unavailable */ }
+    }, SAVE_DELAY_MS);
+  });
 }
 
 async function mount(containerId) {
@@ -54,6 +151,9 @@ async function mount(containerId) {
     return false;
   }
 
+  // Before rendering, so Webamp centres the stack at its final height.
+  webamp.store.dispatch({ type: 'WINDOW_SIZE_CHANGED', windowId: 'playlist', size: DEFAULT_PLAYLIST_SIZE });
+
   try {
     await webamp.renderWhenReady(container);
   } catch (err) {
@@ -62,13 +162,18 @@ async function mount(containerId) {
   }
 
   mounted = true;
+  await restoreLayout(container);
+  watchLayout();
   attach(webamp);
+  inert.attach(webamp);
   log('rendered into #' + containerId, 'doubled =', isDoubled());
   return true;
 }
 
 function unmount() {
   if (!webamp) return;
+  if (unsubscribeLayout) { unsubscribeLayout(); unsubscribeLayout = null; }
+  inert.detach();
   detach();
   try { webamp.dispose(); } catch (e) { /* already gone */ }
   webamp = null;

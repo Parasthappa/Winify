@@ -97,7 +97,9 @@
     // demo outcome (Tweaks): where the handshake stops, and what it says
     var FAILS = {
       'free-account': { at: 2, text: 'SPOTIFY PREMIUM NOT DETECTED' },
-      'network':      { at: 0, text: 'CONNECTION FAILED \u00b7 NO RESPONSE' }
+      'network':      { at: 0, text: 'CONNECTION FAILED \u00b7 NO RESPONSE' },
+      // a stored session that predates permissions Winify now needs
+      'rescope':      { at: 0, text: 'NEW PERMISSIONS \u00b7 SIGN IN AGAIN' }
     };
     var YELLOW = '#ffd23f';
 
@@ -106,6 +108,8 @@
     if (connecting) { ctaLabel = 'Connecting…'; ctaAria = 'Connecting to Spotify'; }
     if (connected) { ctaLabel = 'Disconnect'; ctaAria = 'Disconnect from Spotify'; }
     if (failed) { ctaLabel = 'Try again'; ctaAria = 'Try connecting to Spotify again'; }
+    // nothing failed: sign in again, as at first launch
+    if (failed && s.failKind === 'rescope') { ctaLabel = 'Continue with Spotify'; ctaAria = 'Sign in to Spotify again to grant new permissions'; }
 
     // connected turns the same glass button red
     var ctaBase = connected ? '#e5352b' : action;
@@ -368,7 +372,10 @@
 
     IPC.onAuthError(function (kind) {
       if (comp.timer) { clearInterval(comp.timer); comp.timer = null; }
-      comp.setState({ status: 'error', step: 0, failKind: kind });
+      var next = { status: 'error', step: 0, failKind: kind };
+      // main keeps "remember me" on for a re-sign-in; show the lamp lit too
+      if (kind === 'rescope') { next.remember = true; }
+      comp.setState(next);
     });
 
     // Hold CONNECTED long enough to read, then hand over to the app view.
