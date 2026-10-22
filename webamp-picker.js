@@ -16,6 +16,11 @@ const ROW = 13;                     // Webamp's playlist row height
 const VISIBLE_ROWS = 16;
 const WIDTH = 325;                  // the playlist window plus two segments
 const CACHE_MS = 60000;
+// Only playlists Spotify will list in full: ones you own, plus collaborative
+// ones you contribute to. Spotify (February 2026) returns no tracks for
+// anyone else's playlist, so those would only ever show Up Next.
+const INCLUDE_COLLABORATIVE = true;
+const UNTITLED = 'Untitled playlist';  // Spotify allows a playlist with no name
 
 let ctx = null;                     // { webamp, api, say, log, warn, deviceId, refreshSoon, now }
 let me = null;                      // /me, for owner checks and Liked Songs' URI
@@ -52,17 +57,18 @@ async function load() {
     name: 'Liked Songs',
     uri: 'spotify:user:' + me.id + ':collection',
     count: liked ? liked.total : null,
-    full: true,
   }];
   for (const p of playlists) {
+    const mine = p.owner && p.owner.id === me.id;
+    if (!mine && !(INCLUDE_COLLABORATIVE && p.collaborative)) continue;
     // February 2026: the track count moved from `tracks` to `items`.
     const count = p.items && typeof p.items.total === 'number' ? p.items.total : null;
-    const mine = p.owner && p.owner.id === me.id;
-    list.push({ name: p.name, uri: p.uri, count, full: mine || !!p.collaborative,
-      owner: p.owner && p.owner.display_name });
+    const name = (p.name || '').trim() || UNTITLED;
+    list.push({ name, uri: p.uri, count });
   }
   cache = { at: Date.now(), list };
-  ctx.log('picker:', playlists.length, 'playlists + Liked Songs');
+  ctx.log('picker:', list.length - 1, 'of', playlists.length, 'playlists (yours',
+    INCLUDE_COLLABORATIVE ? 'and collaborative)' : 'only)', '+ Liked Songs');
   return list;
 }
 
@@ -117,7 +123,6 @@ function injectStyles() {
     #webamp .winify-picker .wp-row { height: ${ROW}px; line-height: ${ROW}px; display: flex; padding: 0 2px; white-space: nowrap; cursor: default; user-select: none; }
     #webamp .winify-picker .wp-row .wp-name { flex: 1; overflow: hidden; text-overflow: ellipsis; }
     #webamp .winify-picker .wp-row .wp-count { flex: none; padding-left: 6px; }
-    #webamp .winify-picker .wp-row.wp-partial { opacity: .55; }
     #webamp .winify-picker .wp-handle { position: absolute; left: 5px; width: 8px; height: 18px; }
     #webamp .winify-picker .wp-bottom { display: flex; height: 14px; }
     #webamp .winify-picker .wp-bottom .playlist-bottom { flex: 1; background-position: left bottom; display: flex; align-items: center; justify-content: flex-end; padding-right: 8px; }
@@ -150,13 +155,12 @@ function renderList() {
   shown.slice(scroll, scroll + VISIBLE_ROWS).forEach((r, i) => {
     const index = scroll + i;
     const row = document.createElement('div');
-    row.className = 'wp-row' + (r.full ? '' : ' wp-partial');
+    row.className = 'wp-row';
     row.dataset.index = String(index);
     const isCurrent = !!currentUri && (r.uri === currentUri ||
       (/:collection/.test(r.uri) && /:collection/.test(currentUri)));
     row.style.color = isCurrent ? st.current : st.normal;
     if (index === selected) row.style.background = st.selectedbg;
-    if (!r.full) row.title = (r.owner ? 'By ' + r.owner + ' - ' : '') + 'the playlist window will show Up Next';
     const name = document.createElement('span');
     name.className = 'wp-name';
     name.textContent = (index + 1) + '. ' + r.name;
