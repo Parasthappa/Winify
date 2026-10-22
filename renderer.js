@@ -12,6 +12,13 @@ window.spotify.onAuthConnected(mountWebamp);
 window.spotify.onAuthRestored(mountWebamp);
 window.spotify.onSignedOut(() => window.WinifyWebamp && window.WinifyWebamp.unmount());
 
+// The window title follows the screen: index.html's "Winify — Sign in" on the
+// sign-in screen, plain "Winify" once the player is showing.
+const SIGN_IN_TITLE = document.title;
+window.spotify.onAuthConnected(() => { document.title = 'Winify'; });
+window.spotify.onAuthRestored(() => { document.title = 'Winify'; });
+window.spotify.onSignedOut(() => { document.title = SIGN_IN_TITLE; });
+
 // Register Winify as a Spotify device once signed in. These were dropped by
 // mistake when the test UI was replaced, which left the device unregistered.
 window.spotify.onAuthConnected(() => window.WinifyPlayer.start());
