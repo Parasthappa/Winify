@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, components, desktopCapturer, dialog, ipcMain, nativeImage, session, shell } = require('electron');
+const { app, BrowserWindow, Menu, Tray, components, desktopCapturer, dialog, ipcMain, nativeImage, session, shell, systemPreferences } = require('electron');
 const crypto = require('crypto');
 const fs = require('fs');
 const http = require('http');
@@ -208,11 +208,9 @@ function createWindow() {
   win.on('close', (event) => {
     if (isQuitting) return;
     event.preventDefault();
-    win.hide();
+    hideWindow();
   });
-
-  win.on('show', () => { buildTray(); send('window:visibility', true); });
-  win.on('hide', () => { buildTray(); send('window:visibility', false); });
+  watchVisibility();
 
   // Audio capture is diagnosed from the terminal, so its logs are mirrored
   // there always -- not only under --drm-debug, where they used to hide.
@@ -397,22 +395,71 @@ function setConnected(value) {
   buildTray();
 }
 
+// Whether the window is on screen, tracked here rather than read from the
+// window's show/hide events: macOS emits a spurious hide during setup, a
+// stray show while minimized, and fires them before isVisible() settles, so
+// inferring from them left the renderer pausing visualizers for a window
+// plainly on screen. Three independent ways off screen, each set by an
+// unambiguous signal:
+//   windowShown  - our own Show/Hide and the close button
+//   minimized    - Cmd+M / the yellow button (minimize/restore events)
+//   appHidden    - Cmd+H (NSApplication hide/unhide notifications)
+// A BrowserWindow is shown on creation, hence the initial values.
+let windowShown = true;
+let minimized = false;
+let appHidden = false;
+
+function isOnScreen() {
+  return windowShown && !minimized && !appHidden;
+}
+
+function reportVisibility() {
+  buildTray();
+  send('window:visibility', isOnScreen());
+}
+
 function showWindow() {
   if (!win || win.isDestroyed()) return;
+  // Bring it back from whichever way it went: Cmd+H, minimize, or hide.
+  if (process.platform === 'darwin') app.show();
+  if (win.isMinimized()) win.restore();
   win.show();
   win.focus();
+  windowShown = true;
+  minimized = false;
+  appHidden = false;
+  reportVisibility();
+}
+
+function hideWindow() {
+  if (!win || win.isDestroyed()) return;
+  win.hide();
+  windowShown = false;
+  reportVisibility();
+}
+
+function watchVisibility() {
+  win.on('minimize', () => { minimized = true; reportVisibility(); });
+  win.on('restore', () => { minimized = false; reportVisibility(); });
+  if (process.platform === 'darwin') {
+    // Electron has no app-level hide event; these are what Cmd+H produces.
+    systemPreferences.subscribeLocalNotification('NSApplicationDidHideNotification',
+      () => { appHidden = true; reportVisibility(); });
+    systemPreferences.subscribeLocalNotification('NSApplicationDidUnhideNotification',
+      () => { appHidden = false; reportVisibility(); });
+  }
 }
 
 function buildTray() {
   if (!tray) return;
-  const visible = win && !win.isDestroyed() && win.isVisible();
+  const visible = isOnScreen();
 
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: connected ? 'Connected' : 'Not connected', enabled: false },
     { type: 'separator' },
     {
       label: visible ? 'Hide Winify' : 'Show Winify',
-      click: () => (visible ? win.hide() : showWindow()),
+      click: () => (visible ? hideWindow() : showWindow()),
     },
     { type: 'separator' },
     {
@@ -839,7 +886,12 @@ ipcMain.on('audio-state', (_event, capturing) => {
   buildTray();
 });
 
-ipcMain.on('ready', restoreSession);
+ipcMain.on('ready', () => {
+  // Send the current state once the renderer is listening, so it starts from
+  // the truth rather than from whatever events happened before it loaded.
+  send('window:visibility', isOnScreen());
+  restoreSession();
+});
 ipcMain.on('login', login);
 ipcMain.on('cancel-login', cancelAuth);
 ipcMain.on('disconnect', signOut);
