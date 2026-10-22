@@ -87,13 +87,19 @@ function currentLayout() {
     if (w) positions[id] = { x: w.position.x, y: w.position.y };
   }
   const shade = {};
-  for (const id of LAYOUT_WINDOWS) shade[id] = !!state.windows.genWindows[id].shade;
+  const open = {};
+  for (const id of LAYOUT_WINDOWS) {
+    shade[id] = !!state.windows.genWindows[id].shade;
+    open[id] = !!state.windows.genWindows[id].open;
+  }
   return {
     doubled: state.display.doubled,
     positions,
     playlistSize: state.windows.genWindows.playlist.size,
     // Shaded windows are 14px tall, so positions only make sense with these.
     shade,
+    // Which windows are showing; the equalizer is closed until you open it.
+    open,
   };
 }
 
@@ -135,48 +141,76 @@ function layoutProblem(layout, container) {
   const rect = (id) => ({ l: pos[id].x, t: pos[id].y, r: pos[id].x + sizes[id].w, b: pos[id].y + sizes[id].h });
   const W = container.clientWidth;
   const H = container.clientHeight;
-  for (const id of LAYOUT_WINDOWS) {
+  // Layouts saved before open/closed was recorded had every window open.
+  const shown = LAYOUT_WINDOWS.filter((id) => id === 'main' || !layout.open || layout.open[id] !== false);
+  for (const id of shown) {
     const r = rect(id);
     if (r.r <= 0 || r.b <= 0 || r.l >= W || r.t >= H) return id + ' window is off screen';
   }
-  for (let i = 0; i < LAYOUT_WINDOWS.length; i++) {
-    for (let j = i + 1; j < LAYOUT_WINDOWS.length; j++) {
-      const a = rect(LAYOUT_WINDOWS[i]);
-      const b = rect(LAYOUT_WINDOWS[j]);
+  for (let i = 0; i < shown.length; i++) {
+    for (let j = i + 1; j < shown.length; j++) {
+      const a = rect(shown[i]);
+      const b = rect(shown[j]);
       const overlap = Math.max(0, Math.min(a.r, b.r) - Math.max(a.l, b.l)) *
         Math.max(0, Math.min(a.b, b.b) - Math.max(a.t, b.t));
       const smaller = Math.min((a.r - a.l) * (a.b - a.t), (b.r - b.l) * (b.b - b.t));
-      if (overlap > smaller * 0.5) return LAYOUT_WINDOWS[i] + ' and ' + LAYOUT_WINDOWS[j] + ' windows overlap';
+      if (overlap > smaller * 0.5) return shown[i] + ' and ' + shown[j] + ' windows overlap';
     }
   }
   return null;
 }
 
-// The default docked layout: main on top, equalizer below it, playlist below
-// that, left edges aligned, the stack centred in Winify's window.
+// The default layout: the main window with the playlist docked directly below
+// it, left edges aligned, the pair centred in Winify's window. The equalizer
+// starts closed (the EQ button opens it); it is parked below the playlist so
+// it docks there when opened. Used at first launch, on Reset window layout,
+// and when a saved layout is unusable.
 function applyDefaultLayout(container) {
   setDoubleSize(DOUBLE_SIZE_BY_DEFAULT);
   const state = webamp.store.getState();
   for (const id of LAYOUT_WINDOWS) {
     const w = state.windows.genWindows[id];
-    if (!w.open) webamp.store.dispatch({ type: 'TOGGLE_WINDOW', windowId: id });
+    const wantOpen = id !== 'equalizer';
+    if (w.open !== wantOpen) webamp.store.dispatch({ type: 'TOGGLE_WINDOW', windowId: id });
     if (w.shade) webamp.store.dispatch({ type: 'TOGGLE_WINDOW_SHADE_MODE', windowId: id });
   }
   webamp.store.dispatch({ type: 'WINDOW_SIZE_CHANGED', windowId: 'playlist', size: DEFAULT_PLAYLIST_SIZE });
   const sizes = windowSizes(isDoubled(), DEFAULT_PLAYLIST_SIZE);
-  const width = Math.max(sizes.main.w, sizes.equalizer.w, sizes.playlist.w);
-  const height = sizes.main.h + sizes.equalizer.h + sizes.playlist.h;
+  const width = Math.max(sizes.main.w, sizes.playlist.w);
+  const height = sizes.main.h + sizes.playlist.h;
   const x = Math.max(0, Math.round((container.clientWidth - width) / 2));
   const y = Math.max(0, Math.round((container.clientHeight - height) / 2));
   webamp.store.dispatch({
     type: 'UPDATE_WINDOW_POSITIONS',
     positions: {
       main: { x, y },
-      equalizer: { x, y: y + sizes.main.h },
-      playlist: { x, y: y + sizes.main.h + sizes.equalizer.h },
+      playlist: { x, y: y + sizes.main.h },
+      equalizer: { x, y: y + sizes.main.h + sizes.playlist.h },
     },
     absolute: true,
   });
+}
+
+// Opening the equalizer puts it where it was last left, unless that spot is
+// off screen or on top of another window; then it docks below the playlist
+// (or the main window, if the playlist is closed), and the group slides up
+// if that runs off the bottom of Winify's window.
+async function placeOpenedEqualizer(container) {
+  const layout = currentLayout();
+  const problem = layoutProblem(layout, container);
+  if (problem && /equalizer/.test(problem)) {
+    const sizes = windowSizes(layout.doubled, layout.playlistSize, layout.shade);
+    const under = layout.open.playlist ? 'playlist' : 'main';
+    const p = layout.positions[under];
+    webamp.store.dispatch({
+      type: 'UPDATE_WINDOW_POSITIONS',
+      positions: { equalizer: { x: p.x, y: p.y + sizes[under].h } },
+      absolute: true,
+    });
+    log('equalizer docked below the', under, '(' + problem + ')');
+  }
+  // Even where it belongs, it can hang off the bottom of Winify's window.
+  await keepOnScreen(container);
 }
 
 // Saved positions are absolute. If Winify's window is now smaller than when
@@ -225,6 +259,12 @@ async function restoreLayout(container) {
       webamp.store.dispatch({ type: 'TOGGLE_WINDOW_SHADE_MODE', windowId: id });
     }
   }
+  for (const id of LAYOUT_WINDOWS) {
+    const wantOpen = id === 'main' || !saved.open || saved.open[id] !== false;
+    if (wantOpen !== !!webamp.store.getState().windows.genWindows[id].open) {
+      webamp.store.dispatch({ type: 'TOGGLE_WINDOW', windowId: id });
+    }
+  }
   // Absolute, like Winamp: otherwise Webamp re-centres the group.
   webamp.store.dispatch({ type: 'UPDATE_WINDOW_POSITIONS', positions: saved.positions, absolute: true });
   await keepOnScreen(container);
@@ -232,7 +272,7 @@ async function restoreLayout(container) {
 }
 
 // Menu bar > Reset window layout: forget the saved layout and go back to the
-// default docked stack, reopening and unshading any window that needs it.
+// default: main and playlist, unshaded, with the equalizer closed.
 function resetLayout() {
   try { localStorage.removeItem(LAYOUT_KEY); } catch (e) { /* storage unavailable */ }
   if (!webamp || !mounted) { log('layout reset (applies at next sign-in)'); return; }
@@ -244,8 +284,12 @@ let unsubscribeLayout = null;
 function watchLayout(container) {
   let last = JSON.stringify(currentLayout());
   let timer = null;
+  let eqOpen = currentLayout().open.equalizer;
   unsubscribeLayout = webamp.store.subscribe(() => {
     if (!webamp) return;
+    const isOpen = !!webamp.store.getState().windows.genWindows.equalizer.open;
+    if (isOpen && !eqOpen) placeOpenedEqualizer(container);
+    eqOpen = isOpen;
     const now = JSON.stringify(currentLayout());
     if (now === last) return;
     last = now;
