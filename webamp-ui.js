@@ -1,21 +1,18 @@
 /* The Winamp face.
  *
- * Renders Webamp's classic interface inside Winify. Rendering only: no
- * playback, no visualizer data, nothing wired. Webamp's own buttons do
- * nothing yet by design.
+ * Renders Webamp's classic interface inside Winify. Its controls drive the
+ * Winify Spotify device and its display follows Spotify's state; all of that
+ * lives in webamp-spotify.js. No visualizer data yet.
  *
- * Built so the next stages drop in rather than require rework:
+ * Still to come:
  *
- *   - OPTIONS below is the single Webamp constructor config. Connecting
- *     Spotify playback means adding __customMediaClass to it, which adapts
- *     window.WinifyPlayer's existing per-command functions to Webamp's IMedia
- *     interface. Nothing else needs to move.
  *   - Webamp's built-in visualizer will later be driven from
  *     WinifyAudio.subscribe(), because Webamp cannot read Spotify's
  *     DRM-protected audio itself.
  *   - Butterchurn attaches separately via the analyser's AudioContext.
  */
 import Webamp from './node_modules/webamp/built/webamp.bundle.min.mjs';
+import { SpotifyMedia, middleware, handleTrackDropEvent, attach, detach } from './webamp-spotify.js';
 
 let webamp = null;
 let mounted = false;
@@ -27,11 +24,18 @@ let mounted = false;
 const DOUBLE_SIZE_BY_DEFAULT = true;
 
 const OPTIONS = {
-  // No tracks: this stage is about whether the face renders, not playback.
+  // No tracks: the playlist holds one stand-in entry that mirrors Spotify,
+  // added by webamp-spotify.js. Real playlist contents are a later stage.
   initialTracks: [],
-  // Chrome that makes no sense until playback exists stays hidden for now.
   availableSkins: [],
-  // NEXT STAGE: __customMediaClass goes here, adapting WinifyPlayer.
+  // Private Webamp options; the version is pinned in package.json because
+  // of them, and attach() verifies they took effect.
+  __customMediaClass: SpotifyMedia,
+  __customMiddlewares: [middleware],
+  handleTrackDropEvent,
+  // Webamp's own double-size path: it resizes the windows and then re-lays
+  // out the stack so they still dock edge to edge.
+  enableDoubleSizeMode: DOUBLE_SIZE_BY_DEFAULT,
 };
 
 function log(...args) {
@@ -58,13 +62,14 @@ async function mount(containerId) {
   }
 
   mounted = true;
-  if (DOUBLE_SIZE_BY_DEFAULT) setDoubleSize(true);
+  attach(webamp);
   log('rendered into #' + containerId, 'doubled =', isDoubled());
   return true;
 }
 
 function unmount() {
   if (!webamp) return;
+  detach();
   try { webamp.dispose(); } catch (e) { /* already gone */ }
   webamp = null;
   mounted = false;
@@ -100,9 +105,16 @@ function isDoubled() {
 function setDoubleSize(on) {
   if (!webamp) return false;
   if (isDoubled() === !!on) return true;
+  // The bare TOGGLE_DOUBLESIZE_MODE action resizes the windows but skips the
+  // re-layout, leaving the EQ window over the main window's transport
+  // buttons. Webamp only exposes the full toggle through its "D" button, so
+  // press that.
+  const button = document.querySelector('#webamp #button-d');
+  if (!button) { log('*** double-size button not found'); return false; }
   try {
-    webamp.store.dispatch({ type: 'TOGGLE_DOUBLESIZE_MODE' });
-    return true;
+    button.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 }));
+    button.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, button: 0 }));
+    return isDoubled() === !!on;
   } catch (err) {
     log('*** could not toggle double size:', err && err.message);
     return false;

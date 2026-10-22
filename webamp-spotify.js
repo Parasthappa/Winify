@@ -1,0 +1,651 @@
+/* Webamp <-> Spotify.
+ *
+ * Makes Webamp's controls drive the in-app Winify device, and makes Webamp's
+ * display follow real Spotify state, including changes made elsewhere.
+ *
+ * Commands go through window.WinifyPlayer's existing functions wherever one
+ * exists. Shuffle, repeat and "resume or start something" have no
+ * WinifyPlayer function, so those call the Web API directly here.
+ *
+ * Webamp only routes some controls through its media class, so three hooks
+ * are used, each for what it can actually see:
+ *
+ *   SpotifyMedia (__customMediaClass)  play, pause, stop, seek, volume
+ *   middleware (__customMiddlewares)   shuffle, repeat; and discards
+ *                                      Webamp's own playlist stepping
+ *   click listener                     next / previous, which reach Webamp's
+ *                                      store only as "move to playlist
+ *                                      position N", indistinguishable by then
+ *
+ * Webamp's title, total time and seek bar read from its playlist's current
+ * track, and Play on an empty playlist opens a file picker. So the playlist
+ * holds exactly one stand-in entry, rewritten to whatever Spotify is playing.
+ *
+ * __customMediaClass and __customMiddlewares are underscore-prefixed private
+ * options. The Webamp version is pinned in package.json, and attach() checks
+ * that Webamp actually used them rather than failing silently.
+ */
+
+const API = 'https://api.spotify.com/v1';
+const STANDIN_ID = 424242;          // our one playlist entry; Webamp counts from 0
+const STANDIN_URL = 'winify:spotify';
+const IDLE_NAME = 'Winify - press Play to resume Spotify';
+const SDK_POLL_MS = 1000;           // local SDK state, no network
+const API_POLL_MS = 3000;           // Web API, the only view of other devices
+const TICK_MS = 250;                // time display
+const HOLD_MS = 1500;               // ignore polled values after a local change
+const VOLUME_THROTTLE_MS = 100;
+
+const log = (...args) => console.log('[winify/controls]', ...args);
+const warn = (...args) => console.warn('[winify/controls]', ...args);
+
+let webamp = null;
+let media = null;                   // the SpotifyMedia Webamp constructed
+let attached = false;
+let applyingRemote = false;         // dispatching Spotify's state into Webamp
+let timers = [];
+
+// What Spotify is doing, as last observed.
+const now = {
+  where: 'none',                    // 'winify' | 'elsewhere' | 'none'
+  deviceName: null,
+  trackUri: null,
+  title: null,
+  artist: null,
+  album: null,
+  durationMs: 0,
+  positionMs: 0,
+  sampledAt: 0,                     // performance.now() when positionMs was read
+  paused: true,
+  shuffle: false,
+  repeat: 'off',                    // 'off' | 'context' | 'track'
+  volume: null,                     // 0-100, Winify's device only
+};
+let stoppedByUser = false;          // Stop pauses Spotify but should look stopped
+const heldUntil = {};               // field -> time before which polls are ignored
+
+const hold = (field) => { heldUntil[field] = performance.now() + HOLD_MS; };
+const isHeld = (field) => (heldUntil[field] || 0) > performance.now();
+
+function positionMs() {
+  if (now.paused) return now.positionMs;
+  const p = now.positionMs + (performance.now() - now.sampledAt);
+  return now.durationMs ? Math.min(p, now.durationMs) : p;
+}
+
+function winifyDeviceId() {
+  return window.WinifyPlayer && window.WinifyPlayer.getDeviceId();
+}
+
+// ---- Web API --------------------------------------------------------------
+
+async function api(method, path, body) {
+  const token = await window.spotify.getToken();
+  if (!token) throw new Error('no access token');
+  const res = await fetch(API + path, {
+    method,
+    headers: Object.assign({ Authorization: 'Bearer ' + token },
+      body ? { 'Content-Type': 'application/json' } : {}),
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (res.status === 204) return null;
+  const text = await res.text();
+  let json = null;
+  try { json = text ? JSON.parse(text) : null; } catch (e) { /* not JSON */ }
+  if (!res.ok) {
+    const msg = (json && json.error && json.error.message) || text || res.statusText;
+    const err = new Error(method + ' ' + path + ' -> ' + res.status + ': ' + msg);
+    err.status = res.status;
+    throw err;
+  }
+  return json;
+}
+
+const withDevice = (path) => {
+  const id = winifyDeviceId();
+  return path + (path.includes('?') ? '&' : '?') + 'device_id=' + encodeURIComponent(id);
+};
+
+// ---- Webamp side ----------------------------------------------------------
+
+function dispatchRemote(action) {
+  applyingRemote = true;
+  try { webamp.store.dispatch(action); } finally { applyingRemote = false; }
+}
+
+function say(message) {
+  // Webamp's own marquee message slot, the one it uses for "Volume: 50%".
+  dispatchRemote({ type: 'SET_USER_MESSAGE', message });
+  setTimeout(() => {
+    if (webamp && webamp.store.getState().userInput.userMessage === message) {
+      dispatchRemote({ type: 'UNSET_USER_MESSAGE' });
+    }
+  }, 3000);
+}
+
+function installStandIn() {
+  dispatchRemote({
+    type: 'ADD_TRACK_FROM_URL',
+    id: STANDIN_ID,
+    url: STANDIN_URL,
+    defaultName: IDLE_NAME,
+    duration: null,
+    atIndex: 0,
+  });
+  // BUFFER_TRACK makes it current without starting anything; the media
+  // class ignores the load request that comes with it.
+  dispatchRemote({ type: 'BUFFER_TRACK', id: STANDIN_ID });
+}
+
+function showTrack() {
+  dispatchRemote({
+    type: 'SET_MEDIA_TAGS',
+    id: STANDIN_ID,
+    title: now.title,
+    artist: now.artist,
+    album: now.album,
+  });
+  dispatchRemote({
+    type: 'SET_MEDIA_DURATION',
+    id: STANDIN_ID,
+    duration: now.durationMs ? now.durationMs / 1000 : null,
+  });
+}
+
+// Bring Webamp's controls into line with `now`.
+function render() {
+  if (!webamp) return;
+  const state = webamp.store.getState();
+
+  const wantStatus = now.where === 'none' || (stoppedByUser && now.paused)
+    ? 'STOPPED'
+    : (now.paused ? 'PAUSED' : 'PLAYING');
+  if (!isHeld('status') && state.media.status !== wantStatus) {
+    if (wantStatus === 'PLAYING') dispatchRemote({ type: 'IS_PLAYING' });
+    else if (wantStatus === 'PAUSED') dispatchRemote({ type: 'PAUSE' });
+    else dispatchRemote({ type: 'STOP' });
+  }
+
+  if (!isHeld('shuffle') && state.media.shuffle !== now.shuffle) {
+    dispatchRemote({ type: 'TOGGLE_SHUFFLE' });
+  }
+  const repeatOn = now.repeat !== 'off';
+  if (!isHeld('repeat') && state.media.repeat !== repeatOn) {
+    dispatchRemote({ type: 'TOGGLE_REPEAT' });
+  }
+
+  // Volume is Winify's own device volume; another device's level is not ours
+  // to show on Winify's slider.
+  if (now.where === 'winify' && now.volume != null && !isHeld('volume') &&
+      state.userInput.focus !== 'volume' && state.media.volume !== now.volume) {
+    dispatchRemote({ type: 'SET_VOLUME', volume: now.volume });
+  }
+}
+
+function setTrack(uri, title, artist, album, durationMs) {
+  if (uri === now.trackUri && durationMs === now.durationMs) return;
+  now.trackUri = uri;
+  now.title = title;
+  now.artist = artist;
+  now.album = album;
+  now.durationMs = durationMs || 0;
+  showTrack();
+}
+
+function clearTrack() {
+  if (now.trackUri == null && now.title == null) return;
+  now.trackUri = null;
+  now.title = null;
+  now.artist = null;
+  now.album = null;
+  now.durationMs = 0;
+  now.positionMs = 0;
+  // An absent title falls back to the stand-in's default name.
+  showTrack();
+}
+
+// ---- Reading Spotify ------------------------------------------------------
+
+// From the Web Playback SDK: fast and local, but only while Winify is the
+// active device.
+function applySdkState(s) {
+  const t = s.track_window && s.track_window.current_track;
+  now.where = 'winify';
+  now.deviceName = 'Winify';
+  if (t) {
+    setTrack(t.uri, t.name, t.artists.map((a) => a.name).join(', '),
+      t.album && t.album.name, s.duration || t.duration_ms);
+  }
+  if (!isHeld('position')) {
+    now.positionMs = s.position;
+    now.sampledAt = performance.now();
+  }
+  if (!isHeld('status')) now.paused = s.paused;
+  if (!isHeld('shuffle')) now.shuffle = !!s.shuffle;
+  if (!isHeld('repeat')) now.repeat = ['off', 'context', 'track'][s.repeat_mode] || 'off';
+  render();
+}
+
+// From the Web API: slower, but sees every device, and Winify's volume.
+function applyApiState(p) {
+  if (!p || !p.device) {
+    if (now.where !== 'winify') {
+      // No session anywhere: show the "press Play" hint, not a stale title.
+      now.where = 'none';
+      now.paused = true;
+      clearTrack();
+      render();
+    }
+    return;
+  }
+  const mine = p.device.id === winifyDeviceId();
+  if (mine && p.device.volume_percent != null && !isHeld('volume')) {
+    now.volume = p.device.volume_percent;
+  }
+  if (mine) {
+    // The SDK poll owns everything else for Winify; it is fresher.
+    render();
+    return;
+  }
+  now.where = 'elsewhere';
+  now.deviceName = p.device.name;
+  const item = p.item;
+  if (item) {
+    setTrack(item.uri, item.name,
+      (item.artists || item.show && [item.show] || []).map((a) => a.name).join(', '),
+      item.album && item.album.name, item.duration_ms);
+  }
+  now.positionMs = p.progress_ms || 0;
+  now.sampledAt = performance.now();
+  now.paused = !p.is_playing;
+  now.shuffle = !!p.shuffle_state;
+  now.repeat = p.repeat_state || 'off';
+  render();
+}
+
+async function pollSdk() {
+  if (!window.WinifyPlayer) return;
+  const s = await window.WinifyPlayer.getState();
+  if (s) {
+    applySdkState(s);
+  } else if (now.where === 'winify') {
+    // Winify stopped being the active device; find out where it went.
+    now.where = 'none';
+    pollApi();
+  }
+}
+
+let apiPollInFlight = false;
+async function pollApi() {
+  if (apiPollInFlight) return;
+  apiPollInFlight = true;
+  try {
+    applyApiState(await api('GET', '/me/player'));
+  } catch (err) {
+    warn('could not read playback state:', err.message);
+  } finally {
+    apiPollInFlight = false;
+  }
+}
+
+let refreshTimer = null;
+function refreshSoon() {
+  clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(() => { pollSdk(); pollApi(); }, 400);
+}
+
+// ---- Commands -------------------------------------------------------------
+
+function notHere(what) {
+  const where = now.where === 'elsewhere' ? ('playing on ' + now.deviceName) : 'not playing in Winify';
+  log(what, 'ignored -', where + '; press Play to bring it to Winify');
+  say(now.where === 'elsewhere' ? 'On ' + now.deviceName + ' - press Play' : 'Press Play first');
+  refreshSoon();
+}
+
+async function waitForDevice(ms) {
+  const until = performance.now() + ms;
+  while (!winifyDeviceId() && performance.now() < until) {
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  return winifyDeviceId();
+}
+
+// Play with nothing playing here: bring the user's session to Winify, and if
+// there is nothing to bring, start Liked Songs.
+let starting = null;
+function startHere() {
+  if (starting) return starting;
+  starting = (async () => {
+    say('Connecting to Spotify...');
+    if (!(await waitForDevice(15000))) {
+      warn('Play: the Winify device has not registered');
+      say('Winify device not ready');
+      return false;
+    }
+
+    let session = null;
+    try { session = await api('GET', '/me/player'); } catch (err) { warn(err.message); }
+    if (session && session.item) {
+      log('Play: resuming', session.item.name, 'from', session.device && session.device.name);
+    } else {
+      log('Play: no current session - asking Spotify to resume the last one here');
+    }
+    if (await window.WinifyPlayer.transferPlaybackHere(true)) {
+      // Transfer can succeed with nothing to play. Give it a moment, then check.
+      for (let i = 0; i < 12; i++) {
+        await new Promise((r) => setTimeout(r, 250));
+        const s = await window.WinifyPlayer.getState();
+        if (s && s.track_window && s.track_window.current_track) {
+          log('Play: resumed in Winify -', s.track_window.current_track.name);
+          return true;
+        }
+      }
+    }
+
+    log('Play: nothing to resume - starting Liked Songs');
+    try {
+      const me = await api('GET', '/me');
+      await api('PUT', withDevice('/me/player/play'),
+        { context_uri: 'spotify:user:' + me.id + ':collection' });
+      log('Play: Liked Songs started in Winify');
+      return true;
+    } catch (err) {
+      warn('Play: could not start Liked Songs -', err.message);
+      say('Nothing to play');
+      return false;
+    }
+  })().finally(() => { starting = null; refreshSoon(); });
+  return starting;
+}
+
+async function commandPlay() {
+  stoppedByUser = false;
+  if (now.where === 'winify' && now.trackUri) {
+    hold('status');
+    now.paused = false;
+    now.sampledAt = performance.now();
+    await window.WinifyPlayer.play();
+  } else {
+    await startHere();
+  }
+  refreshSoon();
+}
+
+async function commandPause() {
+  if (now.where !== 'winify') return notHere('Pause');
+  hold('status');
+  now.positionMs = positionMs();
+  now.paused = true;
+  await window.WinifyPlayer.pause();
+  refreshSoon();
+}
+
+async function commandStop() {
+  if (now.where !== 'winify') {
+    stoppedByUser = true;
+    return notHere('Stop');
+  }
+  stoppedByUser = true;
+  await commandPause();
+}
+
+function commandSkip(direction) {
+  if (now.where !== 'winify') return notHere(direction === 1 ? 'Next' : 'Previous');
+  const fn = direction === 1 ? window.WinifyPlayer.nextTrack : window.WinifyPlayer.previousTrack;
+  fn().then(refreshSoon);
+}
+
+function commandSeek(percent) {
+  if (now.where !== 'winify' || !now.durationMs) return notHere('Seek');
+  const ms = Math.round((percent / 100) * now.durationMs);
+  hold('position');
+  now.positionMs = ms;
+  now.sampledAt = performance.now();
+  window.WinifyPlayer.seek(ms).then(refreshSoon);
+}
+
+let volumeTimer = null;
+let pendingVolume = null;
+function commandVolume(volume) {
+  hold('volume');
+  now.volume = volume;
+  pendingVolume = volume;
+  if (volumeTimer) return;
+  volumeTimer = setTimeout(() => {
+    volumeTimer = null;
+    // Winify's own player volume: applies whether or not it is active.
+    if (winifyDeviceId()) window.WinifyPlayer.setVolume(pendingVolume / 100);
+  }, VOLUME_THROTTLE_MS);
+}
+
+async function commandShuffle(on) {
+  if (now.where !== 'winify') {
+    dispatchRemote({ type: 'TOGGLE_SHUFFLE' });   // undo the toggle
+    return notHere('Shuffle');
+  }
+  hold('shuffle');
+  now.shuffle = on;
+  try {
+    await api('PUT', withDevice('/me/player/shuffle?state=' + on));
+    log('shuffle', on ? 'on' : 'off');
+  } catch (err) {
+    warn('shuffle failed -', err.message);
+    now.shuffle = !on;
+    heldUntil.shuffle = 0;
+    render();
+  }
+}
+
+async function commandRepeat(on) {
+  if (now.where !== 'winify') {
+    dispatchRemote({ type: 'TOGGLE_REPEAT' });    // undo the toggle
+    return notHere('Repeat');
+  }
+  // Winamp's repeat is on/off; Spotify's is off/context/track. Lighting it
+  // means the whole context; unlighting turns off either kind.
+  const mode = on ? 'context' : 'off';
+  const previous = now.repeat;
+  hold('repeat');
+  now.repeat = mode;
+  try {
+    await api('PUT', withDevice('/me/player/repeat?state=' + mode));
+    log('repeat', mode);
+  } catch (err) {
+    warn('repeat failed -', err.message);
+    now.repeat = previous;
+    heldUntil.repeat = 0;
+    render();
+  }
+}
+
+// ---- Hook 1: the media class -----------------------------------------------
+
+// Webamp constructs this itself, once, through __customMediaClass.
+export class SpotifyMedia {
+  constructor() {
+    this._listeners = {};
+    this._analyser = null;
+    media = this;
+  }
+
+  on(event, callback) {
+    (this._listeners[event] = this._listeners[event] || []).push(callback);
+  }
+
+  _emit(event) {
+    (this._listeners[event] || []).forEach((cb) => { try { cb(); } catch (e) { warn(e); } });
+  }
+
+  timeElapsed() { return positionMs() / 1000; }
+  duration() { return now.durationMs / 1000; }
+
+  async play() { if (!applyingRemote && attached) await commandPlay(); }
+  pause() { if (!applyingRemote && attached) commandPause(); }
+  stop() { if (!applyingRemote && attached) commandStop(); }
+  seekToPercentComplete(percent) { if (!applyingRemote && attached) commandSeek(percent); }
+
+  // Webamp calls this once while constructing, to push its default volume.
+  // Ignored until attached, so a fresh launch does not overwrite Spotify's.
+  setVolume(volume) { if (!applyingRemote && attached) commandVolume(volume); }
+
+  // Spotify cannot do these. Inert by design; see winify README.
+  setBalance() {}
+  setPreamp() {}
+  setEqBand() {}
+  disableEq() {}
+  enableEq() {}
+
+  // Spotify supplies the audio; there is never a file to load. Webamp calls
+  // this when the stand-in becomes current, and on its own playlist stepping.
+  async loadFromUrl() {}
+
+  // Webamp's visualizer reads this. Visualizer data is a later stage, so for
+  // now it is a silent analyser rather than nothing, which would throw.
+  getAnalyser() {
+    if (!this._analyser) {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      this._context = new Ctx();
+      this._analyser = this._context.createAnalyser();
+      this._analyser.fftSize = 2048;
+    }
+    return this._analyser;
+  }
+
+  dispose() {
+    this._listeners = {};
+    if (this._context) this._context.close().catch(() => {});
+  }
+}
+
+// ---- Hook 2: the store middleware ------------------------------------------
+
+// Webamp's playlist logic still runs on Next/Previous/track-end and asks to
+// move to another entry. There is only the stand-in, and Spotify decides
+// what plays next, so those requests are dropped. Playlist editing is a
+// later stage; until then the stand-in cannot be removed or joined.
+const DISCARD = new Set([
+  'PLAY_TRACK', 'BUFFER_TRACK', 'IS_STOPPED',
+  'ADD_TRACK_FROM_URL', 'REMOVE_TRACKS', 'REMOVE_ALL_TRACKS',
+  // Spotify has no balance or EQ. Dropping these keeps the sliders still,
+  // rather than moving and doing nothing.
+  'SET_BALANCE', 'SET_BAND_VALUE',
+]);
+
+export const middleware = (store) => (next) => (action) => {
+  if (applyingRemote || !attached) return next(action);
+  if (DISCARD.has(action.type)) return undefined;
+
+  const result = next(action);
+  if (action.type === 'TOGGLE_SHUFFLE') commandShuffle(store.getState().media.shuffle);
+  if (action.type === 'TOGGLE_REPEAT') commandRepeat(store.getState().media.repeat);
+  return result;
+};
+
+// ---- Hook 3: next / previous clicks -----------------------------------------
+
+const SKIP_SELECTORS = [
+  ['#webamp #next, #webamp .playlist-next-button', 1],
+  ['#webamp #previous, #webamp .playlist-previous-button', -1],
+];
+
+function onClickCapture(e) {
+  if (!attached || !(e.target instanceof Element)) return;
+  for (const [selector, direction] of SKIP_SELECTORS) {
+    if (e.target.closest(selector)) { commandSkip(direction); return; }
+  }
+  // The right-click Playback menu: plain <li> entries labelled by text.
+  const li = e.target.closest('#webamp-context-menu li');
+  if (li) {
+    const label = li.firstChild && li.firstChild.nodeType === Node.TEXT_NODE
+      ? li.firstChild.textContent.trim() : '';
+    if (label === 'Next') commandSkip(1);
+    if (label === 'Previous') commandSkip(-1);
+  }
+}
+
+// Eject, and every other "open/add file" entry, prompts with a detached
+// <input type=file> that has no `accept` filter (skins and EQ presets set
+// one, so those still work). Playlist loading is a later stage, so that
+// prompt is suppressed; the click simply does nothing.
+let realInputClick = null;
+function guardMediaFilePrompt() {
+  if (realInputClick) return;
+  realInputClick = HTMLInputElement.prototype.click;
+  HTMLInputElement.prototype.click = function () {
+    if (attached && this.type === 'file' && !this.accept && !this.isConnected) {
+      log('Eject / add files ignored - playlist loading comes in a later stage');
+      return undefined;
+    }
+    return realInputClick.call(this);
+  };
+}
+
+// Dropped audio files would otherwise be loaded by Webamp. Skins (.wsz/.zip)
+// fall through to Webamp's normal handling.
+export function handleTrackDropEvent(e) {
+  const files = Array.from((e.dataTransfer && e.dataTransfer.files) || []);
+  if (files.some((f) => /\.(wsz|zip)$/i.test(f.name))) return null;
+  if (files.length) log('dropped files ignored - playlist loading comes in a later stage');
+  return [];
+}
+
+// ---- Lifecycle --------------------------------------------------------------
+
+export function attach(instance) {
+  webamp = instance;
+
+  // These options are private; if a Webamp update stopped honouring them,
+  // the buttons would silently do nothing. Say so loudly instead.
+  if (!(webamp.media instanceof SpotifyMedia) || webamp.media !== media) {
+    console.error('[winify/controls] *** Webamp did not use __customMediaClass -',
+      'controls are NOT connected. Check the pinned webamp version.');
+    return false;
+  }
+
+  installStandIn();
+  attached = true;
+  guardMediaFilePrompt();
+  document.addEventListener('click', onClickCapture, true);
+
+  timers = [
+    setInterval(pollSdk, SDK_POLL_MS),
+    setInterval(pollApi, API_POLL_MS),
+    setInterval(() => media && media._emit('timeupdate'), TICK_MS),
+  ];
+  pollSdk();
+  pollApi();
+
+  // Prove the middleware is in the chain: a remote-flagged no-op passes
+  // through it, so instead check the store ignored a discarded action.
+  const before = webamp.store.getState().playlist.trackOrder.length;
+  webamp.store.dispatch({ type: 'REMOVE_ALL_TRACKS' });
+  if (webamp.store.getState().playlist.trackOrder.length !== before) {
+    console.error('[winify/controls] *** Webamp did not use __customMiddlewares -',
+      'shuffle/repeat are NOT connected. Check the pinned webamp version.');
+    installStandIn();
+  }
+
+  log('connected to Spotify (Winify device', winifyDeviceId() ? 'ready)' : 'not registered yet)');
+  return true;
+}
+
+export function detach() {
+  attached = false;
+  timers.forEach(clearInterval);
+  timers = [];
+  document.removeEventListener('click', onClickCapture, true);
+  webamp = null;
+  media = null;
+  Object.assign(now, {
+    where: 'none', deviceName: null, trackUri: null, title: null, artist: null,
+    album: null, durationMs: 0, positionMs: 0, paused: true, volume: null,
+  });
+  stoppedByUser = false;
+}
+
+// For inspection from DevTools and tests.
+window.WinifyControls = {
+  state: () => Object.assign({}, now, { positionMs: positionMs(), stoppedByUser }),
+  refresh: () => { pollSdk(); return pollApi(); },
+};

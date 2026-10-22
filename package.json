@@ -9,6 +9,6 @@
     "electron": "github:castlabs/electron-releases#v44.1.0+wvcus"
   },
   "dependencies": {
-    "webamp": "^2.3.1"
+    "webamp": "2.3.1"
   }
 }

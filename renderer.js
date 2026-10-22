@@ -12,6 +12,12 @@ window.spotify.onAuthConnected(mountWebamp);
 window.spotify.onAuthRestored(mountWebamp);
 window.spotify.onSignedOut(() => window.WinifyWebamp && window.WinifyWebamp.unmount());
 
+// Register Winify as a Spotify device once signed in. These were dropped by
+// mistake when the test UI was replaced, which left the device unregistered.
+window.spotify.onAuthConnected(() => window.WinifyPlayer.start());
+window.spotify.onAuthRestored(() => window.WinifyPlayer.start());
+window.spotify.onSignedOut(() => window.WinifyPlayer.stop());
+
 // Keep the main process in step so its menu labels reflect reality.
 window.WinifyAudio.onEvent((event) => {
   if (event === 'started') window.spotify.audioStateChanged(true);

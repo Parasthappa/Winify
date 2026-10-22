@@ -125,8 +125,13 @@ message in the terminal rather than failing with a vague connection error.
 
 1. Click **Continue with Spotify** and approve access in your browser.
 2. Winify appears as a Spotify Connect device named **Winify**.
-3. Start a track on any Spotify client, then click **Transfer playback here** —
-   or pick Winify from the device list in the Spotify app.
+3. Press **Play** in the Winamp window. Winify takes over your current Spotify
+   session, or starts your Liked Songs if there is nothing to resume. You can
+   also pick Winify from the device list in the Spotify app.
+
+The Winamp controls drive Spotify: Play, Pause, Stop (pauses), Next,
+Previous, the seek bar, volume, Shuffle and Repeat. Balance, the equalizer
+and Eject have no Spotify equivalent and do nothing.
 
 **Remember me** stores your refresh token so you stay signed in between
 launches. Leave it off and nothing is written to disk.
@@ -233,6 +238,8 @@ app is packaged the prompt names *Electron* rather than Winify.
 | `winify.js` | The sign-in screen's own state and rendering engine |
 | `player.js` | Web Playback SDK wiring; playback commands on `window.WinifyPlayer` |
 | `renderer.js` | App view wiring |
+| `webamp-ui.js` | Mounts the Winamp interface (Webamp) |
+| `webamp-spotify.js` | Connects Webamp's controls and display to Spotify |
 | `drm-debug.js` | EME instrumentation, inert unless debugging |
 
 Playback is driven through `window.WinifyPlayer` — `play()`, `pause()`,
