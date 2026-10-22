@@ -44,6 +44,10 @@ window.spotify.onCommand(async (command) => {
     case 'audio-stop':
       window.WinifyAudio.stop();
       break;
+    case 'reset-layout':
+      window.WinifyWebamp.resetLayout();
+      window.spotify.webampStateChanged(window.WinifyWebamp.isDoubled());
+      break;
     case 'toggle-doublesize':
       window.spotify.webampStateChanged(window.WinifyWebamp.toggleDoubleSize());
       break;

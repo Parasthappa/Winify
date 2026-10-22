@@ -495,6 +495,14 @@ function buildTray() {
       enabled: connected,
       click: chooseSkin,
     },
+    {
+      label: 'Reset window layout',
+      enabled: connected,
+      click: () => {
+        showWindow();
+        send('ui:command', { name: 'reset-layout' });
+      },
+    },
     { type: 'separator' },
     {
       label: 'Disconnect',
