@@ -94,7 +94,26 @@ function winifyDeviceId() {
 
 // ---- Web API --------------------------------------------------------------
 
+// Spotify rate-limits by endpoint: 429 "Too many requests", with Retry-After
+// in seconds (it can be hours). Until then, requests to that endpoint fail at
+// once instead of adding to the count; `note` says when to try again.
+const blockedUntil = {};              // '/me/player', '/playlists/...' -> ms
+const limitKey = (path) => path.split('?')[0].split('/').slice(0, 3).join('/');
+
+function rateLimited(method, path, retryAfterS) {
+  const s = Math.max(1, Math.round(retryAfterS));
+  const h = Math.floor(s / 3600);
+  const m = Math.ceil((s % 3600) / 60);
+  const err = new Error(method + ' ' + path + ' -> 429: rate limited for another ' + s + ' s');
+  err.status = 429;
+  err.retryAfter = s;
+  err.note = 'Spotify rate limit - try again in ' + (h ? h + ' h ' + m + ' min' : s >= 60 ? m + ' min' : s + ' s');
+  return err;
+}
+
 async function api(method, path, body) {
+  const key = limitKey(path);
+  if (blockedUntil[key] > Date.now()) throw rateLimited(method, path, (blockedUntil[key] - Date.now()) / 1000);
   const token = await window.spotify.getToken();
   if (!token) throw new Error('no access token');
   const res = await fetch(API + path, {
@@ -104,6 +123,12 @@ async function api(method, path, body) {
     body: body ? JSON.stringify(body) : undefined,
   });
   if (res.status === 204) return null;
+  if (res.status === 429) {
+    const retryAfter = Number(res.headers.get('Retry-After')) || 5;
+    blockedUntil[key] = Date.now() + retryAfter * 1000;
+    warn('Spotify rate limit on', key, '- no requests there for', retryAfter, 's');
+    throw rateLimited(method, path, retryAfter);
+  }
   const text = await res.text();
   let json = null;
   try { json = text ? JSON.parse(text) : null; } catch (e) { /* not JSON */ }
@@ -284,7 +309,7 @@ async function pollApi() {
   try {
     applyApiState(await api('GET', '/me/player'));
   } catch (err) {
-    warn('could not read playback state:', err.message);
+    if (err.status !== 429) warn('could not read playback state:', err.message);   // a 429 is logged once, in api()
   } finally {
     apiPollInFlight = false;
   }

@@ -836,8 +836,11 @@ async function restoreSession() {
 
 // --- Current song ---------------------------------------------------------
 
+let pollPausedUntil = 0; // set by a 429 from Spotify
+
 async function pollCurrentSong() {
   if (!tokens) return;
+  if (Date.now() < pollPausedUntil) return;
 
   if (Date.now() > tokens.expiresAt - 30000) {
     try {
@@ -866,7 +869,11 @@ async function pollCurrentSong() {
       }
     } else if (res.status === 401) {
       signOut();
-    } else if (res.status !== 429) {
+    } else if (res.status === 429) {
+      // Rate limited (Retry-After can be hours): stop asking until it passes.
+      pollPausedUntil = Date.now() + (Number(res.headers.get('retry-after')) || 30) * 1000;
+      console.log('[auth] Spotify rate limit - status polling paused for', Math.round((pollPausedUntil - Date.now()) / 1000), 's');
+    } else {
       setStatus(`Spotify returned an error (${res.status})`);
     }
   } catch (err) {

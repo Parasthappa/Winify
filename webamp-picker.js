@@ -378,7 +378,7 @@ async function pick(entry) {
     ctx.say(entry.name);
   } catch (err) {
     ctx.warn('picker: could not play', entry.name, '-', err.message);
-    ctx.say('Could not play that playlist');
+    ctx.say(err.note || 'Could not play that playlist');
   }
   ctx.refreshSoon();
 }
