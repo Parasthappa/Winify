@@ -34,13 +34,14 @@ import { analyserHandle } from './webamp-vis.js';
 
 const API = 'https://api.spotify.com/v1';
 const SDK_POLL_MS = 1000;           // local SDK state, no network
-// The Web API is the only view of other devices. While Winify itself plays,
-// the SDK already reports everything, so the API is asked only now and then
-// (to notice playback moving away); while hidden, rarely. Every request
-// counts toward Spotify's rate limit.
-const API_POLL_MS = 5000;           // another device playing, or none
-const API_POLL_HERE_MS = 15000;     // Winify playing
-const API_POLL_HIDDEN_MS = 30000;   // Winify's window hidden
+// The Web API is the only view of other devices, and every request counts
+// toward Spotify's rate limit. While Winify itself plays, the SDK reports
+// everything (and its state empties when another device takes over, which
+// prompts one API read), so the API is not polled at all. Otherwise it is
+// polled slowly, and not at all while the window is hidden (it is read once
+// when the window is shown again).
+const API_POLL_ELSEWHERE_MS = 30000;   // another device playing
+const API_POLL_IDLE_MS = 60000;        // nothing playing anywhere
 const TICK_MS = 250;                // time display
 const HOLD_MS = 1500;               // ignore polled values after a local change
 const VOLUME_THROTTLE_MS = 100;
@@ -216,18 +217,13 @@ function render() {
 
 // The menu-bar item shows what is playing; it is told here rather than
 // asking Spotify itself.
-// Sent on every change and at least every half minute, which keeps main's
-// own fallback poll (see main.js) from asking Spotify.
-const NOW_PLAYING_HEARTBEAT_MS = 30000;
+// Main keeps a status line (it no longer asks Spotify itself); sent on change.
 let reportedNowPlaying = null;
-let reportedAt = 0;
 function reportNowPlaying() {
   const text = now.where === 'none' || !now.title ? 'Nothing is playing'
     : now.title + (now.artist ? ' \u2014 ' + now.artist : '');
-  if (!window.spotify.nowPlaying) return;
-  if (text === reportedNowPlaying && performance.now() - reportedAt < NOW_PLAYING_HEARTBEAT_MS) return;
+  if (!window.spotify.nowPlaying || text === reportedNowPlaying) return;
   reportedNowPlaying = text;
-  reportedAt = performance.now();
   window.spotify.nowPlaying(text);
 }
 
@@ -243,15 +239,17 @@ function hookVisibility() {
   });
 }
 
+// The next API read, measured from the last one (whatever prompted it); none
+// while Winify plays or its window is hidden.
 let apiTimer = null;
+let stopSdkEvents = null;
 function scheduleApiPoll() {
   clearTimeout(apiTimer);
+  apiTimer = null;
+  if (!attached) return;
   const hidden = window.WinifyAudio && window.WinifyAudio.isVisible && !window.WinifyAudio.isVisible();
-  const ms = hidden ? API_POLL_HIDDEN_MS : now.where === 'winify' ? API_POLL_HERE_MS : API_POLL_MS;
-  apiTimer = setTimeout(async () => {
-    await pollApi();
-    if (attached) scheduleApiPoll();
-  }, ms);
+  if (hidden || now.where === 'winify') return;
+  apiTimer = setTimeout(pollApi, now.where === 'elsewhere' ? API_POLL_ELSEWHERE_MS : API_POLL_IDLE_MS);
 }
 
 function setTrack(uri, title, artist, album, durationMs, linkedFromUri) {
@@ -342,6 +340,8 @@ async function pollSdk() {
   const s = await window.WinifyPlayer.getState();
   if (s) {
     applySdkState(s);
+    // Winify is the player now: any API read still scheduled is not needed.
+    if (now.where === 'winify' && apiTimer) scheduleApiPoll();
     // Winify's volume, as set from any device, read locally rather than
     // through the (now slower) Web API poll.
     if (window.WinifyPlayer.getVolume && !isHeld('volume')) {
@@ -365,6 +365,7 @@ async function pollApi() {
     if (err.status !== 429) warn('could not read playback state:', err.message);   // a 429 is logged once, in api()
   } finally {
     apiPollInFlight = false;
+    scheduleApiPoll();
   }
 }
 
@@ -725,8 +726,12 @@ export function attach(instance) {
   ];
   pollSdk();
   pollApi();
-  scheduleApiPoll();
   hookVisibility();
+  // The SDK's own state events: changes on Winify show at once, and an empty
+  // state (another device took over) prompts the one API read that finds it.
+  if (window.WinifyPlayer && window.WinifyPlayer.onStateChange) {
+    stopSdkEvents = window.WinifyPlayer.onStateChange(() => { if (attached) pollSdk(); });
+  }
 
   // Prove the middleware is in the chain: a remote-flagged no-op passes
   // through it, so instead check the store ignored a discarded action.
@@ -751,6 +756,9 @@ export function detach() {
   timers.forEach(clearInterval);
   timers = [];
   clearTimeout(apiTimer);
+  apiTimer = null;
+  if (stopSdkEvents) stopSdkEvents();
+  stopSdkEvents = null;
   reportedNowPlaying = null;
   document.removeEventListener('click', onClickCapture, true);
   webamp = null;

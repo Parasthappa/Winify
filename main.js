@@ -56,10 +56,6 @@ const SCOPES = [
   'playlist-read-collaborative', // ...and collaborative ones
   'user-library-read', // list Liked Songs
 ];
-// The window reports what is playing (ipc 'now-playing'); this poll is only
-// a fallback for when it has not, so it rarely reaches Spotify at all.
-const POLL_MS = 60000;
-let lastNowPlayingReport = 0;
 const REQUEST_TIMEOUT_MS = 10000;
 // How long we'll wait for you to finish in the browser before giving up.
 const AUTH_TIMEOUT_MS = 180000;
@@ -72,7 +68,6 @@ const STEP_LIBRARY = 3;
 
 let win;
 let tokens = null; // { accessToken, refreshToken, expiresAt }
-let pollTimer = null;
 let authServer = null;
 let authTimer = null;
 let remember = false; // mirrors the "remember me" lamp
@@ -612,15 +607,9 @@ function cancelAuth() {
   }
 }
 
-function stopPolling() {
-  clearInterval(pollTimer);
-  pollTimer = null;
-}
-
 // Routes a real failure to one of the screen's two designed error states.
 function failAuth(kind) {
   cancelAuth();
-  stopPolling();
   tokens = null;
   forgetTokens();
   setConnected(false);
@@ -629,7 +618,6 @@ function failAuth(kind) {
 
 function signOut() {
   cancelAuth();
-  stopPolling();
   tokens = null;
   forgetTokens();
   setStatus('Not logged in');
@@ -694,7 +682,6 @@ function api(pathname) {
 
 function login() {
   cancelAuth();
-  stopPolling();
   tokens = null;
 
   if (!CLIENT_ID) {
@@ -794,7 +781,6 @@ async function completeLogin(code, verifier) {
 
   setConnected(true);
   send('auth:connected');
-  startPolling();
 }
 
 // Runs at launch: a stored refresh token skips the sign-in screen entirely.
@@ -834,7 +820,6 @@ async function restoreSession() {
   setConnected(true);
   send('auth:restored');
   setStatus('Waiting for current song...');
-  startPolling();
 }
 
 // --- Current song ---------------------------------------------------------
@@ -844,7 +829,6 @@ let pollPausedUntil = 0; // set by a 429 from Spotify
 async function pollCurrentSong() {
   if (!tokens) return;
   if (Date.now() < pollPausedUntil) return;
-  if (Date.now() - lastNowPlayingReport < POLL_MS) return;   // the window keeps it current
 
   if (Date.now() > tokens.expiresAt - 30000) {
     try {
@@ -883,12 +867,6 @@ async function pollCurrentSong() {
   } catch (err) {
     setStatus(`Error: ${err.message}`);
   }
-}
-
-function startPolling() {
-  stopPolling();
-  pollCurrentSong();
-  pollTimer = setInterval(pollCurrentSong, POLL_MS);
 }
 
 // --- App lifecycle --------------------------------------------------------
@@ -983,8 +961,9 @@ ipcMain.on('window:fit', (_event, size) => {
 });
 
 // Webamp's close (x) and minimize (_) buttons, and its Exit menu item.
+// What is playing, reported by the window: once signed in, main asks
+// Spotify for nothing itself (the one shared poll is the window's).
 ipcMain.on('now-playing', (_event, text) => {
-  lastNowPlayingReport = Date.now();
   if (tokens) setStatus(String(text).slice(0, 200));
 });
 

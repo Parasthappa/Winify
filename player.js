@@ -12,6 +12,7 @@
   'use strict';
 
   var player = null;      // Spotify.Player instance
+  var stateListeners = [];  // onStateChange(fn): every SDK state change, null when not active
   var deviceId = null;    // assigned once the device registers
   var isReady = false;
   var lastState = null;   // previous playback state, for spotting stalls/skips
@@ -219,6 +220,7 @@
     });
 
     player.addListener('player_state_changed', function (state) {
+      stateListeners.forEach(function (fn) { try { fn(state); } catch (e) { /* a listener's own problem */ } });
       if (!state) return;
       var track = state.track_window && state.track_window.current_track;
       if (track) {
@@ -279,6 +281,10 @@
     setVolume: setVolume,
     getVolume: getVolume,
     seek: seek,
+    onStateChange: function (fn) {
+      stateListeners.push(fn);
+      return function () { stateListeners = stateListeners.filter(function (f) { return f !== fn; }); };
+    },
     // state + lifecycle
     getState: getState,
     getDeviceId: getDeviceId,
