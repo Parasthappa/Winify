@@ -10,7 +10,7 @@
  * skin is loaded rather than looking like a modern popup.
  */
 
-import { makeRoom } from './webamp-room.js';
+import { placeDialog, makeDraggable, attachTooltips, hideTooltip } from './webamp-dialog.js';
 
 const PAGE = 50;                    // the /me/playlists maximum
 const PARALLEL_PAGES = 4;
@@ -18,6 +18,7 @@ const ROW = 13;                     // Webamp's playlist row height
 const VISIBLE_ROWS = 16;
 const WIDTH = 325;                  // the playlist window plus two segments
 const CACHE_MS = 60000;
+const HEIGHT = 20 + 13 + VISIBLE_ROWS * ROW + 14;
 // Only playlists Spotify will list in full: ones you own, plus collaborative
 // ones you contribute to. Spotify (February 2026) returns no tracks for
 // anyone else's playlist, so those would only ever show Up Next.
@@ -207,7 +208,7 @@ function applyFilter() {
   renderList();
 }
 
-function build() {
+function build(spot) {
   injectStyles();
   const st = skinStyle();
   const root = document.querySelector('#webamp');
@@ -224,7 +225,7 @@ function build() {
       <div class="playlist-top-left-fill"></div>
       <div class="wp-title"></div>
       <div class="playlist-top-left-fill"></div>
-      <div class="playlist-top-right"><div class="wp-close" title="Close"></div></div>
+      <div class="playlist-top-right"><div class="wp-close" role="button" aria-label="Close"></div></div>
     </div>
     <div class="wp-middle">
       <div class="playlist-middle-left"></div>
@@ -247,9 +248,10 @@ function build() {
   const filter = p.querySelector('.wp-filter');
   Object.assign(filter.style, { background: st.normalbg, color: st.normal, borderColor: st.normal, fontFamily: st.font });
 
-  // Centre over the Winify window.
-  p.style.left = Math.max(0, Math.round((window.innerWidth - WIDTH) / 2)) + 'px';
-  p.style.top = Math.max(0, Math.round((window.innerHeight - (34 + 13 + VISIBLE_ROWS * ROW + 20)) / 2)) + 'px';
+  p.style.left = spot.x + 'px';
+  p.style.top = spot.y + 'px';
+  makeDraggable(p, p.querySelector('.wp-top'), 'picker', { ignore: '.wp-close' });
+  attachTooltips(p.querySelector('.wp-list'), p, p.querySelector('.wp-top'), '.wp-name', skinStyle);
 
   backdrop.addEventListener('pointerdown', (e) => { e.preventDefault(); close(); });
   p.querySelector('.wp-close').addEventListener('click', close);
@@ -321,12 +323,12 @@ let opening = false;
 export async function open() {
   if (!ctx || opening) return;
   if (el) { el.querySelector('.wp-filter').focus(); return; }
-  // Winify's window wraps the player and is narrower than the picker.
+  // Where it was left, or beside the player; Winify's window grows to fit.
   opening = true;
-  const release = await makeRoom(WIDTH + 16, 34 + 13 + VISIBLE_ROWS * ROW + 16);
+  const spot = await placeDialog('picker', WIDTH, HEIGHT);
   opening = false;
-  el = build();
-  el.releaseRoom = release;
+  el = build(spot);
+  el.releaseRoom = spot.release;
   rows = [];
   shown = [];
   selected = 0;
@@ -353,6 +355,7 @@ export async function open() {
 
 export function close() {
   if (!el) return;
+  hideTooltip();
   el.backdrop.remove();
   el.remove();
   el.releaseRoom();

@@ -17,7 +17,7 @@
  * Drawn with the active skin's own playlist bitmaps, like the playlist picker.
  */
 
-import { makeRoom } from './webamp-room.js';
+import { placeDialog, makeDraggable, attachTooltips, hideTooltip } from './webamp-dialog.js';
 
 const RESULTS_PER_REQUEST = 10;     // Spotify's search maximum since February 2026
 const PAGES = 3;                    // about 30 results
@@ -252,7 +252,6 @@ function render() {
         const span = document.createElement('span');
         span.className = cls;
         span.textContent = text;
-        span.title = text;
         row.appendChild(span);
       }
       list.appendChild(row);
@@ -304,7 +303,7 @@ function drawTitle(d) {
   d.setAttribute('aria-label', TITLES[mode]);
 }
 
-function build() {
+function build(spot) {
   injectStyles();
   const st = skinStyle();
   const root = document.querySelector('#webamp');
@@ -320,7 +319,7 @@ function build() {
       <div class="playlist-top-left-fill"></div>
       <div class="ws-title"></div>
       <div class="playlist-top-left-fill"></div>
-      <div class="playlist-top-right"><div class="ws-close" title="Close"></div></div>
+      <div class="playlist-top-right"><div class="ws-close" role="button" aria-label="Close"></div></div>
     </div>
     <div class="ws-middle">
       <div class="playlist-middle-left"></div>
@@ -338,8 +337,10 @@ function build() {
   const input = d.querySelector('.ws-query');
   Object.assign(input.style, { background: st.normalbg, color: st.normal, borderColor: st.normal, fontFamily: st.font });
 
-  d.style.left = Math.max(0, Math.round((window.innerWidth - WIDTH) / 2)) + 'px';
-  d.style.top = Math.max(0, Math.round((window.innerHeight - HEIGHT) / 2)) + 'px';
+  d.style.left = spot.x + 'px';
+  d.style.top = spot.y + 'px';
+  makeDraggable(d, d.querySelector('.ws-top'), 'search', { ignore: '.ws-close' });
+  attachTooltips(d.querySelector('.ws-list'), d, d.querySelector('.ws-top'), '.ws-row > span', skinStyle);
 
   backdrop.addEventListener('pointerdown', (e) => { e.preventDefault(); close(); });
   d.querySelector('.ws-close').addEventListener('click', close);
@@ -407,11 +408,12 @@ export async function open(newMode = 'play') {
     el.querySelector('.ws-query').focus();
     return;
   }
+  // Where it was left, or beside the player; Winify's window grows to fit.
   opening = true;
-  const release = await makeRoom(WIDTH + 16, HEIGHT + 16);
+  const spot = await placeDialog('search', WIDTH, HEIGHT);
   opening = false;
-  el = build();
-  el.releaseRoom = release;
+  el = build(spot);
+  el.releaseRoom = spot.release;
   results = [];
   selected = 0;
   scroll = 0;
@@ -428,6 +430,7 @@ export function close() {
   flashTimer = null;
   searchSeq++;
   closeMenu();
+  hideTooltip();
   el.backdrop.remove();
   el.remove();
   el.releaseRoom();

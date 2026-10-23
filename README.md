@@ -285,6 +285,7 @@ app is packaged the prompt names *Electron* rather than Winify.
 | `webamp-picker.js` | The playlist picker (Eject, LIST OPTS > load list) |
 | `webamp-search.js` | Jump to track: search, play within album, add to queue |
 | `webamp-room.js` | Grows the window while a Winify dialog is open |
+| `webamp-dialog.js` | Placement, dragging, snapping and tooltips for Winify's own windows |
 | `webamp-inert.js` | Keeps controls with no Spotify meaning quiet |
 | `webamp-vis.js` | Feeds Webamp's visualizer from the system-audio capture |
 | `drm-debug.js` | EME instrumentation, inert unless debugging |
