@@ -195,6 +195,7 @@ window.fetch = async (url, opts = {}) => {
   }
   if (m === 'GET' && p === '/me/tracks') {
     rec('api:savedTracks', u.searchParams.get('offset'));
+    if (mock.pageDelay) await new Promise((r) => setTimeout(r, mock.pageDelay));   // a slow connection
     if (mock.noLibraryScope) return json(403, { error: { status: 403, message: 'Insufficient client scope' } });
     return page(CONTEXTS['spotify:user:user1:collection'], (n) => ({ added_at: '2026-01-01T00:00:00Z', track: T(n) }));
   }

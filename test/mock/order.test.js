@@ -183,8 +183,8 @@ h.open().then(async ({ win, js }) => {
   p = await until((v) => v.state.mode === 'list' && v.cur === 0 && v.rows.length === 12);
   check('album again: original order, no skips', JSON.stringify(nums(p)) === JSON.stringify([2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011]) && p.state.order.skipped.length === 0, show(p));
   await js('mock.setContext("spotify:playlist:big", 0)');
-  p = await until((v) => v.state.listContext === 'spotify:playlist:big' && v.cur === 0);
-  check('a playlist: its own order', p.rows.length === 500, show(p));
+  p = await until((v) => v.state.listContext === 'spotify:playlist:big' && v.cur === 0 && v.rows.length === 500 && !v.state.loading, 30000);
+  check('a playlist: its own order (all 500, read in the background)', p.rows.length === 500, show(p));
   await js('mock.repeat = "context"'); await h.wait(1200);
   await select(499); await js(`(() => { const s = WinifyWebamp.getInstance().store; s.dispatch({ type: 'REMOVE_TRACKS', ids: s.getState().playlist.trackOrder.slice(1 + __hdr()) }); })()`); await h.wait(200);
   t = await transition();
@@ -198,6 +198,29 @@ h.open().then(async ({ win, js }) => {
   cs = await take();
   check('phone playing: Winify adds nothing to the queue', !cs.some((c) => c[0] === 'api:addToQueue'), JSON.stringify(cs));
   await js('mock.active = "winify"');
+
+  console.log('10. Big lists (read a page at a time)');
+  await js('(mock.active = "winify", mock.repeat = "off", mock.autoplayOn = false, mock.pageDelay = 1500, mock.setContext("spotify:user:user1:collection", 0), mock.setPaused(false))');
+  p = await until((v) => v.state.listContext === 'spotify:user:user1:collection' && v.cur === 0 && v.rows.length >= 50, 10000);
+  check('Liked Songs: the first 50 at once, 1234 coming', p.rows.length < 1234 && p.state.loading && p.state.loading.total === 1234, JSON.stringify(p.state.loading));
+  await take(); const t10 = Date.now();
+  await h.click(win, js, '#webamp #shuffle'); await h.wait(300);
+  const msg = await js('WinifyWebamp.getInstance().store.getState().userInput.userMessage');
+  p = await PL();
+  check('Shuffle while it is still coming: "Shuffle: loading the whole list first", not shuffled yet', msg === 'Shuffle: loading the whole list first' && p.state.order.shuffleWaiting && JSON.stringify(nums(p).slice(0, 5)) === JSON.stringify([4000, 4001, 4002, 4003, 4004]), JSON.stringify([msg, nums(p).slice(0, 5)]));
+  await js('mock.pageDelay = 0');
+  p = await until((v) => v.rows.length === 1234 && !v.state.loading && !v.state.order.shuffleWaiting, 15000);
+  check('...the rest read without pauses, then shuffled: all 1234, the current track first', p.rows.length === 1234 && Date.now() - t10 < 12000 && nums(p)[0] === 4000 && JSON.stringify(nums(p).slice(1, 6)) !== JSON.stringify([4001, 4002, 4003, 4004, 4005]) && new Set(nums(p)).size === 1234, JSON.stringify([p.rows.length, Date.now() - t10, nums(p).slice(0, 6)]));
+  await h.click(win, js, '#webamp #shuffle'); await h.wait(500);
+  // At the last track read so far, the order is not over: the next page is read and its first track queued.
+  await js('mock.setContext("spotify:playlist:pl3", 0)'); await until((v) => v.state.listContext === 'spotify:playlist:pl3' && !v.state.loading, 10000);
+  await js('(mock.autoplayOn = false, mock.setContext("spotify:user:user1:collection", 49))');
+  p = await until((v) => v.state.listContext === 'spotify:user:user1:collection' && v.cur === 49 && v.rows.length >= 50, 10000);
+  // Row 50 is on screen at the end of what is read, so the next page follows at once; not the whole list.
+  check('playing track 50 of Liked Songs, the last of the first page', p.cur === 49 && p.rows.length >= 50 && p.rows.length <= 150 && !!p.state.loading, show(p) + ' ' + p.rows.length);
+  t = await transition();
+  // In the original order Spotify moves on itself (see 1.); Winify must not end the list there.
+  check('...its end: track 51 is next, Autoplay is not started', t.q.length === 0 && !t.cs.some((c) => c[0] === 'api:play' || c[0] === 'pause') && t.p.track === 4050 && t.p.cur === 50, show(t.p) + JSON.stringify(t.cs));
 
   const errs = JSON.parse(await js('JSON.stringify(errors)'));
   check('no page errors', errs.length === 0, JSON.stringify(errs));

@@ -111,7 +111,7 @@ h.open().then(async ({ win, js }) => {
   await playRow(3); await until((v) => v.state.mode === 'single');
   await js('mock.setContext("spotify:playlist:big", 2)');
   p = await until((v) => v.state.mode === 'list' && v.state.listContext === 'spotify:playlist:big' && v.cur === 2);
-  check('a playlist started elsewhere -> its list', p.rows.length === 500 && p.rows[2] === N(1002), show(p));
+  check('a playlist started elsewhere -> its list (the first page at once)', p.rows.length >= 50 && p.rows[2] === N(1002), show(p));
   await h.wait(1500); await take(); await nearEnd(3000); await h.wait(4000);
   cs = await take(); check('...and no album jump happens for it', !cs.some((c) => c[0] === 'api:play'), JSON.stringify(cs));
   await js(`fetch('https://api.spotify.com/v1/me/player/play?device_id=winify-dev', { method: 'PUT', body: JSON.stringify({ uris: ['spotify:track:777'] }) })`);

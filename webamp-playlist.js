@@ -51,7 +51,11 @@
  */
 
 const PAGE = 50;                    // the Web API maximum for both endpoints
-const PARALLEL_PAGES = 4;
+// A big list comes in a page at a time: the first at once, the rest in the
+// background at this pace, sooner when scrolled near the end of what is in,
+// and without pause when shuffle or the playing track needs the rest.
+const PAGE_GAP_MS = 2000;
+const NEAR_END_ROWS = 20;
 const QUEUE_REFRESH_MS = 600;
 const ID_BASE = 1000000;            // clear of Webamp's own ids, which count from 0
 const STANDIN_ID = 424242;
@@ -80,6 +84,8 @@ let cameFromList = false;           // the previous source was a full list
 let singleTrackUri = null;          // a single track Winify started on its own (no album)
 let plan = null;                    // Play track, then Autoplay: { uri, albumUri, albumTracks, shown, line, ... }
 let contextList = null;             // the last full list loaded: { uri, list, name }
+let more = null;                    // the rest of a big list, being read: { contextUri, path, map, rows, offset, total, name, hurry, wake }
+let shuffleWaiting = false;         // shuffle asked for while the list is still coming
 const artistNames = {};             // artist URI -> name, for the header
 const contextNames = {};            // playlist URI -> name, also for ones whose items cannot be read
 let seenContext;                    // undefined = never synced
@@ -171,7 +177,9 @@ function installList(list, newMode, contextUri, name, label) {
   ctx.dispatch({ type: 'SET_PLAYLIST_SCROLL_POSITION', position: 0 });
   if (newMode === 'list') startOrder();
   highlight(true);
-  if (newMode === 'list' && shuffleOn && currentIndex >= 0) applyShuffle();
+  if (newMode === 'list' && shuffleOn && currentIndex >= 0) {
+    if (stillComing()) { shuffleWaiting = true; hurry(true); } else applyShuffle();
+  }
   if (newMode === 'queue' && shuffleOn && h.name !== AUTOPLAY_LABEL && ctx.now.where === 'winify') handShuffleBack();
   paintSkips();
 }
@@ -214,6 +222,8 @@ function highlight(trackChanged) {
   const hits = [];
   entries.forEach((e, i) => { if (matches(e)) hits.push(i); });
   if (!hits.length) {
+    // Further down a list still coming in: read on until it shows up.
+    if (stillComing()) { hurry(true); return; }
     showMissing();
     return;
   }
@@ -279,52 +289,103 @@ function row(t) {
   };
 }
 
-// Every page of a paged endpoint, in order: the first page says how many
-// there are, the rest are fetched a few at a time.
-async function allPages(path, gen) {
+// The first page of a paged endpoint (it also says how many there are).
+function page(path, offset) {
   const sep = path.includes('?') ? '&' : '?';
-  const first = await ctx.api('GET', path + sep + 'limit=' + PAGE + '&offset=0');
-  const items = first.items.slice();
-  const offsets = [];
-  for (let o = PAGE; o < first.total; o += PAGE) offsets.push(o);
-  const pages = new Array(offsets.length);
-  for (let i = 0; i < offsets.length; i += PARALLEL_PAGES) {
-    if (gen !== loadGen) throw new Error('superseded');
-    const batch = offsets.slice(i, i + PARALLEL_PAGES);
-    const got = await Promise.all(batch.map((o) =>
-      ctx.api('GET', path + sep + 'limit=' + PAGE + '&offset=' + o)));
-    got.forEach((p, j) => { pages[i + j] = p.items; });
-  }
-  pages.forEach((p) => items.push(...p));
-  if (items.length !== first.total) {
-    ctx.warn('expected', first.total, 'items but received', items.length);
-  }
-  return items;
+  return ctx.api('GET', path + sep + 'limit=' + PAGE + '&offset=' + offset);
 }
 
-async function loadAlbum(uri, gen) {
+// Each loader answers the first page as rows, with what it takes to read
+// the rest: { name, list, total, path, map }.
+async function loadAlbum(uri) {
   const id = idOf(uri);
-  const [album, tracks] = await Promise.all([
-    ctx.api('GET', '/albums/' + id + '?market=from_token'),
-    allPages('/albums/' + id + '/tracks?market=from_token', gen),
-  ]);
-  return { name: album && album.name, list: tracks.map(row) };
+  const path = '/albums/' + id + '/tracks?market=from_token';
+  const [album, first] = await Promise.all([ctx.api('GET', '/albums/' + id + '?market=from_token'), page(path, 0)]);
+  return { name: album && album.name, list: first.items.map(row), total: first.total, path, map: row };
 }
 
 // February 2026 names: /playlists/{id}/items, each entry's track under `item`.
-async function loadPlaylist(uri, gen) {
+async function loadPlaylist(uri) {
   const id = idOf(uri);
   const meta = await ctx.api('GET', '/playlists/' + id + '?fields=name');
   if (meta && meta.name) contextNames[uri] = meta.name;
-  const items = await allPages('/playlists/' + id + '/items?market=from_token&additional_types=track,episode', gen);
-  return { name: meta && meta.name, list: items.map((entry) => row(entry && entry.item)) };
+  const path = '/playlists/' + id + '/items?market=from_token&additional_types=track,episode';
+  const map = (entry) => row(entry && entry.item);
+  const first = await page(path, 0);
+  return { name: meta && meta.name, list: first.items.map(map), total: first.total, path, map };
 }
 
 // Saved tracks keep the `track` field name; the February 2026 rename to
 // `item` applied to playlists only.
-async function loadLikedSongs(gen) {
-  const items = await allPages('/me/tracks?market=from_token', gen);
-  return { name: 'Liked Songs', list: items.map((entry) => row(entry && entry.track)) };
+async function loadLikedSongs() {
+  const path = '/me/tracks?market=from_token';
+  const map = (entry) => row(entry && entry.track);
+  const first = await page(path, 0);
+  return { name: 'Liked Songs', list: first.items.map(map), total: first.total, path, map };
+}
+
+const stillComing = () => !!more && more.contextUri === listContext && mode === 'list';
+
+// Read the next page sooner: `steady` keeps going without pauses (shuffle,
+// or the playing track is further down), otherwise just the next one.
+function hurry(steady) {
+  if (!stillComing()) return;
+  if (steady) more.hurry = true;
+  if (more.wake) more.wake();
+}
+
+// The rest of a big list, a page at a time, appended as it comes.
+async function readMore(m) {
+  try {
+    while (m.offset < m.total) {
+      if (!m.hurry) await new Promise((resolve) => { m.wake = resolve; setTimeout(resolve, PAGE_GAP_MS); });
+      m.wake = null;
+      if (more !== m || !stillComing()) return;
+      const got = await page(m.path, m.offset);
+      if (more !== m || !stillComing()) return;
+      const rows = (got.items || []).map(m.map);
+      m.offset += PAGE;
+      appendRows(m, rows);
+      if (!rows.length) break;
+    }
+    more = null;
+    contextList = { uri: m.contextUri, list: m.rows, name: m.name };
+    ctx.log('playlist window:', '"' + m.name + '" complete -', m.rows.length, 'tracks');
+    if (shuffleWaiting) {
+      shuffleWaiting = false;
+      if (shuffleOn) applyShuffle();
+    }
+    if (currentIndex < 0 || !matches(entries[currentIndex])) highlight(true);
+    scheduleOrder();
+  } catch (err) {
+    if (more !== m) return;
+    more = null;
+    ctx.warn('playlist window: could not read the rest of the list -', err.message);
+    if (err.note) ctx.say(err.note);
+  }
+}
+
+// New rows at the end of the list (positions continue the source's order).
+function appendRows(m, rows) {
+  // Webamp keeps the scroll position as a percentage: keep the same top row.
+  const before = ctx.webamp.store.getState();
+  const visible = visibleCapacity(before);
+  const top = Math.round((before.display.playlistScrollPosition / 100) * Math.max(0, before.playlist.trackOrder.length - visible));
+  rows.forEach((t, k) => {
+    const e = Object.assign({ id: nextId++, position: m.rows.length + k }, t);
+    entries.push(e);
+    origOrder.push(e);
+    addRow(e.id, e.uri || 'winify:unavailable', e.name, e.durationMs, entries.length - 1);
+  });
+  m.rows = m.rows.concat(rows);
+  const overflow = ctx.webamp.store.getState().playlist.trackOrder.length - visible;
+  if (overflow > 0) ctx.dispatch({ type: 'SET_PLAYLIST_SCROLL_POSITION', position: (top / overflow) * 100 });
+  // The playing track may have just arrived.
+  if (mode === 'list' && (currentIndex < 0 || !matches(entries[currentIndex]))) {
+    const found = entries.some((e) => !e.isLabel && matches(e));
+    if (found) { m.hurry = false; highlight(true); }
+  }
+  paintSkips();
 }
 
 async function loadQueue() {
@@ -353,6 +414,8 @@ function describe(k) {
 
 async function load(contextUri) {
   const gen = ++loadGen;
+  more = null;
+  shuffleWaiting = false;
   const k = kind(contextUri);
   // A different context: show the current track alone until its list is in.
   if (mode !== 'standin' && listContext !== contextUri) showStandIn();
@@ -367,13 +430,20 @@ async function load(contextUri) {
     try {
       const got = await loaders[k](contextUri, gen);
       if (gen !== loadGen) return;
+      // The rest, if any, is read in the background (set before the list goes
+      // in, so shuffle and "not in the list" know more is coming).
+      const m = got.total > got.list.length
+        ? { contextUri, path: got.path, map: got.map, rows: got.list.slice(), offset: PAGE, total: got.total, name: got.name, hurry: false, wake: null }
+        : null;
+      more = m;
       installList(got.list, 'list', contextUri, got.name);
-      contextList = { uri: contextUri, list: got.list, name: got.name };
-      ctx.log('playlist window:', k, '"' + got.name + '" -', got.list.length, 'tracks');
-      ctx.say(got.name ? got.name + ' - ' + got.list.length + ' tracks' : got.list.length + ' tracks');
+      if (m) readMore(m);
+      else contextList = { uri: contextUri, list: got.list, name: got.name };
+      ctx.log('playlist window:', k, '"' + got.name + '" -', got.total, 'tracks', m ? '(the first ' + got.list.length + ' now, the rest in the background)' : '');
+      ctx.say(got.name ? got.name + ' - ' + got.total + ' tracks' : got.total + ' tracks');
       return;
     } catch (err) {
-      if (gen !== loadGen || err.message === 'superseded') return;
+      if (gen !== loadGen) return;
       ctx.log('playlist window: cannot list', k, '-', why(err, k), '- showing Up Next instead');
     }
   } else {
@@ -645,6 +715,10 @@ function followOrder() {
     } else if (hits.length) {
       // Chosen elsewhere (another device): the order carries on from there.
       idx = hits.find((i) => i > currentIndex) ?? hits[0];
+    } else if (stillComing()) {
+      // Further down a list still coming in: placed when it arrives.
+      hurry(true);
+      return true;
     } else if (nextIndex(currentIndex) < 0) {
       return false;                                      // the order had run out
     } else {
@@ -673,6 +747,10 @@ function scheduleOrder() {
   const cur = entries[currentIndex];
   if (!matches(cur)) return;
   const left = n.durationMs - ctx.positionMs();
+  if (nextIndex(currentIndex) < 0 && stillComing()) {
+    hurry();                                           // the next track is on the next page
+    return;
+  }
   if (nextIndex(currentIndex) >= 0) {
     if (preparedFor !== cur.id) orderTimer = setTimeout(prepareNext, Math.max(0, left - QUEUE_LEAD_MS));
   } else if (n.repeat === 'off' && !pending.length) {
@@ -950,6 +1028,10 @@ function paintSkips() {
         }
       }
     }
+    if (stillComing()) {
+      const cells = document.querySelectorAll('#webamp .playlist-track-titles .track-cell');
+      if (visibleOffset(cells) + cells.length >= entries.length - NEAR_END_ROWS) hurry();
+    }
     const css = rules.length ? rules.join(',\n') + ' { opacity: 0.45; text-decoration: line-through; }' : '';
     if (skipStyle.textContent !== css) skipStyle.textContent = css;
   });
@@ -1099,7 +1181,13 @@ export function noteSpotifyShuffle(on) { shuffleOn = !!on; }
 
 export function setShuffle(on) {
   shuffleOn = !!on;
-  if (mode === 'list') applyShuffle();
+  shuffleWaiting = false;
+  if (mode === 'list' && shuffleOn && stillComing()) {
+    // Shuffling needs every track: read the rest now, then shuffle.
+    shuffleWaiting = true;
+    hurry(true);
+    ctx.say('Shuffle: loading the whole list first');
+  } else if (mode === 'list') applyShuffle();
   ctx.log('play order: shuffle', shuffleOn ? 'on (Winify\'s)' : 'off - back to the original order');
   turnSpotifyShuffleOff();
   showShuffle();
@@ -1181,6 +1269,8 @@ export function reset() {
   singleTrackUri = null;
   endPlan();
   contextList = null;
+  more = null;
+  shuffleWaiting = false;
   clearTimeout(queueTimer);
   clearTimeout(orderTimer);
   document.removeEventListener('dblclick', onDoubleClickCapture, true);
@@ -1357,7 +1447,8 @@ window.WinifyPlaylist = {
     header: hasHeader() ? entries[0].name : null,
     line: mode === 'single' ? entries[1].name : null,
     plan: plan && { uri: plan.uri, shown: plan.shown, jumping: !!plan.jumping, last: plan.last || null },
-    order: mode === 'list' ? { shuffle: shuffleOn, pending: pending.slice(), ending,
+    loading: stillComing() ? { loaded: more.rows.length, total: more.total, hurry: more.hurry } : null,
+    order: mode === 'list' ? { shuffle: shuffleOn, shuffleWaiting, pending: pending.slice(), ending,
       skipped: entries.filter((e) => e.skipped).map((e) => e.name),
       names: entries.map((e) => e.name) } : null }),
 };

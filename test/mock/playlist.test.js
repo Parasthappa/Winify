@@ -41,15 +41,21 @@ h.open().then(async ({ win, js }) => {
   check('dragging the bottom-right corner resizes it and enlarges the track area', pw2.w > pw.w && pw2.h > pw.h && pw2.rows > pw.rows, JSON.stringify([pw, pw2]));
 
 
-  console.log('1. 500-track playlist you own');
+  console.log('1. 500-track playlist you own: the first 50 at once, the rest in the background');
   await take(); const t0 = Date.now();
   await m('(mock.active = "winify", mock.setContext("spotify:playlist:big", 0), mock.setPaused(false))');
-  let p = await until((v) => v.pl.mode === 'list' && v.rows === 500, 10000);
+  let p = await until((v) => v.pl.mode === 'list' && v.rows >= 50 && v.cur === 0, 10000);
   const loadMs = Date.now() - t0;
-  check('all 500 rows loaded, in order', p.rows === 500 && p.names[0] === N(1000) && p.names[49] === N(1049) && p.names[50] === N(1050) && p.names[499] === N(1499), JSON.stringify([p.rows, p.names[0], p.names[49], p.names[50], p.names[499]]));
-  check('loaded within a few seconds of the context appearing', loadMs < 6000, loadMs + 'ms (includes up to 1s SDK poll)');
   let cs = await take(); const pages = cs.filter((c) => c[0] === 'api:playlistItems');
-  check('paged with the new /items endpoint: 10 pages of 50, offsets 0..450', pages.length === 10 && pages.every((c) => c[3] === '50') && pages.map((c) => +c[2]).sort((a, b) => a - b).join() === '0,50,100,150,200,250,300,350,400,450', JSON.stringify(pages.map((c) => c[2])));
+  // This window was enlarged above: its rows reach near the end of the first 50, so one more page may follow at once.
+  check('the first 50 rows within a few seconds (one page), track 1 highlighted', p.rows >= 50 && pages.length <= 2 && pages[0][2] === '0' && p.names[0] === N(1000) && p.names[49] === N(1049) && loadMs < 6000, JSON.stringify([p.rows, pages.map((c) => c[2]), loadMs]));
+  check('...the rest still coming (500 in all)', !!p.pl.loading && p.pl.loading.total === 500, JSON.stringify(p.pl.loading));
+  await h.wait(4500); cs = await take(); pages.push(...cs.filter((c) => c[0] === 'api:playlistItems'));
+  check('in the background, about one page every 2 s, not all at once', pages.length >= 2 && pages.length <= 4, pages.length + ' pages after ~5 s');
+  p = await until((v) => v.rows === 500 && !v.pl.loading, 30000);
+  cs = await take(); pages.push(...cs.filter((c) => c[0] === 'api:playlistItems'));
+  check('then all 500 rows, in order', p.rows === 500 && p.names[0] === N(1000) && p.names[50] === N(1050) && p.names[499] === N(1499), JSON.stringify([p.rows, p.names[0], p.names[50], p.names[499]]));
+  check('paged with the new /items endpoint: 10 pages of 50, offsets 0..450, each once', pages.length === 10 && pages.every((c) => c[3] === '50') && pages.map((c) => +c[2]).join() === '0,50,100,150,200,250,300,350,400,450', JSON.stringify(pages.map((c) => c[2])));
   check('row shows "artist - title" and the duration', p.curName === N(1000) && p.curDur === 200, JSON.stringify([p.curName, p.curDur]));
   check('current row highlighted and on screen', p.cur === 0 && p.shownCurrent.length === 1 && /Song 1000/.test(p.shownCurrent[0]), JSON.stringify(p.shownCurrent));
 
@@ -90,11 +96,14 @@ h.open().then(async ({ win, js }) => {
   p = await until((v) => v.names[0] === N(3002) && v.cur === 0);
   check('  queue refreshes as tracks change, current stays on top', p.names[0] === N(3002) && p.cur === 0, JSON.stringify(p.names.slice(0, 3)));
 
-  await take(); await m('(mock.setContext("spotify:user:user1:collection", 0))');
-  p = await until((v) => v.pl.mode === 'list' && v.pl.listContext === 'spotify:user:user1:collection' && v.rows === 1234, 15000);
-  check('Liked Songs -> full list, 1234 rows in order', p.pl.mode === 'list' && p.rows === 1234 && p.names[0] === N(4000) && p.names[1233] === N(5233) && p.cur === 0, JSON.stringify([p.pl.mode, p.rows, p.names[0], p.names[1233]]));
+  // Playing track 1,101: far down the list, so the rest is read without pauses until it shows up.
+  await take(); const t1 = Date.now(); await m('(mock.setContext("spotify:user:user1:collection", 1100))');
+  p = await until((v) => v.pl.mode === 'list' && v.pl.listContext === 'spotify:user:user1:collection' && v.cur === 1100, 20000);
+  check('Liked Songs, playing track 1,101: read on without pauses until it is in, then highlighted', p.cur === 1100 && p.curName === N(5100) && Date.now() - t1 < 12000, JSON.stringify([p.cur, p.curName, Date.now() - t1]));
+  p = await until((v) => v.rows === 1234 && !v.pl.loading, 15000);
+  check('  ...the full list, 1234 rows in order', p.rows === 1234 && p.names[0] === N(4000) && p.names[1233] === N(5233), JSON.stringify([p.rows, p.names[0], p.names[1233]]));
   cs = await take(); const saved = cs.filter((c) => c[0] === 'api:savedTracks');
-  check('  read via /me/tracks, 25 pages of 50', saved.length === 25, saved.length);
+  check('  read via /me/tracks, 25 pages of 50, each once', saved.length === 25 && new Set(saved.map((c) => c[1])).size === 25, saved.length);
   await top(); await take(); await dbl(3); await h.wait(800); cs = await take(); play = cs.find((c) => c[0] === 'api:play'); body = play && JSON.parse(play[2]);
   check('  double-click -> Liked Songs context, offset by position', body && body.context_uri === 'spotify:user:user1:collection' && body.offset.position === 3, JSON.stringify(body));
   p = await until((v) => v.cur === 3); check('  highlight follows to row 3', p.cur === 3, p.cur);
@@ -112,13 +121,13 @@ h.open().then(async ({ win, js }) => {
   check('  double-click -> plays from that row on (uris)', body && body.uris && body.uris[0] === 'spotify:track:7001', JSON.stringify(body));
 
   console.log('6. Playing track missing from the list');
-  await m('(mock.setContext("spotify:playlist:big", 0))'); await until((v) => v.pl.mode === 'list' && v.rows === 500 && v.cur === 0, 10000);
+  await m('(mock.setContext("spotify:playlist:big", 0))'); await until((v) => v.pl.mode === 'list' && v.rows === 500 && !v.pl.loading && v.cur === 0, 30000);
   await take(); await m('(mock.track = 9998, mock.position = 0)');
   p = await until((v) => v.curName === N(9998));
   cs = await take();
   check('on Winify, mid-order (queued elsewhere): it joins the order after the current row, no reload', p.cur === 1 && p.rows === 501 && p.names[0] === N(1000) && p.names[2] === N(1001) && !cs.some((c) => c[0] === 'api:playlistItems'), JSON.stringify([p.cur, p.rows, p.names.slice(0, 3)]));
   // Played on another device, the list only mirrors Spotify: reload once, then Autoplay.
-  await m('(mock.active = "phone", mock.setContext("spotify:playlist:big", 0))'); await until((v) => v.pl.mode === 'list' && v.rows === 500 && v.cur === 0, 10000);
+  await m('(mock.active = "phone", mock.setContext("spotify:playlist:big", 0))'); await until((v) => v.pl.mode === 'list' && !v.pl.loading && v.rows === 500 && v.cur === 0, 30000);
   await take(); await m('(mock.track = 9999, mock.position = 0)');
   await m('WinifyControls.refresh()');   // the next poll (every 30 s while another device plays)
   p = await until((v) => v.pl.label === '\u2014 AUTOPLAY \u00b7 FROM SPOTIFY \u2014');
