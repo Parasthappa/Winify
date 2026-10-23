@@ -28,6 +28,7 @@
 
 import * as playlist from './webamp-playlist.js';
 import * as picker from './webamp-picker.js';
+import { analyserHandle } from './webamp-vis.js';
 
 const API = 'https://api.spotify.com/v1';
 const SDK_POLL_MS = 1000;           // local SDK state, no network
@@ -452,7 +453,6 @@ async function commandRepeat(on) {
 export class SpotifyMedia {
   constructor() {
     this._listeners = {};
-    this._analyser = null;
     media = this;
   }
 
@@ -487,21 +487,14 @@ export class SpotifyMedia {
   // this when the stand-in becomes current, and on its own playlist stepping.
   async loadFromUrl() {}
 
-  // Webamp's visualizer reads this. Visualizer data is a later stage, so for
-  // now it is a silent analyser rather than nothing, which would throw.
+  // Webamp's visualizer reads this: a stable handle fed from the shared
+  // system-audio capture (webamp-vis.js), silent while there is none.
   getAnalyser() {
-    if (!this._analyser) {
-      const Ctx = window.AudioContext || window.webkitAudioContext;
-      this._context = new Ctx();
-      this._analyser = this._context.createAnalyser();
-      this._analyser.fftSize = 2048;
-    }
-    return this._analyser;
+    return analyserHandle;
   }
 
   dispose() {
     this._listeners = {};
-    if (this._context) this._context.close().catch(() => {});
   }
 }
 

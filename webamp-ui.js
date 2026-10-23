@@ -15,6 +15,7 @@ import Webamp from './node_modules/webamp/built/webamp.bundle.min.mjs';
 import { SpotifyMedia, middleware, handleTrackDropEvent, attach, detach } from './webamp-spotify.js';
 import { open as openPicker } from './webamp-picker.js';
 import * as inert from './webamp-inert.js';
+import * as vis from './webamp-vis.js';
 
 let webamp = null;
 let mounted = false;
@@ -449,6 +450,7 @@ async function doMount(containerId) {
   watchLayout(container);
   attach(webamp);
   inert.attach(webamp);
+  vis.attach(webamp);
   log('rendered into #' + containerId, 'doubled =', isDoubled());
   return true;
 }
@@ -459,6 +461,7 @@ function unmount() {
   if (unsubscribeLayout) { unsubscribeLayout(); unsubscribeLayout = null; }
   document.removeEventListener('pointerdown', onPointerDown, true);
   document.removeEventListener('pointerup', onPointerUp, true);
+  vis.detach();
   inert.detach();
   detach();
   try { webamp.dispose(); } catch (e) { /* already gone */ }

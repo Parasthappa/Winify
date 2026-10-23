@@ -162,6 +162,15 @@ Spotify's audio-analysis and beat-data endpoints were restricted in late 2024.
 
 Playback works without any of this. Only the visualizers need it.
 
+Capture starts by itself when the player appears and stops when you sign out;
+the menu bar's Start/Stop audio capture controls it by hand. Click the
+visualizer to switch between spectrum bars, oscilloscope and off. It shows
+whatever your Mac is playing, not only Spotify, and it pauses drawing while
+Winify's window is hidden. Without a loopback device it simply stays empty.
+
+While capture runs, macOS shows its orange microphone indicator: it does so
+for any audio input, BlackHole included. Winify does not record you.
+
 ### macOS: BlackHole + a Multi-Output Device
 
 macOS has no built-in way for an app to read its own system output, so a
@@ -263,6 +272,7 @@ app is packaged the prompt names *Electron* rather than Winify.
 | `webamp-playlist.js` | Fills the playlist window from the current Spotify context |
 | `webamp-picker.js` | The playlist picker (Eject, LIST OPTS > load list) |
 | `webamp-inert.js` | Keeps controls with no Spotify meaning quiet |
+| `webamp-vis.js` | Feeds Webamp's visualizer from the system-audio capture |
 | `drm-debug.js` | EME instrumentation, inert unless debugging |
 
 Playback is driven through `window.WinifyPlayer` — `play()`, `pause()`,

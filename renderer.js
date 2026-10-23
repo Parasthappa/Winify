@@ -5,12 +5,20 @@
 // Mount the Winamp face once signed in; take it down on sign-out.
 const mountWebamp = async () => {
   if (!window.WinifyWebamp) return;
-  await window.WinifyWebamp.mount('webamp-root');
+  if (!(await window.WinifyWebamp.mount('webamp-root'))) return;
   window.spotify.webampStateChanged(window.WinifyWebamp.isDoubled());
+  // The visualizer needs system-audio capture; start it with the player. The
+  // menu bar's Start/Stop still control it by hand. Without a loopback device
+  // this refuses (and logs why) and the visualizer stays empty.
+  if (!window.WinifyAudio.isActive()) window.WinifyAudio.start();
 };
 window.spotify.onAuthConnected(mountWebamp);
 window.spotify.onAuthRestored(mountWebamp);
-window.spotify.onSignedOut(() => window.WinifyWebamp && window.WinifyWebamp.unmount());
+window.spotify.onSignedOut(() => {
+  if (window.WinifyWebamp) window.WinifyWebamp.unmount();
+  // Nothing to visualize on the sign-in screen; release the audio input.
+  window.WinifyAudio.stop();
+});
 
 // The window title follows the screen: index.html's "Winify — Sign in" on the
 // sign-in screen, plain "Winify" once the player is showing.
