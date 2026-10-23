@@ -6,9 +6,14 @@ Playback SDK). User-facing docs: README.md. How it is built: DEVELOPMENT.md.
 ## Before every commit
 
 1. Run the full test suite: `npm test` (about 15 minutes; no Spotify requests).
-2. Run the smoke test against the real Spotify: `npm run smoke` (about a
-   minute and a half, at most 30 Web API requests). It needs Winify quit and a
-   remembered sign-in; ask the user before running it, since it plays music.
+2. Run the smoke test against the real Spotify: `npm run smoke` (under a
+   minute, at most 30 Web API requests by Winify and 60 by Spotify's player
+   library). It needs Winify quit and a remembered sign-in, plays music, and
+   starts from Winify's default layout, putting the user's own back afterwards.
+   Standing permission: up to 3 runs per day without asking, at least 10
+   minutes apart, as long as those caps stay at 30 and 60. Check
+   `test/.output/smoke-runs.log` (one line per run) first. Beyond that, or
+   with higher caps, ask the user.
 3. Never commit with a failing test, in either. If a test's expectation is
    genuinely out of date (the requested behaviour changed it), update the test
    in the same commit and say which check changed and why.

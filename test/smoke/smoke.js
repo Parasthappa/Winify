@@ -5,12 +5,17 @@
 // hearing the music, playing from search, and lyrics. It plays music out loud
 // for about a minute, then pauses.
 //
+// Starts from Winify's default window layout, window positions and lyrics
+// setting, with Spotify's shuffle and repeat off, and puts yours back at the
+// end (known-state.js).
+//
 // Needs: Winify quit (it uses Winify's own settings and sign-in), a previous
 // sign-in with "Remember me" on, Spotify Premium, and (for the visualizer)
 // the Multi-Output Device as the Mac's sound output.
 //
-// Budget: at most 30 Web API requests per run (a 31st is refused, and the run
-// fails), checked for a rate limit first; about a minute and a half. Every
+// Budget per run: at most 30 Web API requests by Winify itself and 60 by
+// Spotify's player library, preflights included (one more is refused, and the
+// run fails); checked for a rate limit first; about a minute and a half. Every
 // request is listed at the end.
 //
 // At startup Winify loads the whole list of whatever was playing last (Liked
@@ -20,7 +25,11 @@
 const { app, BrowserWindow, session } = require('electron');
 const fs = require('fs'), path = require('path');
 
+// Two budgets: Winify's own Web API calls, and those Spotify's player library
+// (the Web Playback SDK) makes to play the music. Preflights count in both.
 const BUDGET = 30;
+const PLAYER_BUDGET = 60;
+const PLAYER_PATH = /^\/v1\/(melody|track-playback|storage-resolve|widevine-license)\//;
 const TIME_LIMIT_MS = 120000;
 const SEARCH = 'Blinding Lights The Weeknd';
 
@@ -39,13 +48,24 @@ const check = (label, ok, detail) => {
 function report() {
   const groups = {};
   sent.forEach((w) => { const k = w.replace(/\/(playlists|albums|tracks|artists)\/[A-Za-z0-9]{10,}/, '/$1/{id}'); groups[k] = (groups[k] || 0) + 1; });
-  console.log('\nSpotify requests: ' + count.webApi + ' Web API (budget ' + BUDGET + ')' +
+  const pGroups = {};
+  playerSent.forEach((w) => { const k = w.replace(/\/(devices|interactive\/\d+)\/[0-9a-f]{20,}/, '/$1/{id}'); pGroups[k] = (pGroups[k] || 0) + 1; });
+  console.log('\nWinify\'s own Web API requests: ' + count.webApi + ' (budget ' + BUDGET + ')' +
     (count.heldBack ? ', ' + count.heldBack + ' startup list loads held back (not sent)' : '') +
-    (count.refused ? ', ' + count.refused + ' refused over budget (not sent)' : '') +
-    '; ' + count.signIn + ' sign-in refresh; ' + count.player + ' from Spotify\'s own player library.');
+    (count.refused ? ', ' + count.refused + ' refused over budget (not sent)' : ''));
   Object.entries(groups).forEach(([k, n]) => console.log('  ' + String(n).padStart(3) + 'x ' + k));
+  console.log('Spotify\'s player library, Web API requests: ' + count.playerApi + ' (budget ' + PLAYER_BUDGET + ')' +
+    (count.playerRefused ? ', ' + count.playerRefused + ' refused over budget (not sent)' : ''));
+  Object.entries(pGroups).forEach(([k, n]) => console.log('  ' + String(n).padStart(3) + 'x ' + k));
+  console.log('Also: ' + count.signIn + ' sign-in refresh; ' + count.player + ' to Spotify\'s audio servers and live connection (not the Web API).');
 }
-const stop = (message, code) => { console.log('\n' + message); report(); app.exit(code); throw new Error('stopped'); };
+// Your own layout, window positions and lyrics setting, put back (see known-state.js).
+let restoreState = async () => {};
+const stop = (message, code) => {
+  console.log('\n' + message); report();
+  Promise.resolve().then(() => restoreState()).catch(() => {}).finally(() => app.exit(code));
+  throw new Error('stopped');
+};
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 if (!app.requestSingleInstanceLock()) stop('Winify is running. Quit it (menu-bar icon > Quit Winify) and run the smoke test again.', 2);
@@ -54,15 +74,25 @@ try { saved = JSON.parse(fs.readFileSync(tokensFile, 'utf8')); } catch (e) { /* 
 if (!saved || !saved.refreshToken) stop('No remembered sign-in. Start Winify, sign in with "Remember me" on, quit it, and run the smoke test again.', 2);
 
 // Every request to Spotify, counted; the Web API ones against the budget.
-const count = { webApi: 0, refused: 0, heldBack: 0, signIn: 0, player: 0 };
+const count = { webApi: 0, refused: 0, heldBack: 0, signIn: 0, player: 0, playerApi: 0, playerRefused: 0 };
 const sent = [];                       // "GET /v1/me/player" ...
+const playerSent = [];
 let phase = 'startup';                 // 'startup' | 'flows'
 const LIST_LOAD = /^GET \/v1\/(me\/tracks|playlists\/[^/]+\/items|albums\/[^/]+\/tracks)\b/;
 let rateLimited = null;
 app.on('ready', () => {
+  // Start from Winify's defaults, whatever state Winify was left in.
+  session.defaultSession.registerPreloadScript({ type: 'frame', filePath: path.join(__dirname, 'known-state.js') });
   session.defaultSession.webRequest.onBeforeRequest({ urls: ['https://*.spotify.com/*', 'https://*.scdn.co/*', 'wss://*.spotify.com/*'] }, (d, cb) => {
     if (d.url.startsWith('https://api.spotify.com/v1/')) {
       const what = d.method + ' ' + new URL(d.url).pathname;
+      if (PLAYER_PATH.test(new URL(d.url).pathname)) {
+        if (count.playerApi >= PLAYER_BUDGET) { count.playerRefused++; cb({ cancel: true }); return; }
+        count.playerApi++;
+        playerSent.push(what);
+        cb({});
+        return;
+      }
       if (phase === 'startup' && LIST_LOAD.test(what)) { count.heldBack++; cb({ cancel: true }); return; }
       if (count.webApi >= BUDGET) { count.refused++; cb({ cancel: true }); return; }
       count.webApi++;
@@ -94,6 +124,9 @@ global.fetch = (u, o) => {
 
 require(path.join(__dirname, '..', '..', 'main.js'));
 setTimeout(() => stop('TIMED OUT after ' + TIME_LIMIT_MS / 1000 + ' s', 3), TIME_LIMIT_MS);
+// One line per run, for the runs-per-day limit (CLAUDE.md).
+fs.mkdirSync(path.join(__dirname, '..', '.output'), { recursive: true });
+fs.appendFileSync(path.join(__dirname, '..', '.output', 'smoke-runs.log'), new Date().toLocaleString('sv-SE') + '\n');
 
 app.whenReady().then(async () => {
   let win; while (!(win = BrowserWindow.getAllWindows()[0])) await wait(100);
@@ -111,10 +144,13 @@ app.whenReady().then(async () => {
   const guard = () => {
     if (rateLimited) stop('Spotify is rate-limiting this account (Retry-After ' + rateLimited + ' s, about ' +
       Math.ceil(Number(rateLimited) / 60) + ' min). Nothing is wrong with Winify; try again after that.', 4);
-    if (count.refused) stop('Stopped: the run tried to use more than ' + BUDGET + ' Spotify requests.', 5);
+    if (count.refused) stop('Stopped: Winify tried to use more than ' + BUDGET + ' Web API requests.', 5);
+    if (count.playerRefused) stop('Stopped: Spotify\'s player library tried to use more than ' + PLAYER_BUDGET + ' Web API requests.', 5);
   };
-  const lyricsWasOpen = await js(`localStorage.getItem('winify.lyrics.open')`).catch(() => null);
-  console.log('Winify smoke test (real Spotify, at most ' + BUDGET + ' Web API requests)\n');
+  restoreState = () => js(`(() => { const s = localStorage.getItem('winify.smoke.saved'); if (s == null) return;
+    const snap = JSON.parse(s); for (const k in snap) { if (snap[k] == null) localStorage.removeItem(k); else localStorage.setItem(k, snap[k]); }
+    localStorage.removeItem('winify.smoke.saved'); return Object.keys(snap).filter((k) => snap[k] != null).length; })()`);
+  console.log('Winify smoke test (real Spotify, at most ' + BUDGET + ' Web API requests by Winify and ' + PLAYER_BUDGET + ' by Spotify\'s player library)\n');
 
   // 1. Sign-in
   const ready = await until(`!!(window.WinifyWebamp && WinifyWebamp.isMounted() && window.WinifyPlayer && WinifyPlayer.getDeviceId())`, 30000);
@@ -133,8 +169,31 @@ app.whenReady().then(async () => {
   guard();
   check('picker plays "' + choice.name + '" on Winify; the playlist window lists it, track 1 current', !!pl,
     pl ? pl.s.header + ' / ' + pl.s.current : JSON.stringify(await js('WinifyPlaylist.state()')).slice(0, 160));
-  const p0 = await js('WinifyControls.state().positionMs'); await wait(2500); const p1 = await js('WinifyControls.state().positionMs');
-  check('the music actually plays (position advanced ' + Math.round((p1 - p0) / 100) / 10 + ' s in 2.5 s)', p1 - p0 > 1500);
+  // The DRM failure this guards against played some tracks for 5-7 s before
+  // they stopped, so look about 10 s in: the same track, still playing, still
+  // moving. The player's own state (read locally: no Spotify requests).
+  const sdk = `WinifyPlayer.getState().then((s) => s && { uri: s.track_window.current_track.uri, paused: s.paused, pos: s.position })`;
+  const s0 = await js(sdk);
+  let s1 = null;
+  for (const end = Date.now() + 15000; Date.now() < end;) {
+    s1 = await js(sdk);
+    if (!s1 || s1.uri !== (s0 && s0.uri) || s1.paused || s1.pos >= 10000) break;
+    await wait(500);
+  }
+  await wait(2000); const s2 = await js(sdk);
+  const steady = !!(s0 && s1 && s2) && s1.uri === s0.uri && s2.uri === s0.uri && !s1.paused && !s2.paused && s1.pos >= 10000 && s2.pos - s1.pos >= 1500;
+  check('the music actually plays: the same track still playing and moving about 10 s in', steady,
+    s1 && s2 ? (s1.uri === (s0 && s0.uri) ? 'same track' : 'track changed') + ', at ' + Math.round(s1.pos / 100) / 10 + ' s' + (s1.paused ? ' (paused)' : '') +
+      ', then ' + Math.round((s2.pos - s1.pos) / 100) / 10 + ' s further in 2 s' : 'no player state');
+
+  // Spotify's shuffle and repeat are your account's, not Winify's: off for the
+  // run (a request each, only if on), and back afterwards.
+  const spotifyWas = await js(`(() => { const n = WinifyControls.state(); return { shuffle: !!n.shuffle, repeat: n.repeat || 'off' }; })()`);
+  if (spotifyWas.shuffle || spotifyWas.repeat !== 'off') {
+    if (spotifyWas.shuffle) await js(`window.spotify.api('PUT', '/me/player/shuffle?state=false')`);
+    if (spotifyWas.repeat !== 'off') await js(`window.spotify.api('PUT', '/me/player/repeat?state=off')`);
+    await js('WinifyControls.refresh()'); await wait(500);
+  }
 
   // 3. Next / Previous
   const t1 = await js('WinifyControls.state().trackUri');
@@ -168,15 +227,19 @@ app.whenReady().then(async () => {
   check('Enter plays it on Winify', !!playing, playing);
 
   // 6. Lyrics for it
-  await js(`document.querySelector('#webamp #button-i').dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+  // The I button toggles, and Winify reopens lyrics if they were open last time.
+  if (!(await js(`WinifyLyrics.isOpen()`))) await js(`document.querySelector('#webamp #button-i').dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
   const lyr = await until(`(() => { const s = WinifyLyrics.state(); return s.entry && s.entry.state === 'found' && s.text && s.text.length > 200 ? s.entry.source : null; })()`, 20000);
   guard();
   check('lyrics found and shown for it (LRCLIB)', !!lyr, lyr ? 'via /api/' + lyr : JSON.stringify(await js('WinifyLyrics.state()')).slice(0, 160));
   await js(`WinifyLyrics.close(false)`);
-  await js(`localStorage.setItem('winify.lyrics.open', ${JSON.stringify(lyricsWasOpen || '0')})`);
 
-  // Done: pause, and report what it cost.
-  await js(`WinifyPlayer.pause()`); await wait(500);
+  // Done: your shuffle and repeat back, pause, your settings back, and what it cost.
+  if (spotifyWas.shuffle) await js(`window.spotify.api('PUT', '/me/player/shuffle?state=true')`).catch(() => {});
+  if (spotifyWas.repeat && spotifyWas.repeat !== 'off') await js(`window.spotify.api('PUT', '/me/player/repeat?state=${spotifyWas.repeat}')`).catch(() => {});
+  await js(`WinifyPlayer.pause()`); await wait(800);   // after Winify's own last saves
+  const restored = await restoreState();
+  console.log('Your own settings put back: ' + (restored == null ? 'nothing was set aside' : restored + ' of 3 (the others were Winify\'s defaults already)'));
   guard();
   report();
   console.log(stamp().trim() + ' in all.\n' + (fails ? 'SMOKE: ' + fails + ' FAILED' : 'SMOKE: ALL PASSED'));
