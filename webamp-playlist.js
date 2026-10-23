@@ -14,7 +14,9 @@
  * When an album or playlist runs out and Spotify's Autoplay carries on, the
  * playing track is no longer in the list (Spotify may still report the old
  * album as the source). The list is then replaced by now playing + the queue,
- * under an "Autoplay" label row, and refreshed on every track change. The
+ * under an "AUTOPLAY · FROM SPOTIFY" label row, and refreshed on every track
+ * change. Like any list that is Spotify's own queue, it is read-only: a drag
+ * shows a not-allowed cursor, REM and Delete say so in the title. The
  * same happens after a single track started from Jump to track ends. A queue
  * started from an artist is labelled with the artist's name.
  *
@@ -28,8 +30,8 @@
  *
  * A full list played on Winify is Winify's own running order (see "Winify's
  * own running order" below): rows can be dragged into a new order, skipped
- * (REM, Delete; Cmd+Z undoes), and tracks queued play next. Shuffle shuffles
- * that order, visibly, instead of Spotify's.
+ * or restored (REM, Delete; Cmd+Z undoes), and tracks queued play next.
+ * Shuffle shuffles that order, visibly, instead of Spotify's.
  *
  * The list is swapped in only when completely loaded, so it never shows half
  * a playlist; until then the single stand-in entry shows the current track.
@@ -57,6 +59,8 @@ const PLAN_WAIT_MS = 10000;         // how long a Play track may take to start
 const QUEUE_LEAD_MS = 30000;
 const RESTART_MS = 3000;            // Previous further in than this restarts the track
 const SHUFFLE_TAKEOVER_MS = 4000;   // after turning Spotify's shuffle off, ignore stale reports
+const AUTOPLAY_LABEL = 'AUTOPLAY \u00b7 FROM SPOTIFY';
+const DRAG_THRESHOLD_PX = 4;
 
 let ctx = null;                     // { webamp, dispatch, api, now, say, log, warn, refreshSoon, deviceId }
 let mode = 'standin';               // 'standin' | 'list' | 'queue' | 'single'
@@ -87,9 +91,10 @@ let preparedFor = null;             // the entry whose end has been prepared
 let expectId = null;                // the entry Winify just started
 let ending = false;                 // the order ran out; Autoplay is being started
 let orderTimer = null;
-let skipUndo = [];                  // batches of skipped entries, for Cmd+Z
+let skipUndo = [];                  // skips and restores ({ entries, skip }), for Cmd+Z
 let shuffleTakenAt = 0;
 let skipStyle = null;               // <style> dimming the skipped rows on screen
+let noDragStyle = null;
 let unsubscribe = null;
 let paintFrame = 0;
 
@@ -144,7 +149,7 @@ function installList(list, newMode, contextUri, name, label) {
   if (newMode === 'list') startOrder();
   highlight(true);
   if (newMode === 'list' && shuffleOn && currentIndex >= 0) applyShuffle();
-  if (newMode === 'queue' && shuffleOn && label !== 'Autoplay' && ctx.now.where === 'winify') handShuffleBack();
+  if (newMode === 'queue' && shuffleOn && label !== AUTOPLAY_LABEL && ctx.now.where === 'winify') handShuffleBack();
   paintSkips();
 }
 
@@ -347,10 +352,10 @@ async function load(contextUri) {
 async function queueLabel(contextUri) {
   const k = kind(contextUri);
   const n = ctx.now;
-  if (autoplay) return 'Autoplay';
+  if (autoplay) return AUTOPLAY_LABEL;
   if (k === 'none') {
     if (singleTrackUri && n.trackUri === singleTrackUri) return null;   // the track itself
-    return singleTrackUri || cameFromList ? 'Autoplay' : null;
+    return singleTrackUri || cameFromList ? AUTOPLAY_LABEL : null;
   }
   if (k === 'artist') {
     if (!(contextUri in artistNames)) {
@@ -788,45 +793,86 @@ export function reordered() {
   paintSkips();
 }
 
-function skipEntries(list) {
-  const fresh = list.filter((e) => e && !e.isLabel && !e.skipped);
-  if (!fresh.length) return;
-  fresh.forEach((e) => { e.skipped = true; });
-  skipUndo.push(fresh);
+// Skip (skip = true) or restore entries; recorded for Cmd+Z.
+function setSkipped(list, skip) {
+  const changed = list.filter((e) => e && !e.isLabel && !!e.skipped !== skip);
+  if (!changed.length) return;
+  changed.forEach((e) => { e.skipped = skip; });
+  skipUndo.push({ entries: changed, skip });
   paintSkips();
-  ctx.say(fresh.length === 1 ? 'Skipping: ' + fresh[0].name : 'Skipping ' + fresh.length + ' tracks');
-  ctx.log('play order: skipping', fresh.map((e) => e.name).join(', '));
+  const verb = skip ? 'Skipping' : 'Not skipping';
+  ctx.say(changed.length === 1 ? verb + ': ' + changed[0].name : verb + ' ' + changed.length + ' tracks');
+  ctx.log('play order:', verb.toLowerCase(), changed.map((e) => e.name).join(', '));
   scheduleOrder();
 }
 
-// REM > Remove selected, REM > Crop, Delete: skip rather than remove.
+// REM, Delete: a toggle. Skipped tracks stay listed. If every selected
+// track is skipped already, they are restored; otherwise the rest are skipped.
 export function skipIds(ids) {
   const set = new Set(ids.map(Number));
-  skipEntries(entries.filter((e) => set.has(e.id)));
+  const chosen = entries.filter((e) => set.has(e.id) && !e.isLabel);
+  if (!chosen.length) return;
+  setSkipped(chosen, !chosen.every((e) => e.skipped));
 }
 
+// Cmd+Z: undo the last skip or restore.
 function undoSkip() {
-  const batch = skipUndo.pop();
-  if (!batch) { ctx.say('Nothing to undo'); return; }
-  batch.forEach((e) => { e.skipped = false; });
+  const last = skipUndo.pop();
+  if (!last) { ctx.say('Nothing to undo'); return; }
+  last.entries.forEach((e) => { e.skipped = !last.skip; });
   paintSkips();
-  ctx.say(batch.length === 1 ? 'Not skipping: ' + batch[0].name : 'Not skipping ' + batch.length + ' tracks');
+  const verb = last.skip ? 'Not skipping' : 'Skipping';
+  ctx.say(last.entries.length === 1 ? verb + ': ' + last.entries[0].name : verb + ' ' + last.entries.length + ' tracks');
   scheduleOrder();
 }
 
 function onKeyDown(e) {
-  if (!ctx || mode !== 'list' || e.altKey || e.ctrlKey) return;
+  if (!ctx || e.altKey || e.ctrlKey) return;
   const t = e.target;
   if (t && (t.isContentEditable || /^(input|textarea|select)$/i.test(t.tagName))) return;
   const state = ctx.webamp.store.getState();
   if ((e.key === 'Delete' || e.key === 'Backspace') && !e.metaKey) {
     if (state.windows.focused !== 'playlist' || !state.playlist.selectedTracks.length) return;
     e.preventDefault();
-    skipIds(state.playlist.selectedTracks);
-  } else if ((e.key === 'z' || e.key === 'Z') && e.metaKey && !e.shiftKey) {
+    if (mode === 'list') skipIds(state.playlist.selectedTracks);
+    else readOnlyNote();
+  } else if (mode === 'list' && (e.key === 'z' || e.key === 'Z') && e.metaKey && !e.shiftKey) {
     e.preventDefault();
     undoSkip();
   }
+}
+
+// REM skips (or restores) the selected rows at once, like Delete, in place
+// of Webamp's REM SEL / CROP / REM ALL menu.
+function onRemClick(e) {
+  if (!ctx || !(e.target instanceof Element) || !e.target.closest('#webamp #playlist-remove-menu')) return;
+  e.preventDefault();
+  e.stopPropagation();
+  if (mode !== 'list') { readOnlyNote(); return; }
+  const selected = ctx.webamp.store.getState().playlist.selectedTracks;
+  if (!selected.length) { ctx.say('Select tracks to skip'); return; }
+  skipIds(selected);
+}
+
+// Lists that are Spotify's own (Autoplay, Up Next) cannot be edited; say so.
+function readOnlyNote() {
+  const isAutoplay = entries[0] && entries[0].isLabel && entries[0].name.includes(AUTOPLAY_LABEL);
+  ctx.say(isAutoplay ? 'Autoplay is from Spotify - read only' : 'Up Next is from Spotify - read only');
+}
+
+// ...and a drag there shows a not-allowed cursor rather than doing nothing.
+let dragFrom = null;
+function onPointerDown(e) {
+  dragFrom = ctx && mode !== 'list' && e.button === 0 && e.target instanceof Element &&
+    e.target.closest('#webamp .track-cell') ? e.clientY : null;
+}
+function onPointerMove(e) {
+  if (dragFrom == null || !(e.buttons & 1)) return;
+  if (Math.abs(e.clientY - dragFrom) >= DRAG_THRESHOLD_PX) document.documentElement.classList.add('winify-no-drag');
+}
+function onPointerUp() {
+  dragFrom = null;
+  document.documentElement.classList.remove('winify-no-drag');
 }
 
 // Skipped rows are dimmed and struck through. Webamp draws only the visible
@@ -943,9 +989,16 @@ export function init(c) {
   ctx = c;
   document.addEventListener('dblclick', onDoubleClickCapture, true);
   document.addEventListener('keydown', onKeyDown);
+  document.addEventListener('click', onRemClick, true);
+  document.addEventListener('pointerdown', onPointerDown, true);
+  document.addEventListener('pointermove', onPointerMove, true);
+  document.addEventListener('pointerup', onPointerUp, true);
   skipStyle = document.createElement('style');
   skipStyle.id = 'winify-skipped';
   document.head.appendChild(skipStyle);
+  noDragStyle = document.createElement('style');
+  noDragStyle.textContent = '.winify-no-drag, .winify-no-drag * { cursor: not-allowed !important; }';
+  document.head.appendChild(noDragStyle);
   unsubscribe = ctx.webamp.store.subscribe(paintSkips);
   showStandIn();
 }
@@ -975,6 +1028,13 @@ export function reset() {
   unsubscribe = null;
   if (skipStyle) skipStyle.remove();
   skipStyle = null;
+  if (noDragStyle) noDragStyle.remove();
+  noDragStyle = null;
+  document.removeEventListener('click', onRemClick, true);
+  document.removeEventListener('pointerdown', onPointerDown, true);
+  document.removeEventListener('pointermove', onPointerMove, true);
+  document.removeEventListener('pointerup', onPointerUp, true);
+  onPointerUp();
   pending = [];
   ownQueueing.length = 0;
   ctx = null;
