@@ -29,6 +29,7 @@
 import * as playlist from './webamp-playlist.js';
 import * as picker from './webamp-picker.js';
 import * as search from './webamp-search.js';
+import * as lyrics from './webamp-lyrics.js';
 import { analyserHandle } from './webamp-vis.js';
 
 const API = 'https://api.spotify.com/v1';
@@ -635,6 +636,7 @@ export function attach(instance) {
     webamp, now, api: apiNotingQueue, say, log, warn, refreshSoon,
     deviceId: winifyDeviceId,
   }, playlist);
+  lyrics.init({ webamp, now, api, log, warn });
   attached = true;
   guardMediaFilePrompt();
   document.addEventListener('click', onClickCapture, true);
@@ -666,6 +668,7 @@ export function detach() {
   playlist.reset();
   picker.reset();
   search.reset();
+  lyrics.reset();
   timers.forEach(clearInterval);
   timers = [];
   document.removeEventListener('click', onClickCapture, true);

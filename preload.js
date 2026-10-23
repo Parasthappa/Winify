@@ -15,6 +15,8 @@ contextBridge.exposeInMainWorld('spotify', {
   getToken: () => ipcRenderer.invoke('get-token'),
   transferPlayback: (deviceId, startPlaying) =>
     ipcRenderer.invoke('transfer-playback', deviceId, startPlaying),
+  // Lyrics lookups on lrclib.net, made by the main process.
+  lrclib: (path, params) => ipcRenderer.invoke('lrclib', path, params),
 
   // Main -> renderer
   onStatus: on('status'),

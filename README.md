@@ -159,6 +159,11 @@ QUEUE** (shown in its title): there Enter and double-click queue the track
 and the window stays open for more, while Shift+Enter or right-click > Play
 plays it.
 
+For the current track's lyrics, press the **I** button on the main window's
+left edge, **Option+3** (Winamp's Alt+3), or **MISC > FILE INF** in the
+playlist window. The window follows track changes and is reopened at launch
+if you left it open. Lyrics from [LRCLIB](https://lrclib.net).
+
 Close (x) and Exit hide the Winify window and minimize (_) minimizes it, as
 the window's own buttons do. Controls with no Spotify equivalent (balance,
 the equalizer, adding or removing files, saving lists) do nothing.

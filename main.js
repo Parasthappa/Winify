@@ -894,6 +894,22 @@ ipcMain.handle('get-token', async () => {
   return tokens.accessToken;
 });
 
+// Lyrics come from LRCLIB (lrclib.net). The page cannot set a User-Agent, as
+// LRCLIB asks clients to, and its security policy reaches only Spotify, so
+// the lookups are made here. Only LRCLIB's two lookup endpoints are allowed.
+const LRCLIB = 'https://lrclib.net';
+const LRCLIB_PATHS = new Set(['/api/get', '/api/search']);
+const LRCLIB_TIMEOUT_MS = 15000;
+ipcMain.handle('lrclib', async (_event, path, params) => {
+  if (!LRCLIB_PATHS.has(path)) throw new Error('not an LRCLIB lookup: ' + path);
+  const res = await fetch(LRCLIB + path + '?' + new URLSearchParams(params), {
+    headers: { 'User-Agent': 'Winify/' + app.getVersion() + ' (Winamp-style Spotify player; Electron)' },
+    signal: AbortSignal.timeout(LRCLIB_TIMEOUT_MS),
+  });
+  if (!res.ok) return { status: res.status, body: null };
+  return { status: res.status, body: await res.json() };
+});
+
 // Makes the in-app device the active Spotify Connect target.
 ipcMain.handle('transfer-playback', async (_event, deviceId, startPlaying) => {
   if (!tokens || !deviceId) return { ok: false, error: 'not connected' };
