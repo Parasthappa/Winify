@@ -40,6 +40,8 @@ function connect() {
   node.smoothingTimeConstant = smoothing;
   source.connect(node);             // input only: never to context.destination
   log('connected to the shared audio source (fftSize ' + fftSize + ')');
+  lastRoute = null;
+  checkOutputRoute();
 }
 
 function disconnect(reason) {
@@ -72,6 +74,36 @@ export const analyserHandle = {
 
 export function isLive() {
   return !!node;
+}
+
+// Capture can be running on BlackHole and still hear nothing: BlackHole only
+// receives what macOS sends it, which takes the Multi-Output Device being the
+// system output. That looks like a broken visualizer, so say what is wrong.
+// Chromium names the current default output ("Default - <device>").
+const ROUTES_TO_LOOPBACK = /multi-?output|blackhole|loopback|aggregate|soundflower/i;
+let lastRoute = null;
+
+async function checkOutputRoute() {
+  if (!node || !navigator.mediaDevices) return;
+  let label = '(unknown)';
+  try {
+    const out = (await navigator.mediaDevices.enumerateDevices())
+      .find((d) => d.kind === 'audiooutput' && d.deviceId === 'default');
+    if (out && out.label) label = out.label.replace(/^Default - /, '');
+  } catch (e) { /* cannot tell; say nothing */ return; }
+  if (label === lastRoute) return;
+  lastRoute = label;
+  if (ROUTES_TO_LOOPBACK.test(label)) {
+    log('system output is "' + label + '" - music reaches the loopback device');
+  } else {
+    log('*** system output is "' + label + '", not the Multi-Output Device: BlackHole hears ' +
+      'nothing, so the visualizer stays empty. Choose the Multi-Output Device in ' +
+      'System Settings > Sound > Output.');
+  }
+}
+
+if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
+  navigator.mediaDevices.addEventListener('devicechange', () => { checkOutputRoute(); });
 }
 
 // ---- Pausing the drawing while Winify is hidden -----------------------------
