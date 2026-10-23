@@ -25,14 +25,14 @@
  * R = random, C = auto-cycle, F = full screen (Escape leaves), O = load
  * presets; H = next without blending and L = the preset list are Webamp's.
  * The same, with the keys shown, are on the window's right-click menu. The
- * name shows briefly on each change. Presets you add are in
+ * name shows briefly on each change (and they are in Webamp's preset list,
+ * L). Presets you add are in
  * webamp-milkdrop-presets.js.
  *
  * The playlist window's LIST OPTS button is VIZ here: it opens and closes
  * this window, like the V button.
  */
 
-import { showMenu } from './webamp-search.js';
 import * as yours from './webamp-milkdrop-presets.js';
 
 const log = (...args) => console.log('[winify/milkdrop]', ...args);
@@ -371,42 +371,102 @@ function onKeyDown(e) {
 }
 
 // ---- The right-click menu ------------------------------------------------------
-// In place of Webamp's (Fullscreen, Desktop Mode, Quit). Built by the search
-// window's showMenu, Webamp's own markup, so it looks the same; separators and
-// the checkmark are Webamp's li.hr and li.checked.
+// Webamp's own (Fullscreen, Desktop Mode, Quit), extended: once Webamp has put
+// it up, Winify's items go in at the top, in Webamp's markup (li, span.hotkey,
+// li.hr, li.checked) so its stylesheet draws them; Webamp's Fullscreen and
+// Desktop Mode are hidden (Winify's full-screen item shows its keys), and its
+// separator and Quit stay at the end.
+
+let menuForMilkdrop = false;
+let menuWatch = null;
 
 function onContextMenu(e) {
-  if (!webamp || !(e.target instanceof Element) || !e.target.closest('#webamp .gen-window')) return;
-  e.preventDefault();
-  e.stopPropagation();
-  const history = md().presetHistory;
+  menuForMilkdrop = !!(webamp && e.target instanceof Element && e.target.closest('#webamp .gen-window'));
+}
+
+function menuItems() {
   const full = isFullscreen();
-  const items = [
+  return [
     { label: full ? 'Exit full screen' : 'Full screen', hotkey: full ? 'Esc' : 'F', action: toggleFullscreen },
-    { label: 'Next preset', hotkey: 'Space', action: () => next(), sep: true },
-    { label: 'Previous preset', hotkey: 'Backspace', action: () => previous(), disabled: history.length < 2 },
+    { sep: true },
+    { label: 'Next preset', hotkey: 'Space', action: () => next() },
+    { label: 'Previous preset', hotkey: 'Backspace', action: () => previous(), disabled: md().presetHistory.length < 2 },
     { label: 'Random preset', hotkey: 'R', action: () => random() },
-    { label: 'Auto-cycle', hotkey: 'C', action: () => setAutoCycle(!config.autoCycle), checked: config.autoCycle, sep: true },
-    { label: 'Load presets\u2026', hotkey: 'O', action: choosePresets, sep: true },
+    { sep: true },
+    { label: 'Auto-cycle', hotkey: 'C', action: () => setAutoCycle(!config.autoCycle), checked: config.autoCycle },
+    { sep: true },
+    { label: 'Load presets\u2026', hotkey: 'O', action: choosePresets },
   ];
-  // A menu item lies outside the window, so clicking one takes Webamp's focus
-  // away; give it back so the keys keep working.
-  const refocus = (item) => ({ ...item, action: () => { webamp.store.dispatch({ type: 'SET_FOCUSED_WINDOW', window: 'milkdrop' }); item.action(); } });
-  showMenu(e.clientX, e.clientY, items.map(refocus));
-  const menu = document.getElementById('webamp-context-menu');
-  if (!menu) return;
-  const lis = [...menu.querySelectorAll('ul.context-menu > li')];
-  items.forEach((item, i) => {
-    if (item.checked) lis[i].classList.add('checked');
+}
+
+function extendMenu(container) {
+  const ul = container.querySelector('ul.context-menu');
+  if (!ul || ul.dataset.winify) return;
+  ul.dataset.winify = '1';
+  for (const li of ul.querySelectorAll(':scope > li')) {
+    if (/^(Fullscreen|Desktop Mode)$/.test(li.textContent.trim())) li.style.display = 'none';
+  }
+  const first = ul.firstChild;
+  for (const item of menuItems()) {
+    const li = document.createElement('li');
     if (item.sep) {
-      const hr = document.createElement('li');
-      hr.className = 'hr';
-      hr.appendChild(document.createElement('hr'));
-      lis[i].before(hr);
+      li.className = 'hr';
+      li.appendChild(document.createElement('hr'));
+    } else {
+      li.appendChild(document.createTextNode(item.label));
+      const hk = document.createElement('span');
+      hk.className = 'hotkey';
+      hk.textContent = item.hotkey;
+      li.appendChild(hk);
+      if (item.checked) li.classList.add('checked');
+      if (item.disabled) li.style.opacity = '0.5';
+      li.dataset.winifyItem = item.label;
+      // Webamp closes the menu on the click itself. A menu item lies outside
+      // the window, which takes Webamp's focus away: give it back so the keys
+      // keep working.
+      li.addEventListener('click', () => {
+        if (item.disabled) return;
+        webamp.store.dispatch({ type: 'SET_FOCUSED_WINDOW', window: 'milkdrop' });
+        item.action();
+      });
+    }
+    ul.insertBefore(li, first);
+  }
+  // In full screen only the full-screen element is drawn: the menu goes in
+  // there while it is open (see removeChild below).
+  if (document.fullscreenElement && container.parentNode !== document.fullscreenElement) {
+    document.fullscreenElement.appendChild(container);
+  }
+}
+
+// Webamp adds its menu's container to <body> and takes it out with
+// document.body.removeChild. One moved into the full-screen element is taken
+// out from there instead; everything else goes through unchanged.
+function allowMovedMenu() {
+  const body = document.body;
+  if (body.removeChild.winify) return;
+  const original = body.removeChild;
+  const removeChild = function (node) {
+    if (node && node.id === 'webamp-context-menu' && node.parentNode && node.parentNode !== body) {
+      node.parentNode.removeChild(node);
+      return node;
+    }
+    return original.call(this, node);
+  };
+  removeChild.winify = true;
+  body.removeChild = removeChild;
+}
+
+function watchMenus() {
+  allowMovedMenu();
+  menuWatch = new MutationObserver((records) => {
+    for (const r of records) {
+      for (const n of r.addedNodes) {
+        if (n.id === 'webamp-context-menu' && menuForMilkdrop) { menuForMilkdrop = false; extendMenu(n); }
+      }
     }
   });
-  // In full screen only the full-screen element is drawn.
-  if (document.fullscreenElement) document.fullscreenElement.appendChild(menu);
+  menuWatch.observe(document.body, { childList: true });
 }
 
 // ---- Loading presets ---------------------------------------------------------------
@@ -704,6 +764,7 @@ export function attach(instance) {
   document.addEventListener('click', onClickCapture, true);
   document.addEventListener('keydown', onKeyDown, true);
   document.addEventListener('contextmenu', onContextMenu, true);
+  watchMenus();
   document.addEventListener('dragover', onDragOver, true);
   document.addEventListener('drop', onDrop, true);
   if (window.spotify && window.spotify.milkdropStateChanged) window.spotify.milkdropStateChanged(isOpen());
@@ -717,6 +778,7 @@ export function detach() {
   document.removeEventListener('click', onClickCapture, true);
   document.removeEventListener('keydown', onKeyDown, true);
   document.removeEventListener('contextmenu', onContextMenu, true);
+  if (menuWatch) { menuWatch.disconnect(); menuWatch = null; }
   document.removeEventListener('dragover', onDragOver, true);
   document.removeEventListener('drop', onDrop, true);
   checkedSkin = null;

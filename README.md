@@ -220,6 +220,7 @@ same setup as the small visualizer (above).
   | Random preset | **R** |
   | Auto-cycle on or off (the changes every 30 seconds) | **C** |
   | Load presets | **O** |
+  | The list of presets (yours included) | **L** |
 
 - Drag its bottom-right corner to make it bigger.
 
