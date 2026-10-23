@@ -115,6 +115,17 @@ async function api(method, path, body) {
   return json;
 }
 
+// Every track added to Spotify's queue, from anywhere in Winify, goes into
+// the running order as "plays next".
+async function apiNotingQueue(method, path, body) {
+  const result = await api(method, path, body);
+  if (method === 'POST' && path.startsWith('/me/player/queue?')) {
+    const uri = new URLSearchParams(path.split('?')[1]).get('uri');
+    if (uri) playlist.noteQueued(uri);
+  }
+  return result;
+}
+
 const withDevice = (path) => {
   const id = winifyDeviceId();
   return path + (path.includes('?') ? '&' : '?') + 'device_id=' + encodeURIComponent(id);
@@ -151,7 +162,8 @@ function render() {
     else dispatchRemote({ type: 'STOP' });
   }
 
-  if (!isHeld('shuffle') && state.media.shuffle !== now.shuffle) {
+  const shuffleShown = playlist.ownsShuffle() ? playlist.shuffled() : now.shuffle;
+  if (!isHeld('shuffle') && state.media.shuffle !== shuffleShown) {
     dispatchRemote({ type: 'TOGGLE_SHUFFLE' });
   }
   const repeatOn = now.repeat !== 'off';
@@ -381,7 +393,7 @@ async function commandStop() {
 
 function commandSkip(direction) {
   if (now.where !== 'winify') return notHere(direction === 1 ? 'Next' : 'Previous');
-  if (direction === 1 && playlist.takeOverNext()) return;   // a Play track: on to Autoplay
+  if (playlist.takeOverSkip(direction)) return;   // Winify's own order, or a Play track
   const fn = direction === 1 ? window.WinifyPlayer.nextTrack : window.WinifyPlayer.previousTrack;
   fn().then(refreshSoon);
 }
@@ -415,6 +427,12 @@ async function commandShuffle(on) {
     return notHere('Shuffle');
   }
   hold('shuffle');
+  if (playlist.ownsShuffle()) {
+    // Winify shuffles its own order, visibly; Spotify's shuffle stays off.
+    playlist.setShuffle(on);
+    return;
+  }
+  playlist.noteSpotifyShuffle(on);
   now.shuffle = on;
   try {
     await api('PUT', withDevice('/me/player/shuffle?state=' + on));
@@ -504,8 +522,9 @@ export class SpotifyMedia {
 
 // Webamp's playlist logic still runs on Next/Previous/track-end and asks to
 // move to another entry. Spotify decides what plays next, so those requests
-// are dropped -- except a double-clicked row, which plays that track. The
-// list mirrors Spotify, so editing or reordering it locally is dropped too.
+// are dropped -- except a double-clicked row, which plays that track. Sorting
+// and the like are dropped too; in Winify's running order (a full list),
+// dragging rows reorders it and removing rows skips them.
 const DISCARD = new Set([
   'PLAY_TRACK', 'BUFFER_TRACK', 'IS_STOPPED',
   'ADD_TRACK_FROM_URL', 'REMOVE_TRACKS', 'REMOVE_ALL_TRACKS',
@@ -522,6 +541,16 @@ export const middleware = (store) => (next) => (action) => {
     return undefined;
   }
   if (action.type === 'STOP' && stopIgnored) return undefined;
+  // Winify's own running order: rows can be dragged, and removing them skips them.
+  if (action.type === 'DRAG_SELECTED' && playlist.canEdit()) {
+    const result = next(action);
+    playlist.reordered();
+    return result;
+  }
+  if (action.type === 'REMOVE_TRACKS' && playlist.canEdit()) {
+    playlist.skipIds(action.ids);
+    return undefined;
+  }
   if (DISCARD.has(action.type)) return undefined;
 
   const result = next(action);
@@ -594,16 +623,16 @@ export function attach(instance) {
   }
 
   playlist.init({
-    webamp, now, api, say, log, warn, refreshSoon, positionMs,
+    webamp, now, api: apiNotingQueue, say, log, warn, refreshSoon, positionMs,
     dispatch: dispatchRemote,
     deviceId: winifyDeviceId,
   });
   picker.init({
-    webamp, now, api, say, log, warn, refreshSoon,
+    webamp, now, api: apiNotingQueue, say, log, warn, refreshSoon,
     deviceId: winifyDeviceId,
   });
   search.init({
-    webamp, now, api, say, log, warn, refreshSoon,
+    webamp, now, api: apiNotingQueue, say, log, warn, refreshSoon,
     deviceId: winifyDeviceId,
   }, playlist);
   attached = true;
