@@ -5,12 +5,18 @@ h.open().then(async ({ win, js }) => {
   const R = (sel) => js(`(() => { const e = document.querySelector(${JSON.stringify(sel)}); if (!e) return null; const b = e.getBoundingClientRect(); return { x: Math.round(b.left), y: Math.round(b.top), w: Math.round(b.width), h: Math.round(b.height), r: Math.round(b.right), b: Math.round(b.bottom) }; })()`);
   const key = async (k, mods) => { win.webContents.sendInputEvent({ type: 'keyDown', keyCode: k, modifiers: mods || [] }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: k, modifiers: mods || [] }); await h.wait(80); };
   const type = async (t) => { for (const ch of t) { win.webContents.sendInputEvent({ type: 'keyDown', keyCode: ch }); win.webContents.sendInputEvent({ type: 'char', keyCode: ch }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: ch }); await h.wait(40); } };
-  // Drag from a point by (dx, dy) with real mouse events.
+  // Drag from a point by (dx, dy) with real mouse events. A busy page can lag
+  // behind its input, so wait until it has handled the release (and every
+  // move before it) rather than for a fixed time.
   const drag = async (x, y, dx, dy) => {
+    const ups = await js('window.__ups === undefined ? (window.__ups = 0, window.addEventListener("pointerup", () => { window.__ups++; }, true), 0) : window.__ups');
     win.webContents.sendInputEvent({ type: 'mouseMove', x, y }); win.webContents.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 }); await h.wait(80);
     for (let i = 1; i <= 12; i++) { win.webContents.sendInputEvent({ type: 'mouseMove', x: x + Math.round(dx * i / 12), y: y + Math.round(dy * i / 12), modifiers: ['leftButtonDown'] }); await h.wait(25); }
-    win.webContents.sendInputEvent({ type: 'mouseUp', x: x + dx, y: y + dy, button: 'left', clickCount: 1 }); await h.wait(250);
+    win.webContents.sendInputEvent({ type: 'mouseUp', x: x + dx, y: y + dy, button: 'left', clickCount: 1 });
+    for (const end = Date.now() + 5000; Date.now() < end && (await js('window.__ups')) <= ups;) await h.wait(50);
+    await h.wait(100);
   };
+  const closed = async (sel) => { for (const end = Date.now() + 5000; Date.now() < end && (await R(sel)) && (await js(`getComputedStyle(document.querySelector(${JSON.stringify(sel)})).display`)) !== 'none';) await h.wait(50); };
   const grab = async (sel) => { const t = await R(sel); return { x: t.x + 40, y: t.y + 8 }; };   // the title bar's left fill
   const inside = (d) => d.x >= 0 && d.y >= 0 && d.r <= 1200 && d.b <= 762;
   await h.wait(1500);
@@ -67,7 +73,7 @@ h.open().then(async ({ win, js }) => {
     check('opens beside the player, not over it', p.x === m2.r && p.y === m2.y, JSON.stringify({ m2, p }));
     g = await grab('.winify-picker .wp-top'); await drag(g.x, g.y, 300, 150); const pp = await R('.winify-picker');
     check('drags', pp.x === p.x + 300 && pp.y === p.y + 150, JSON.stringify({ p, pp }));
-    await key('Escape'); await h.click(win, js, '#eject'); await h.wait(1000); p = await R('.winify-picker');
+    await key('Escape'); await closed('.winify-picker'); await h.click(win, js, '#eject'); await h.wait(1000); p = await R('.winify-picker');
     check('reopens where it was left, separately from the search window', p.x === pp.x && p.y === pp.y, JSON.stringify({ pp, p }));
     await key('Escape');
     require('fs').writeFileSync(require('path').join(__dirname, '..', '.output', 'dialog-expected.json'), JSON.stringify({ search: finalSearch, picker: pp }));
