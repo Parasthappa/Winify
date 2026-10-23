@@ -40,10 +40,15 @@ h.open().then(async ({ win, js }) => {
     check('reopens where it was left', d.x === placed.x && d.y === placed.y, JSON.stringify({ placed, d }));
 
     console.log('3. Tooltips keep clear of the title bar');
-    await type('road'); await h.wait(900);
+    await type('road');
+    // Wait for the results, then for the tooltip (its own delay is 0.5 s); fixed
+    // waits were too short when suites run side by side.
+    for (let i = 0; i < 40 && !(await js(`!!document.querySelector('.winify-search .ws-row:nth-child(4) .ws-album-col')`)); i++) await h.wait(100);
     const cell = await R('.winify-search .ws-row:nth-child(4) .ws-album-col');
-    win.webContents.sendInputEvent({ type: 'mouseMove', x: cell.x + 20, y: cell.y + 5 }); await h.wait(800);
-    let tip = await R('.winify-tooltip'); const top = await R('.winify-search .ws-top');
+    win.webContents.sendInputEvent({ type: 'mouseMove', x: cell.x + 20, y: cell.y + 5 });
+    let tip = null;
+    for (let i = 0; i < 30 && !tip; i++) { await h.wait(100); tip = await R('.winify-tooltip'); }
+    const top = await R('.winify-search .ws-top');
     check('long album name: full text in a tooltip below its row', !!tip && tip.y >= cell.b && (await js(`document.querySelector('.winify-tooltip').textContent`)) === 'Insomniac (Deluxe Edition) - 25th Anniversary Remaster', JSON.stringify({ cell, tip }));
     g = await grab('.winify-search .ws-top'); await drag(g.x, g.y, 0, 2000);   // to the bottom: no room below rows
     const last = await R('.winify-search .ws-row:nth-child(16) .ws-album-col');

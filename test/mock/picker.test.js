@@ -12,13 +12,18 @@ h.open().then(async ({ win, js }) => {
   await h.wait(1500);
   await js('(mock.active = "winify", mock.setContext("spotify:album:a1", 0), mock.setPaused(false))'); await h.wait(2500);
 
-  console.log('1. Eject opens the picker with every playlist');
-  await take(); await c('#eject'); await h.wait(1500);
+  console.log('1. Eject opens the picker: the first 50 at once, the rest slowly');
+  await take(); await c('#eject'); await h.wait(700);
   let p = await P(); let cs = await take();
-  const pages = cs.filter((x) => x[0] === 'api:myPlaylists');
+  let pages = cs.filter((x) => x[0] === 'api:myPlaylists');
   check('Eject (main window) opens it', p.open, JSON.stringify(p));
+  check('the first page at once (Liked Songs + your playlists among the first 50), the rest still coming', pages.length === 1 && pages[0][1] === '0' && p.rows > 1 && p.rows < 97 && p.loading, JSON.stringify([p, pages.map((x) => x[1])]));
+  await h.wait(1000); cs = await take();
+  check('...not all at once: no second page within 1.7 s', cs.filter((x) => x[0] === 'api:myPlaylists').length === 0, JSON.stringify(cs.filter((x) => x[0] === 'api:myPlaylists')));
+  const t1 = Date.now(); while (!(await P()).complete && Date.now() - t1 < 8000) await h.wait(200);
+  p = await P(); cs = await take(); pages = pages.concat(cs.filter((x) => x[0] === 'api:myPlaylists'));
   // 137 playlists: 46 followed from someone else, 5 of which are collaborative.
-  check('all 3 pages read; only yours + collaborative listed: 96 + Liked Songs', p.rows === 97 && pages.length === 3 && pages.every((x) => x[2] === '50'), JSON.stringify([p.rows, pages.map((x) => x[1])]));
+  check('then the other 2 pages, about one every 2 s; only yours + collaborative listed: 96 + Liked Songs', p.rows === 97 && p.complete && pages.length === 3 && pages.every((x) => x[2] === '50'), JSON.stringify([p.rows, pages.map((x) => x[1])]));
   const names = await js(`(async () => { const all = []; const list = document.querySelector('.winify-picker .wp-list');
     for (let i = 0; i < 40; i++) { all.push(...[...list.querySelectorAll('.wp-row')].map(r => r.textContent)); list.dispatchEvent(new WheelEvent('wheel', { deltaY: 100, cancelable: true })); }
     return [...new Set(all)]; })()`);
@@ -31,7 +36,8 @@ h.open().then(async ({ win, js }) => {
   check('no dimmed rows', !(await js(`!!document.querySelector('.winify-picker .wp-partial')`)));
   check('unnamed playlist shown as "Untitled playlist"', names.some((n) => /^\d+\. Untitled playlist15$/.test(n)), JSON.stringify(names.filter((n) => /Untitled|^\d+\. 15$/.test(n))));
   await js(`(() => { const list = document.querySelector('.winify-picker .wp-list'); for (let i = 0; i < 10; i++) list.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, cancelable: true })); })()`);
-  const counter = () => js(`(() => { try { return [...document.querySelectorAll('.winify-picker .wp-bottom .character')].map(c => String.fromCharCode(Number((c.className.match(/character-([0-9]+)/) || [0, 63])[1]))).join(''); } catch (e) { return 'ERR ' + e.message; } })()`);
+  // The count: the last text in the bottom bar (REFRESH is the first).
+  const counter = () => js(`(() => { try { return [...[...document.querySelectorAll('.winify-picker .wp-bottom .winify-picker-chars')].pop().querySelectorAll('.character')].map(c => String.fromCharCode(Number((c.className.match(/character-([0-9]+)/) || [0, 63])[1]))).join(''); } catch (e) { return 'ERR ' + e.message; } })()`);
   check('bottom count reflects the filtered list: 97/97', (await counter()) === '97/97', await counter());
   const skin = await js(`(() => { const g = (s) => getComputedStyle(document.querySelector('.winify-picker ' + s)).backgroundImage.slice(0, 20); return [g('.playlist-top-left'), g('.playlist-middle-left'), g('.playlist-bottom'), g('.character')]; })()`);
   check('drawn with the skin\'s own bitmaps (frame + marquee font)', skin.every((x) => /url/.test(x)), JSON.stringify(skin));
@@ -105,6 +111,40 @@ h.open().then(async ({ win, js }) => {
   await key('L'); await h.wait(600);
   check('L works with the playlist window focused too', (await P()).open);
   await key('Escape'); await h.wait(200);
+
+  console.log('6. Remembered between launches; refreshed when old, or by REFRESH');
+  await js('location.reload()'); await h.wait(500);
+  while (!(await js('window.mounted === true').catch(() => false))) await h.wait(100);
+  await js('(mock.active = "winify", mock.setContext("spotify:album:a1", 0), mock.setPaused(false))'); await h.wait(2500); await take();
+  await c('#eject'); await h.wait(500); p = await P(); cs = await take();
+  check('relaunch: the remembered list at once, no requests at all', p.open && p.rows === 97 && !p.loading && !cs.some((x) => /^api:(myPlaylists|savedTracks)$/.test(x[0])), JSON.stringify([p, cs.map((x) => x[0])]));
+  await js('WinifyPicker.close()');
+  // Four hours later: shown at once, refreshed in the background.
+  await js(`(() => { const l = JSON.parse(localStorage.getItem('winify.picker.v1')); l.at = Date.now() - 4 * 3600e3; localStorage.setItem('winify.picker.v1', JSON.stringify(l)); })()`);
+  await js('location.reload()'); await h.wait(500);
+  while (!(await js('window.mounted === true').catch(() => false))) await h.wait(100);
+  await js('(mock.active = "winify", mock.setContext("spotify:album:a1", 0), mock.setPaused(false))'); await h.wait(2500); await take();
+  await c('#eject'); await h.wait(400); p = await P();
+  check('a list over 3 hours old: shown at once (97 rows) while it refreshes in the background', p.open && p.rows === 97 && p.loading, JSON.stringify(p));
+  const t2 = Date.now(); let minRows = 97; while (!(await P()).complete || (await P()).loading) { minRows = Math.min(minRows, (await P()).rows); if (Date.now() - t2 > 9000) break; await h.wait(150); }
+  cs = await take(); p = await P();
+  check('...refreshed: all 3 pages again, and the list never shrank meanwhile', cs.filter((x) => x[0] === 'api:myPlaylists').length === 3 && p.complete && !p.loading && minRows === 97, JSON.stringify([minRows, cs.filter((x) => x[0] === 'api:myPlaylists').map((x) => x[1])]));
+  // A playlist made a moment ago, top of your list: REFRESH shows it straight away.
+  await js(`PLAYLISTS.unshift({ id: 'fresh', name: 'Brand New Mix', uri: 'spotify:playlist:fresh', owner: { id: 'user1' }, collaborative: false, public: true, items: { href: 'x', total: 3 } })`);
+  const refreshAt = await js(`(() => { const r = document.querySelector('.winify-picker .wp-refresh').getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`);
+  await take();
+  win.webContents.sendInputEvent({ type: 'mouseDown', x: refreshAt.x, y: refreshAt.y, button: 'left', clickCount: 1 }); win.webContents.sendInputEvent({ type: 'mouseUp', x: refreshAt.x, y: refreshAt.y, button: 'left', clickCount: 1 });
+  await h.wait(600);
+  const top = await js(`[...document.querySelectorAll('.winify-picker .wp-row .wp-name')].slice(0, 2).map(r => r.textContent)`);
+  cs = await take();
+  check('REFRESH: the new playlist shows up at once (the first page read straight away)', top[1] === '2. Brand New Mix' && cs.filter((x) => x[0] === 'api:myPlaylists').length === 1, JSON.stringify([top, cs.map((x) => x[0])]));
+  const t3 = Date.now(); while ((await P()).loading && Date.now() - t3 < 9000) await h.wait(200);
+  p = await P();
+  check('...then the rest quietly: 98 rows', p.rows === 98 && p.complete, JSON.stringify(p));
+  await js('WinifyPicker.close()');
+  // Signing out forgets it (the next sign-in may be someone else).
+  await js('WinifyWebamp.unmount()'); await h.wait(300);
+  check('signing out forgets the remembered list', (await js(`localStorage.getItem('winify.picker.v1')`)) === null);
 
   const loud = JSON.parse(await js('JSON.stringify(loud)')); const errs = JSON.parse(await js('JSON.stringify(errors)'));
   check('no alerts, downloads, file prompts or new windows', loud.length === 0, JSON.stringify(loud));

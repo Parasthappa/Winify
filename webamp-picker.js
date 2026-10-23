@@ -9,16 +9,26 @@
  * It is drawn with the active skin's own playlist-window bitmaps and colours
  * (its frame, text colours and the marquee font), so it matches whatever
  * skin is loaded rather than looking like a modern popup.
+ *
+ * Spotify can only list all of a user's playlists, 50 at a time (followed
+ * ones included), so the list is read sparingly: it is remembered between
+ * launches and shown at once; with nothing remembered, the first 50 come
+ * straight away and the rest one page every couple of seconds (sooner while
+ * filtering or scrolling near the end). A remembered list older than a few
+ * hours is refreshed the same way in the background, and REFRESH in the
+ * bottom bar does it now (its first page at once, so a new playlist shows up
+ * straight away).
  */
 
 import { placeDialog, makeDraggable, attachTooltips, hideTooltip } from './webamp-dialog.js';
 
 const PAGE = 50;                    // the /me/playlists maximum
-const PARALLEL_PAGES = 4;
+const PAGE_GAP_MS = 2000;           // background pace: one page every 2 s
+const STALE_MS = 3 * 60 * 60 * 1000;   // refresh a remembered list after this
+const STORE_KEY = 'winify.picker.v1';
 const ROW = 13;                     // Webamp's playlist row height
 const VISIBLE_ROWS = 16;
 const WIDTH = 325;                  // the playlist window plus two segments
-const CACHE_MS = 60000;
 const HEIGHT = 20 + 13 + VISIBLE_ROWS * ROW + 14;
 // Only playlists Spotify will list in full: ones you own, plus collaborative
 // ones you contribute to. Spotify (February 2026) returns no tracks for
@@ -27,8 +37,11 @@ const INCLUDE_COLLABORATIVE = true;
 const UNTITLED = 'Untitled playlist';  // Spotify allows a playlist with no name
 
 let ctx = null;                     // { webamp, api, say, log, warn, deviceId, refreshSoon, now }
-let me = null;                      // /me, for owner checks and Liked Songs' URI
-let cache = null;                   // { at, list }
+// The list as last read: { meId, at, liked, entries: [{ name, uri, count }],
+// total, nextOffset, complete }. Remembered between launches.
+let lib = null;
+let loading = null;                 // the read in progress: { gen, wake }
+let loadGen = 0;
 let el = null;                      // the open picker, or null
 let rows = [];                      // all entries
 let shown = [];                     // entries matching the filter
@@ -37,43 +50,116 @@ let scroll = 0;
 
 // ---- Data ----------------------------------------------------------------------
 
-async function allPlaylists() {
-  const first = await ctx.api('GET', '/me/playlists?limit=' + PAGE + '&offset=0');
-  const items = first.items.slice();
-  const offsets = [];
-  for (let o = PAGE; o < first.total; o += PAGE) offsets.push(o);
-  for (let i = 0; i < offsets.length; i += PARALLEL_PAGES) {
-    const got = await Promise.all(offsets.slice(i, i + PARALLEL_PAGES).map((o) =>
-      ctx.api('GET', '/me/playlists?limit=' + PAGE + '&offset=' + o)));
-    got.forEach((p) => items.push(...p.items));
-  }
-  return items.filter(Boolean);
+function remember() {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(lib)); } catch (e) { /* storage unavailable */ }
 }
 
-async function load() {
-  if (cache && Date.now() - cache.at < CACHE_MS) return cache.list;
-  if (!me) me = await ctx.api('GET', '/me');
-  const [playlists, liked] = await Promise.all([
-    allPlaylists(),
-    ctx.api('GET', '/me/tracks?limit=1').catch(() => null),
-  ]);
-  const list = [{
-    name: 'Liked Songs',
-    uri: 'spotify:user:' + me.id + ':collection',
-    count: liked ? liked.total : null,
-  }];
-  for (const p of playlists) {
-    const mine = p.owner && p.owner.id === me.id;
-    if (!mine && !(INCLUDE_COLLABORATIVE && p.collaborative)) continue;
-    // February 2026: the track count moved from `tracks` to `items`.
-    const count = p.items && typeof p.items.total === 'number' ? p.items.total : null;
-    const name = (p.name || '').trim() || UNTITLED;
-    list.push({ name, uri: p.uri, count });
+function recall() {
+  try { return JSON.parse(localStorage.getItem(STORE_KEY)) || null; } catch (e) { return null; }
+}
+
+// Liked Songs, then your playlists (and collaborative ones you are in).
+function listFrom(l) {
+  if (!l) return [];
+  return [{ name: 'Liked Songs', uri: 'spotify:user:' + l.meId + ':collection', count: l.liked }].concat(l.entries);
+}
+
+function entryOf(p, meId) {
+  if (!p) return null;
+  const mine = p.owner && p.owner.id === meId;
+  if (!mine && !(INCLUDE_COLLABORATIVE && p.collaborative)) return null;
+  // February 2026: the track count moved from `tracks` to `items`.
+  const count = p.items && typeof p.items.total === 'number' ? p.items.total : null;
+  return { name: (p.name || '').trim() || UNTITLED, uri: p.uri, count };
+}
+
+// While a refresh is under way: what it has read so far, then whatever the
+// old list has that it has not reached yet (so nothing vanishes meanwhile).
+function merged(fresh, old) {
+  const seen = new Set(fresh.map((e) => e.uri));
+  return fresh.concat((old || []).filter((e) => !seen.has(e.uri)));
+}
+
+// Hurry a background read along (filtering, or scrolling near the end).
+function hurry() {
+  if (loading && loading.wake) loading.wake();
+}
+
+// Read the list, page by page: the first at once, the rest at the slow pace
+// unless hurried. A pass from the start (no list yet, a stale one, or
+// REFRESH) builds a fresh list, showing the old one beneath it until it is
+// complete; a pass that resumes an unfinished list appends to it.
+async function read(fromStart) {
+  if (loading && !fromStart) return;
+  const gen = ++loadGen;
+  loading = { gen, wake: null };
+  const old = lib;
+  try {
+    // Who you are, for the owner check. A remembered list is always this
+    // account's: signing out forgets it.
+    const meId = (old && old.meId) || (await ctx.api('GET', '/me')).id;
+    if (gen !== loadGen) return;
+    const same = old && old.meId === meId;            // not another account
+    const startAt = fromStart || !same || old.complete ? 0 : old.nextOffset;
+    let liked = same ? old.liked : null;
+    if (startAt === 0) {
+      const t = await ctx.api('GET', '/me/tracks?limit=1').catch(() => null);
+      if (gen !== loadGen) return;
+      if (t) liked = t.total;
+    }
+    let fresh = [];
+    for (let offset = startAt; ; ) {
+      if (offset !== startAt) {
+        await new Promise((resolve) => { loading.wake = resolve; setTimeout(resolve, PAGE_GAP_MS); });
+        if (gen !== loadGen) return;
+      }
+      const page = await ctx.api('GET', '/me/playlists?limit=' + PAGE + '&offset=' + offset);
+      if (gen !== loadGen) return;
+      const got = (page.items || []).map((p) => entryOf(p, meId)).filter(Boolean);
+      offset += PAGE;
+      const complete = offset >= page.total;
+      let entries;
+      if (startAt === 0) {
+        fresh = fresh.concat(got);
+        entries = complete ? fresh : merged(fresh, same ? old.entries : []);
+      } else {
+        entries = lib.entries.concat(got);
+      }
+      lib = { meId, liked, entries, total: page.total, nextOffset: offset, complete,
+        at: complete ? Date.now() : (same ? old.at : 0) };
+      remember();
+      showList();
+      if (complete) break;
+    }
+    ctx.log('picker:', lib.entries.length, 'of', lib.total, 'playlists (yours',
+      INCLUDE_COLLABORATIVE ? 'and collaborative)' : 'only)', '+ Liked Songs');
+  } catch (err) {
+    if (gen !== loadGen) return;
+    ctx.warn('picker: could not read playlists -', err.message);
+    if (el && !rows.length) {
+      close();
+      ctx.say(err.note || (/scope/i.test(err.message) ? 'Sign in again for playlists' : 'Could not list playlists'));
+    } else if (el) {
+      ctx.say(err.note || 'Could not update the playlists');
+    }
+  } finally {
+    if (gen === loadGen) loading = null;
+    if (el) renderList();
   }
-  cache = { at: Date.now(), list };
-  ctx.log('picker:', list.length - 1, 'of', playlists.length, 'playlists (yours',
-    INCLUDE_COLLABORATIVE ? 'and collaborative)' : 'only)', '+ Liked Songs');
-  return list;
+}
+
+// The open picker shows the latest list, keeping the filter, selection and
+// scroll.
+function showList() {
+  if (!el) return;
+  const keep = shown[selected] && shown[selected].uri;
+  rows = listFrom(lib);
+  const q = el.querySelector('.wp-filter').value.trim().toLowerCase();
+  shown = q ? rows.filter((r) => r.name.toLowerCase().includes(q)) : rows.slice();
+  const at = keep ? shown.findIndex((r) => r.uri === keep) : -1;
+  selected = at >= 0 ? at : Math.min(selected, Math.max(0, shown.length - 1));
+  drawnKey = null;
+  renderList();
 }
 
 // ---- Drawing --------------------------------------------------------------------
@@ -129,7 +215,10 @@ function injectStyles() {
     #webamp .winify-picker .wp-row .wp-count { flex: none; padding-left: 6px; }
     #webamp .winify-picker .wp-handle { position: absolute; left: 5px; width: 8px; height: 18px; }
     #webamp .winify-picker .wp-bottom { display: flex; height: 14px; }
-    #webamp .winify-picker .wp-bottom .playlist-bottom { flex: 1; background-position: left bottom; display: flex; align-items: center; justify-content: flex-end; padding-right: 8px; }
+    #webamp .winify-picker .wp-bottom .playlist-bottom { flex: 1; background-position: left bottom; display: flex; align-items: center; justify-content: space-between; padding: 0 8px; }
+    #webamp .winify-picker .wp-refresh { cursor: pointer; padding: 2px 3px; border: 1px solid transparent; }
+    #webamp .winify-picker .wp-refresh:hover { border-color: currentColor; }
+    #webamp .winify-picker .wp-refresh.wp-busy { opacity: .45; cursor: default; }
   `;
   document.head.appendChild(style);
 }
@@ -188,9 +277,21 @@ function renderList() {
   const travel = track.clientHeight - 18;
   handle.style.display = overflow ? '' : 'none';
   handle.style.top = (overflow ? Math.round((scroll / overflow) * travel) : 0) + 'px';
-  const counter = el.querySelector('.wp-bottom .playlist-bottom');
-  counter.textContent = '';
-  if (rows.length) counter.appendChild(skinText(shown.length + '/' + rows.length));
+  const bar = el.querySelector('.wp-bottom .playlist-bottom');
+  bar.textContent = '';
+  const refresh = skinText('refresh');
+  refresh.classList.add('wp-refresh');
+  if (loading) refresh.classList.add('wp-busy');
+  refresh.title = loading ? 'Updating the list...' : 'Read your playlists from Spotify again';
+  refresh.setAttribute('role', 'button');
+  refresh.setAttribute('aria-label', 'Refresh the playlist list');
+  refresh.style.color = st.normal;
+  refresh.addEventListener('click', () => { if (loading) hurry(); else read(true); });
+  bar.appendChild(refresh);
+  // ".." while more is on its way.
+  if (rows.length) bar.appendChild(skinText(shown.length + '/' + rows.length + (loading ? '..' : '')));
+  // Scrolled near the end of what is in: hurry the rest.
+  if (loading && scroll + VISIBLE_ROWS >= shown.length - 4) hurry();
 }
 
 function select(index) {
@@ -203,6 +304,7 @@ function select(index) {
 
 function applyFilter() {
   const q = el.querySelector('.wp-filter').value.trim().toLowerCase();
+  if (q) hurry();                     // a filter needs the whole list
   shown = q ? rows.filter((r) => r.name.toLowerCase().includes(q)) : rows.slice();
   selected = 0;
   scroll = 0;
@@ -334,24 +436,15 @@ export async function open() {
   shown = [];
   selected = 0;
   scroll = 0;
-  renderList();
+  if (!lib) lib = recall();
+  showList();
   el.querySelector('.wp-filter').focus();
-  const mine = el;
-  try {
-    const list = await load();
-    if (el !== mine) return;              // closed while loading
-    rows = list;
-    applyFilter();
-    // Start on whatever is playing, if it is in the list.
-    const at = shown.findIndex((r) => r.uri === ctx.now.contextUri);
-    if (at >= 0) select(at);
-  } catch (err) {
-    ctx.warn('picker: could not list playlists -', err.message);
-    if (el === mine) {
-      close();
-      ctx.say(/scope/i.test(err.message) ? 'Sign in again for playlists' : 'Could not list playlists');
-    }
-  }
+  // Start on whatever is playing, if it is in the list.
+  const at = shown.findIndex((r) => r.uri === ctx.now.contextUri);
+  if (at >= 0) select(at);
+  // Nothing remembered, unfinished, or a few hours old: read it (in the
+  // background when there is a list to show meanwhile).
+  if (!lib || !lib.complete || Date.now() - lib.at > STALE_MS) read(!lib || lib.complete);
 }
 
 export function close() {
@@ -418,9 +511,14 @@ export function reset() {
   document.removeEventListener('click', onClickCapture, true);
   document.removeEventListener('keydown', onKeyDown);
   ctx = null;
-  cache = null;
-  me = null;
+  // Signed out: the next sign-in may be another account.
+  loadGen++;
+  loading = null;
+  lib = null;
+  try { localStorage.removeItem(STORE_KEY); } catch (e) { /* storage unavailable */ }
 }
 
 // For inspection from DevTools and tests.
-window.WinifyPicker = { open, close, isOpen, state: () => ({ open: !!el, rows: rows.length, shown: shown.length, selected, scroll }) };
+window.WinifyPicker = { open, close, isOpen, refresh: () => read(true),
+  state: () => ({ open: !!el, rows: rows.length, shown: shown.length, selected, scroll, loading: !!loading,
+    complete: !!(lib && lib.complete), at: lib ? lib.at : null }) };
