@@ -150,6 +150,11 @@ double-click plays the track within its album; **Shift+Enter** or right-click
 track in the playlist window to queue it too. Winify never changes your
 playlists.
 
+The playlist window's **ADD** button opens the same search as **ADD TO
+QUEUE** (shown in its title): there Enter and double-click queue the track
+and the window stays open for more, while Shift+Enter or right-click > Play
+plays it.
+
 Close (x) and Exit hide the Winify window and minimize (_) minimizes it, as
 the window's own buttons do. Controls with no Spotify equivalent (balance,
 the equalizer, adding or removing files, saving lists) do nothing.
