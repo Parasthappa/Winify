@@ -157,6 +157,8 @@ const MIME = {
   '.json': 'application/json',
 };
 
+const WORKER_CSP = "default-src 'none'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; connect-src data:";
+
 // A stable port matters more than it looks: the origin is what macOS keys
 // media permissions to, so a random port every launch meant the microphone
 // grant never persisted and the device-label warm-up re-opened the mic on
@@ -194,7 +196,11 @@ function startAppServer() {
           res.writeHead(404).end();
           return;
         }
-        res.writeHead(200, { 'Content-Type': MIME[ext], 'Cache-Control': 'no-store' });
+        const headers = { 'Content-Type': MIME[ext], 'Cache-Control': 'no-store' };
+        // Milkdrop's preset converter: a worker with a policy of its own (its
+        // loader builds code from text, which the page forbids) and no network.
+        if (pathname === '/milkdrop-convert-worker.js') headers['Content-Security-Policy'] = WORKER_CSP;
+        res.writeHead(200, headers);
         res.end(data);
       });
     });
@@ -628,6 +634,51 @@ async function chooseSkin() {
     dialog.showErrorBox('Winify: could not read skin', String(err && err.message));
   }
 }
+
+// Milkdrop > Load presets...: files, folders or both. Folders are searched
+// (a few levels down) for .milk and .json files; the renderer converts and
+// checks them. Read here because the renderer cannot read files.
+const PRESET_EXTENSIONS = /\.(milk|json)$/i;
+const PRESET_MAX_BYTES = 512 * 1024;
+const PRESET_MAX_FILES = 1000;
+
+function collectPresetFiles(paths) {
+  const files = [];
+  const skipped = [];
+  const visit = (p, depth, picked) => {
+    if (files.length >= PRESET_MAX_FILES) return;
+    let stat;
+    try { stat = fs.statSync(p); } catch (e) { skipped.push({ name: path.basename(p), error: 'could not be read' }); return; }
+    if (stat.isDirectory()) {
+      if (depth > 3) return;
+      let entries = [];
+      try { entries = fs.readdirSync(p).sort(); } catch (e) { return; }
+      for (const entry of entries) {
+        if (!entry.startsWith('.')) visit(path.join(p, entry), depth + 1, false);
+      }
+      return;
+    }
+    if (!PRESET_EXTENSIONS.test(p)) {
+      if (picked) skipped.push({ name: path.basename(p), error: 'not a .milk or .json file' });
+      return;
+    }
+    if (stat.size > PRESET_MAX_BYTES) { skipped.push({ name: path.basename(p), error: 'too large for a preset' }); return; }
+    try { files.push({ name: path.basename(p), text: fs.readFileSync(p, 'utf8') }); } catch (e) { skipped.push({ name: path.basename(p), error: 'could not be read' }); }
+  };
+  for (const p of paths) visit(p, 0, true);
+  return { files, skipped };
+}
+
+ipcMain.handle('milkdrop:choose-presets', async () => {
+  const result = await dialog.showOpenDialog(win && !win.isDestroyed() ? win : undefined, {
+    title: 'Load Milkdrop presets',
+    buttonLabel: 'Load',
+    filters: [{ name: 'Milkdrop presets', extensions: ['milk', 'json'] }],
+    properties: ['openFile', 'openDirectory', 'multiSelections'],
+  });
+  if (result.canceled || !result.filePaths.length) return null;
+  return collectPresetFiles(result.filePaths);
+});
 
 function createTray() {
   // Template image: black + alpha, so macOS recolours it for the menu-bar theme.

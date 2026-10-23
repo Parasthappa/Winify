@@ -61,8 +61,8 @@ h.open().then(async ({ win, js }) => {
   check('playlist window Eject opens it too', p.open);
   await key('Escape'); await h.wait(200); p = await P(); cs = await take();
   check('Escape closes, no change', !p.open && !plays(cs).length && (await ctx()) === before, JSON.stringify(cs.map((x) => x[0])));
-  await c('#playlist-list-menu'); await h.wait(200); await c('#playlist-list-menu .load-list'); await h.wait(800); p = await P();
-  check('LIST OPTS > load list opens it (no alert)', p.open && !(await js('loud.some(l => l[0] === "alert")')), JSON.stringify(await js('loud')));
+  await key('L'); await h.wait(800); p = await P();
+  check('L opens it (no alert); LIST OPTS is VIZ now', p.open && !(await js('loud.some(l => l[0] === "alert")')), JSON.stringify(await js('loud')));
   // Click a playback control that lies outside the picker (the backdrop covers it).
   const target = await js(`(() => { const pk = document.querySelector('.winify-picker').getBoundingClientRect();
     for (const sel of ['#play', '#next', '#previous', '.playlist-play-button', '#position']) { const b = document.querySelector(sel).getBoundingClientRect(); const x = b.left + b.width / 2, y = b.top + b.height / 2;

@@ -19,10 +19,21 @@
  * back when Winify is shown. It still counts as open for the saved layout,
  * Winify's window size and the menu-bar checkmark.
  *
- * Presets: a random one to start, a new random one every 30 s of showing with
- * a 5.7 s blend; Space = next, R = random, Backspace = previous (Webamp's),
- * H = next without blending (Webamp's). The name shows briefly on each change.
+ * Presets: a random one to start, then (auto-cycle, on unless turned off) a
+ * new random one every 30 s of showing, with a 5.7 s blend. With the window
+ * focused: Space = next, Backspace = previous (back through those shown),
+ * R = random, C = auto-cycle, F = full screen (Escape leaves), O = load
+ * presets; H = next without blending and L = the preset list are Webamp's.
+ * The same, with the keys shown, are on the window's right-click menu. The
+ * name shows briefly on each change. Presets you add are in
+ * webamp-milkdrop-presets.js.
+ *
+ * The playlist window's LIST OPTS button is VIZ here: it opens and closes
+ * this window, like the V button.
  */
+
+import { showMenu } from './webamp-search.js';
+import * as yours from './webamp-milkdrop-presets.js';
 
 const log = (...args) => console.log('[winify/milkdrop]', ...args);
 
@@ -31,10 +42,14 @@ const PRESET_PACKS = [   // UMD bundles: each sets a global of its name
   { name: 'base', src: './node_modules/butterchurn-presets/dist/base.min.js' },
   { name: 'extra', src: './node_modules/butterchurn-presets/dist/extra.min.js' },
 ];
+const SETTINGS_KEY = 'winify.milkdrop.v1';
 const config = {
+  autoCycle: true,       // remembered; the menu's Auto-cycle
   cycleMs: 30000,        // showing time between automatic changes
   nameMs: 3000,          // how long a new preset's name stays up
+  noteMs: 6000,          // how long a note about loaded presets stays up
 };
+try { const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY)); if (saved && typeof saved.autoCycle === 'boolean') config.autoCycle = saved.autoCycle; } catch (e) { /* none */ }
 // Webamp's transition types (blend 0 s, 2.7 s, 5.7 s).
 const IMMEDIATE = 0;
 const DEFAULT = 1;
@@ -51,6 +66,8 @@ let shownFor = 0;              // ms shown since the last preset change
 let lastIndex = null;
 let nameTimer = null;
 let renders = 0;               // frames drawn, for tests
+let noteTimer = null;
+let builtInNames = [];
 const stages = new Set();
 
 // ---- Loading on first open -------------------------------------------------
@@ -80,7 +97,10 @@ async function getPresets() {
     const all = (exported && exported.default) || exported || {};
     for (const [name, preset] of Object.entries(all)) presets.push({ name, butterchurnPresetObject: preset });
   }
-  log(presets.length, 'presets loaded');
+  builtInNames = presets.map((p) => p.name);
+  const mine = await yours.saved();
+  for (const { name, preset } of mine) presets.push({ name, butterchurnPresetObject: preset });
+  log(presets.length, 'presets loaded (' + mine.length + ' of them yours)');
   return presets;
 }
 
@@ -196,6 +216,16 @@ function showNoSound() {
   });
 }
 
+// A short note about presets just loaded, top of the window: not a pop-up.
+function showNote(text) {
+  const el = overlay('winify-md-note');
+  if (!el) return;
+  el.textContent = text;
+  el.classList.add('shown');
+  clearTimeout(noteTimer);
+  noteTimer = setTimeout(() => el.classList.remove('shown'), config.noteMs);
+}
+
 function showName(name) {
   const el = overlay('winify-md-name');
   if (!el) return;
@@ -216,6 +246,13 @@ const STYLE = `
     text-shadow: 0 0 3px #000, 0 0 2px #000; opacity: 0; transition: opacity 0.6s;
   }
   #webamp .winify-md-name.shown { opacity: 1; }
+  #webamp .winify-md-note {
+    position: absolute; left: 0; right: 0; top: 4px; padding: 0 8px; pointer-events: none;
+    font: 10px/1.35 Arial, Helvetica, sans-serif; color: #d6e3ef; text-shadow: 0 0 3px #000, 0 0 2px #000;
+    max-height: 5.4em; overflow: hidden; opacity: 0; transition: opacity 0.6s;
+  }
+  #webamp .winify-md-note.shown { opacity: 1; }
+  #webamp #playlist-list-menu ul, #webamp #playlist-list-menu .bar { display: none; }
   #webamp .winify-md-nosound {
     top: 0; bottom: 0; display: flex; align-items: center; justify-content: center;
     padding: 0 24px; background: #000; color: #8c9aa8;
@@ -240,6 +277,33 @@ function select(index, transitionType) {
 function next(transitionType = DEFAULT) {
   const current = md().currentPresetIndex;
   select(current == null ? 0 : current + 1, transitionType);
+}
+
+// Back through the presets actually shown (Webamp's history of them).
+function previous(transitionType = DEFAULT) {
+  const history = md().presetHistory;
+  if (history.length < 2) return;
+  const i = history[history.length - 2];
+  webamp.store.dispatch({ type: 'PRESET_REQUESTED', index: i, addToHistory: false });
+  webamp.store.dispatch({ type: 'SELECT_PRESET_AT_INDEX', index: i, transitionType });
+}
+
+function setAutoCycle(on) {
+  config.autoCycle = !!on;
+  shownFor = 0;
+  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify({ autoCycle: config.autoCycle })); } catch (e) { /* storage unavailable */ }
+  showNote('Auto-cycle ' + (config.autoCycle ? 'on' : 'off'));
+}
+
+const isFullscreen = () => md().display === 'FULLSCREEN';
+
+function toggleFullscreen() {
+  if (isFullscreen() || document.fullscreenElement) {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else webamp.store.dispatch({ type: 'SET_MILKDROP_FULLSCREEN', enabled: false });
+  } else {
+    webamp.store.dispatch({ type: 'SET_MILKDROP_FULLSCREEN', enabled: true });
+  }
 }
 
 function random(transitionType = DEFAULT) {
@@ -277,7 +341,7 @@ function onVisibility(shown) {
 }
 
 function tickCycle() {
-  if (!webamp || !isShowing() || !md().presets.length) return;
+  if (!webamp || !config.autoCycle || !isShowing() || !md().presets.length) return;
   shownFor += 1000;
   if (shownFor >= config.cycleMs) random(USER_PRESET);
 }
@@ -292,24 +356,132 @@ function onKeyDown(e) {
     document.exitFullscreen();
     return;
   }
-  if (!isOpen() || webamp.store.getState().windows.focused !== 'milkdrop') return;
-  if (e.key === ' ') next();
-  else if (e.key === 'r' || e.key === 'R') random();
+  if (!isMounted() || webamp.store.getState().windows.focused !== 'milkdrop') return;
+  const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  if (k === ' ') next();
+  else if (k === 'Backspace') previous();
+  else if (k === 'r') random();
+  else if (k === 'c') setAutoCycle(!config.autoCycle);
+  else if (k === 'f') toggleFullscreen();
+  else if (k === 'o') choosePresets();
   else if (e.keyCode === 145 || e.keyCode === 125) { /* Webamp's own 15 s cycling: Winify cycles */ }
   else return;
   e.preventDefault();
   e.stopPropagation();
 }
 
-// Webamp's right-click menu offers Desktop Mode, which would draw behind
-// Winify's small window; it is hidden (and the action ignored below).
+// ---- The right-click menu ------------------------------------------------------
+// In place of Webamp's (Fullscreen, Desktop Mode, Quit). Built by the search
+// window's showMenu, Webamp's own markup, so it looks the same; separators and
+// the checkmark are Webamp's li.hr and li.checked.
+
 function onContextMenu(e) {
-  if (!(e.target instanceof Element) || !e.target.closest('#webamp .gen-window')) return;
-  requestAnimationFrame(() => {
-    for (const li of document.querySelectorAll('#webamp .context-menu li')) {
-      if (/^Desktop Mode/.test(li.textContent.trim())) li.style.display = 'none';
+  if (!webamp || !(e.target instanceof Element) || !e.target.closest('#webamp .gen-window')) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const history = md().presetHistory;
+  const full = isFullscreen();
+  const items = [
+    { label: full ? 'Exit full screen' : 'Full screen', hotkey: full ? 'Esc' : 'F', action: toggleFullscreen },
+    { label: 'Next preset', hotkey: 'Space', action: () => next(), sep: true },
+    { label: 'Previous preset', hotkey: 'Backspace', action: () => previous(), disabled: history.length < 2 },
+    { label: 'Random preset', hotkey: 'R', action: () => random() },
+    { label: 'Auto-cycle', hotkey: 'C', action: () => setAutoCycle(!config.autoCycle), checked: config.autoCycle, sep: true },
+    { label: 'Load presets\u2026', hotkey: 'O', action: choosePresets, sep: true },
+  ];
+  // A menu item lies outside the window, so clicking one takes Webamp's focus
+  // away; give it back so the keys keep working.
+  const refocus = (item) => ({ ...item, action: () => { webamp.store.dispatch({ type: 'SET_FOCUSED_WINDOW', window: 'milkdrop' }); item.action(); } });
+  showMenu(e.clientX, e.clientY, items.map(refocus));
+  const menu = document.getElementById('webamp-context-menu');
+  if (!menu) return;
+  const lis = [...menu.querySelectorAll('ul.context-menu > li')];
+  items.forEach((item, i) => {
+    if (item.checked) lis[i].classList.add('checked');
+    if (item.sep) {
+      const hr = document.createElement('li');
+      hr.className = 'hr';
+      hr.appendChild(document.createElement('hr'));
+      lis[i].before(hr);
     }
   });
+  // In full screen only the full-screen element is drawn.
+  if (document.fullscreenElement) document.fullscreenElement.appendChild(menu);
+}
+
+// ---- Loading presets ---------------------------------------------------------------
+
+async function loadPresetFiles(files, skippedBefore = []) {
+  if (!webamp) return { added: [], skipped: skippedBefore };
+  const { added, skipped } = await yours.add(files, builtInNames);
+  skipped.unshift(...skippedBefore);
+  const m = md();
+  if (m.presets.length) {
+    // Already in the list (the same file loaded again): updated in place.
+    const fresh = [];
+    for (const a of added) {
+      const at = a.replaces ? m.presets.findIndex((p) => p.name === a.name) : -1;
+      if (at >= 0) webamp.store.dispatch({ type: 'RESOLVE_PRESET_AT_INDEX', index: at, json: a.preset });
+      else fresh.push(a);
+    }
+    const first = m.presets.length;
+    if (fresh.length) {
+      webamp.store.dispatch({ type: 'GOT_BUTTERCHURN_PRESETS', presets: fresh.map((a) => ({ type: 'RESOLVED', name: a.name, preset: a.preset })) });
+    }
+    if (added.length) {
+      const showFirst = fresh.length ? first : md().presets.findIndex((p) => p.name === added[0].name);
+      if (showFirst >= 0) select(showFirst, DEFAULT);
+    }
+  }
+  const parts = [];
+  if (added.length) parts.push('Loaded ' + added.length + ' preset' + (added.length === 1 ? '' : 's') + '.');
+  if (skipped.length) {
+    const shown = skipped.slice(0, 3).map((s) => s.name + ' (' + s.error + ')').join('; ');
+    parts.push('Skipped ' + skipped.length + ': ' + shown + (skipped.length > 3 ? '; and ' + (skipped.length - 3) + ' more' : '') + '.');
+  }
+  if (!parts.length) parts.push('No presets found.');
+  showNote(parts.join(' '));
+  return { added: added.map((a) => a.name), skipped };
+}
+
+async function choosePresets() {
+  if (!(window.spotify && window.spotify.choosePresetFiles)) return null;
+  const picked = await window.spotify.choosePresetFiles();
+  return picked ? loadPresetFiles(picked.files, picked.skipped) : null;
+}
+
+// Files or folders dropped on the window go the same way (in place of
+// Webamp's own drop, which takes .json without checking it).
+async function readEntry(entry, depth, out) {
+  if (entry.isFile) {
+    if (!/\.(milk|json)$/i.test(entry.name)) return;
+    const file = await new Promise((resolve, reject) => entry.file(resolve, reject));
+    out.push({ name: file.name, text: await file.text() });
+  } else if (entry.isDirectory && depth < 4) {
+    const reader = entry.createReader();
+    for (let batch = await new Promise((r) => reader.readEntries(r)); batch.length; batch = await new Promise((r) => reader.readEntries(r))) {
+      for (const e of batch) if (!e.name.startsWith('.')) await readEntry(e, depth + 1, out);
+    }
+  }
+}
+
+function onDragOver(e) {
+  if (e.target instanceof Element && e.target.closest('#webamp .gen-window')) e.preventDefault();
+}
+
+async function onDrop(e) {
+  if (!webamp || !(e.target instanceof Element) || !e.target.closest('#webamp .gen-window')) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const files = [];
+  const skipped = [];
+  for (const item of [...(e.dataTransfer.items || [])]) {
+    const entry = item.webkitGetAsEntry && item.webkitGetAsEntry();
+    if (!entry) continue;
+    if (entry.isFile && !/\.(milk|json)$/i.test(entry.name)) { skipped.push({ name: entry.name, error: 'not a .milk or .json file' }); continue; }
+    try { await readEntry(entry, 0, files); } catch (err) { skipped.push({ name: entry.name, error: 'could not be read' }); }
+  }
+  await loadPresetFiles(files, skipped);
 }
 
 // ---- Webamp middleware -------------------------------------------------------
@@ -349,6 +521,117 @@ export function toggle() {
 function onClickCapture(e) {
   if (!webamp || !(e.target instanceof Element)) return;
   if (e.target.closest('#webamp #button-v')) toggle();
+  else if (e.target.closest('#webamp #playlist-list-menu')) {
+    // VIZ, in place of Webamp's LIST OPTS menu.
+    e.preventDefault();
+    e.stopPropagation();
+    toggle();
+  }
+}
+
+// ---- The VIZ button ----------------------------------------------------------------
+// LIST OPTS's label is part of the skin's playlist bitmap (bottom-right
+// corner, 150x38). In the default skin it is redrawn as VIZ, in the same 5 px
+// lettering and the bitmap's own colours, with a pressed state (as LYRIC is,
+// in webamp-lyrics.js). Other skins keep their own art. Every skin gets the
+// "Visualizer" tooltip.
+
+const VIZ_BUTTON = { x: 106, y: 8, w: 22, h: 18 };   // LIST OPTS within that bitmap
+// The default skin's LIST OPTS button, pixel for pixel (see VIZ_COLORS).
+const BASE_LIST = [
+  '.....................#',
+  '.ooooooooooooooooooo.x',
+  '.o*****************.#+',
+  '.o*-***---**--*---*.=+',
+  '.o*-****-**-****-**.=+',
+  '.o*-****-***-***-**.=+',
+  '.o*-****-****-**-**.=+',
+  '.o*---*---*--***-**.=+',
+  '.o*****************.=+',
+  '.o*---*--**---**--*.=+',
+  '.o*-*-*-*-**-**-***.=+',
+  '.o*-*-*--***-***-**.=+',
+  '.o*-*-*-****-****-*.=+',
+  '.o*---*-****-**--**.=+',
+  '.o*****************.=+',
+  '.o..................=+',
+  '..#==================+',
+  '#x++++++++++++++++++++',
+];
+const VIZ_COLORS = { '.': '#adb4c4', '#': '#8192a5', o: '#edffff', x: '#576476', '*': '#bfcdd3', '+': '#4e586e', '=': '#798296', '-': '#2f374d' };
+// V I Z: 3+1+1+1+3 = 9 px, centred on the 17 px button face (columns 2-18).
+const VIZ = [
+  '#.#.#.###',
+  '#.#.#...#',
+  '#.#.#..#.',
+  '#.#.#.#..',
+  '.#..#.###',
+];
+const VIZ_TOP = 6;
+const VIZ_LEFT = 6;
+
+let vizStyle = null;
+let checkedSkin = null;
+const hex = (r, g, b) => '#' + [r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('');
+
+function isDefaultList(data) {
+  for (let y = 0; y < VIZ_BUTTON.h; y++) {
+    for (let x = 0; x < VIZ_BUTTON.w; x++) {
+      const i = (y * VIZ_BUTTON.w + x) * 4;
+      if (hex(data[i], data[i + 1], data[i + 2]) !== VIZ_COLORS[BASE_LIST[y][x]]) return false;
+    }
+  }
+  return true;
+}
+
+// The button, normal or pressed (bevel inverted, lettering one pixel lower).
+function drawViz(pressed) {
+  const c = document.createElement('canvas');
+  c.width = VIZ_BUTTON.w;
+  c.height = VIZ_BUTTON.h;
+  const g = c.getContext('2d');
+  const put = (x, y, key) => { g.fillStyle = VIZ_COLORS[key]; g.fillRect(x, y, 1, 1); };
+  for (let y = 0; y < VIZ_BUTTON.h; y++) {
+    for (let x = 0; x < VIZ_BUTTON.w; x++) {
+      let key = BASE_LIST[y][x];
+      if (key === '-') key = '*';                                   // clear LIST OPTS
+      if (pressed) {
+        const topLeft = (y === 1 && x >= 1 && x <= 19) || (x === 1 && y >= 1 && y <= 15);
+        const bottomRight = (y === 15 && x >= 2 && x <= 19) || (x === 19 && y >= 2 && y <= 15);
+        if (topLeft) key = '.';
+        else if (bottomRight) key = 'o';
+      }
+      put(x, y, key);
+    }
+  }
+  const top = VIZ_TOP + (pressed ? 1 : 0);
+  VIZ.forEach((row, dy) => [...row].forEach((p, dx) => { if (p === '#') put(VIZ_LEFT + dx, top + dy, '-'); }));
+  return c.toDataURL('image/png');
+}
+
+// On each skin change: redraw LIST OPTS as VIZ if it is the default skin's.
+function relabelViz() {
+  const button = document.querySelector('#webamp #playlist-list-menu');
+  if (button && button.title !== 'Visualizer') button.title = 'Visualizer';
+  const corner = document.querySelector('#webamp .playlist-bottom-right');
+  const url = corner && (/url\("([^"]+)"\)/.exec(getComputedStyle(corner).backgroundImage) || [])[1];
+  if (!url || url === checkedSkin || !vizStyle) return;
+  checkedSkin = url;
+  const img = new Image();
+  img.onload = () => {
+    if (checkedSkin !== url || !vizStyle) return;
+    const c = document.createElement('canvas');
+    c.width = VIZ_BUTTON.w;
+    c.height = VIZ_BUTTON.h;
+    const g = c.getContext('2d');
+    g.drawImage(img, VIZ_BUTTON.x, VIZ_BUTTON.y, VIZ_BUTTON.w, VIZ_BUTTON.h, 0, 0, VIZ_BUTTON.w, VIZ_BUTTON.h);
+    const isDefault = img.width === 150 && isDefaultList(g.getImageData(0, 0, VIZ_BUTTON.w, VIZ_BUTTON.h).data);
+    vizStyle.textContent = isDefault ? `
+      #webamp #playlist-list-menu { background: url("${drawViz(false)}") no-repeat; image-rendering: pixelated; }
+      #webamp #playlist-list-menu:active { background-image: url("${drawViz(true)}"); }` : '';
+    log('LIST OPTS button:', isDefault ? 'default skin - relabelled VIZ' : 'skin\'s own art kept');
+  };
+  img.src = url;
 }
 
 function paintButton() {
@@ -369,6 +652,8 @@ export function attach(instance) {
     styleEl = document.createElement('style');
     styleEl.textContent = STYLE;
     document.head.appendChild(styleEl);
+    vizStyle = document.createElement('style');
+    document.head.appendChild(vizStyle);
   }
   let wasOpen = isOpen();
   let wasMounted = isMounted();
@@ -395,8 +680,10 @@ export function attach(instance) {
       if (preset && mounted) showName(preset.name);
     }
     paintButton();
+    relabelViz();
   });
   paintButton();
+  relabelViz();
   const a = audio();
   if (a) {
     unsubscribeAudio = a.onEvent((event) => {
@@ -417,6 +704,8 @@ export function attach(instance) {
   document.addEventListener('click', onClickCapture, true);
   document.addEventListener('keydown', onKeyDown, true);
   document.addEventListener('contextmenu', onContextMenu, true);
+  document.addEventListener('dragover', onDragOver, true);
+  document.addEventListener('drop', onDrop, true);
   if (window.spotify && window.spotify.milkdropStateChanged) window.spotify.milkdropStateChanged(isOpen());
 }
 
@@ -428,6 +717,9 @@ export function detach() {
   document.removeEventListener('click', onClickCapture, true);
   document.removeEventListener('keydown', onKeyDown, true);
   document.removeEventListener('contextmenu', onContextMenu, true);
+  document.removeEventListener('dragover', onDragOver, true);
+  document.removeEventListener('drop', onDrop, true);
+  checkedSkin = null;
   dropStages();
   webamp = null;
   lastIndex = null;
@@ -438,7 +730,11 @@ window.WinifyMilkdrop = {
   toggle,
   isOpen,
   next: () => next(),
+  previous: () => previous(),
   random: () => random(),
+  setAutoCycle,
+  loadPresetFiles,
+  choosePresets,
   config,
   state: () => {
     const m = webamp ? md() : null;
@@ -454,6 +750,9 @@ window.WinifyMilkdrop = {
       shownFor,
       randomize: m ? m.randomize : null,
       cycling: m ? m.cycling : null,
+      autoCycle: config.autoCycle,
+      history: m ? m.presetHistory.slice() : [],
+      display: m ? m.display : null,
     };
   },
 };

@@ -85,6 +85,20 @@ network. Butterchurn compiles each preset's equations to WebAssembly, which
 is why the page's security policy allows `'wasm-unsafe-eval'` (WebAssembly
 compilation only, not JavaScript `eval`).
 
+Presets you add go through `milkdrop-convert-worker.js`. `.milk` files are
+split with `milkdrop-preset-utils`; their equations stay as Milkdrop wrote
+them (Butterchurn compiles them to WebAssembly), and their HLSL shaders are
+converted to GLSL with `milkdrop-preset-converter` (hlslparser). That
+converter predates Butterchurn 3 and fails on a fair share of MilkDrop 2
+shaders (some built-in functions, the `rad` input, some vector operations),
+so each converted preset is test-loaded into a hidden Butterchurn and skipped
+if its equations or shaders do not compile. (Webamp's own `.milk` support
+converts shaders on a remote server instead, which Winify does not use.)
+
+The converter's loader builds code from text, which the page's policy
+forbids, so it runs in a worker served with a policy of its own (`main.js`,
+`WORKER_CSP`): its own scripts only, code-from-text allowed, no network.
+
 ## Permissions requested
 
 | Scope | Why |
@@ -123,7 +137,9 @@ and the sign-in screen asks to sign in again.
 | `webamp-room.js` | Grows the app window while one of them is open |
 | `webamp-inert.js` | Keeps Webamp controls with no Spotify meaning quiet |
 | `webamp-vis.js` | Feeds Webamp's visualizer from the audio capture |
-| `webamp-milkdrop.js` | Webamp's Milkdrop window, drawn by Butterchurn from the audio capture |
+| `webamp-milkdrop.js` | Webamp's Milkdrop window, drawn by Butterchurn from the audio capture; its menu, keys and the VIZ button |
+| `webamp-milkdrop-presets.js` | Presets you add: converted, test-loaded, kept in IndexedDB |
+| `milkdrop-convert-worker.js` | Turns .milk and .json files into Butterchurn presets, off the page |
 | `drm-debug.js` | DRM diagnostics, inactive unless `--drm-debug` |
 
 Playback goes through `window.WinifyPlayer` (`play()`, `pause()`,

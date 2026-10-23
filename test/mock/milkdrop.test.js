@@ -57,7 +57,7 @@ h.open().then(async ({ win, js }) => {
   console.log('4. Presets: name shown, keys, automatic changes');
   const nameEl = () => js(`(() => { const e = document.querySelector('#webamp .winify-md-name'); return e ? { text: e.textContent, shown: e.classList.contains('shown') } : null; })()`);
   let nm = await nameEl(); s = await S();
-  check('the preset\'s name is shown', !!nm && nm.text === s.name && nm.shown, JSON.stringify([nm, s.name]));
+  check('the preset\'s name is in the window (shown when it came up; it fades after 3 s)', !!nm && nm.text === s.name, JSON.stringify([nm, s.name]));
   check('Webamp\'s own randomize and 15 s cycling are off (Winify cycles)', s.randomize === false && s.cycling === false, JSON.stringify(s));
   await h.click(win, js, '#webamp .gen-window', 0.5, 0.03);   // its title bar: focus
   const i0 = (await S()).index;
@@ -157,6 +157,82 @@ h.open().then(async ({ win, js }) => {
   await js('WinifyMilkdrop.toggle()'); await h.wait(500);
   check('the menu-bar item\'s toggle opens it too', (await S()).open);
   await js('WinifyMilkdrop.toggle()'); await h.wait(300);
+
+  console.log('10. VIZ (the playlist window\'s LIST OPTS button)');
+  const viz = await js(`(() => { const b = document.querySelector('#webamp #playlist-list-menu'); const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join(''); return { title: b.title, bg: getComputedStyle(b).backgroundImage.slice(0, 30), pressed: css.includes('#playlist-list-menu:active { background-image: url("data:image/png') }; })()`);
+  check('default skin: redrawn as VIZ, with a pressed state; tooltip "Visualizer"', viz.title === 'Visualizer' && /^url\("data:image\/png/.test(viz.bg) && viz.pressed, JSON.stringify(viz));
+  const pl = await R('#webamp #playlist-list-menu');
+  fs.writeFileSync(path.join(__dirname, '..', '.output', 'milkdrop-viz-button.png'), (await win.webContents.capturePage({ x: pl.x - 60, y: pl.y - 10, width: 120, height: 40 })).toPNG());
+  await h.click(win, js, '#playlist-window', 0.5, 0.02); await h.wait(150);
+  await h.click(win, js, '#webamp #playlist-list-menu'); await h.wait(600);
+  check('VIZ opens the Milkdrop window; no LIST OPTS menu, no playlist picker', (await S()).open && !(await js(`document.querySelector('#webamp #playlist-list-menu').classList.contains('selected')`)) && !(await js('WinifyPicker.isOpen()')));
+  await h.click(win, js, '#playlist-window', 0.5, 0.02); await h.wait(150);
+  await h.click(win, js, '#webamp #playlist-list-menu'); await h.wait(600);
+  check('VIZ again closes it', !(await S()).open);
+  await h.click(win, js, '#webamp #playlist-list-menu'); await h.wait(600);
+  await until(`WinifyMilkdrop.state().index != null`, 8000);
+
+  console.log('11. Right-click menu');
+  const rightClick = async () => { const r = await R('#webamp .gen-window canvas'); const x = r.x + 60, y = r.y + 60;
+    win.webContents.sendInputEvent({ type: 'mouseDown', x, y, button: 'right', clickCount: 1 }); win.webContents.sendInputEvent({ type: 'mouseUp', x, y, button: 'right', clickCount: 1 }); await h.wait(300); };
+  const menu = () => js(`[...document.querySelectorAll('#webamp-context-menu ul.context-menu > li')].map((li) => li.classList.contains('hr') ? '---' : (li.classList.contains('checked') ? '[x] ' : '') + li.firstChild.textContent + ' | ' + (li.querySelector('.hotkey') || {}).textContent)`);
+  const pick = async (label) => { const r = await js(`(() => { const li = [...document.querySelectorAll('#webamp-context-menu li')].find((l) => l.firstChild && l.firstChild.textContent === ${JSON.stringify('X')}.replace('X', ${JSON.stringify(label)})); if (!li) return null; const b = li.getBoundingClientRect(); return { x: Math.round(b.left + 20), y: Math.round(b.top + b.height / 2) }; })()`);
+    if (!r) return false; win.webContents.sendInputEvent({ type: 'mouseDown', x: r.x, y: r.y, button: 'left', clickCount: 1 }); win.webContents.sendInputEvent({ type: 'mouseUp', x: r.x, y: r.y, button: 'left', clickCount: 1 }); await h.wait(400); return true; };
+  await rightClick();
+  let items = await menu();
+  check('Winamp-style menu with shortcuts: full screen, next/previous/random, auto-cycle (checked), load presets', JSON.stringify(items) === JSON.stringify(['Full screen | F', '---', 'Next preset | Space', 'Previous preset | Backspace', 'Random preset | R', '---', '[x] Auto-cycle | C', '---', 'Load presets… | O']), JSON.stringify(items));
+  check('...Webamp\'s own (Desktop Mode, Quit) is not shown', !(await js(`[...document.querySelectorAll('.context-menu li')].some((l) => /Desktop Mode|Quit/.test(l.textContent))`)));
+  let before2 = (await S()).index;
+  await pick('Random preset');
+  check('Random preset', (await S()).index !== before2 && !(await js(`!!document.getElementById('webamp-context-menu')`)));
+  await h.click(win, js, '#webamp .gen-window', 0.5, 0.03);
+  const a0 = (await S()).index; await key('Space'); const a1 = (await S()).index; await key('Space'); const a2 = (await S()).index; await key('R'); const a3 = (await S()).index;
+  await rightClick(); await pick('Previous preset'); const b1 = (await S()).index;
+  await key('Backspace'); const b2 = (await S()).index; await key('Backspace'); const b3 = (await S()).index;
+  check('Previous goes back through the ones actually shown (R, Space, Space -> back)', b1 === a2 && b2 === a1 && b3 === a0 && a3 !== a2, JSON.stringify({ shown: [a0, a1, a2, a3], back: [b1, b2, b3] }));
+  await rightClick(); await pick('Auto-cycle');
+  check('Auto-cycle off: no timed changes, remembered', (await S()).autoCycle === false && (await js(`JSON.parse(localStorage.getItem('winify.milkdrop.v1')).autoCycle`)) === false);
+  await js('WinifyMilkdrop.config.cycleMs = 2000'); const held = (await S()).index; await h.wait(3500);
+  check('...the preset stays put', (await S()).index === held);
+  await rightClick(); items = await menu();
+  check('...and the menu shows it unchecked', items.includes('Auto-cycle | C'), JSON.stringify(items));
+  await key('Escape'); await h.wait(200);
+  await h.click(win, js, '#webamp .gen-window', 0.5, 0.03); await key('C');
+  check('C turns it back on', (await S()).autoCycle === true);
+  await js('WinifyMilkdrop.config.cycleMs = 30000');
+  const spot = await R('#webamp .gen-window'); const positions = await store('JSON.stringify(s.windows.genWindows.milkdrop.position)'); const winSize = await js('[innerWidth, innerHeight]');
+  await rightClick(); await pick('Full screen');
+  check('Full screen from the menu', !!(await until(`!!document.fullscreenElement`, 5000)));
+  await h.wait(1000); await rightClick(); items = await menu();
+  check('...in full screen the menu shows, offering Exit full screen (Esc)', items[0] === 'Exit full screen | Esc', JSON.stringify(items));
+  await key('Escape'); await h.wait(200);
+  if (await js(`!!document.getElementById('webamp-context-menu')`)) { await key('Escape'); await h.wait(200); }
+  await until(`!document.fullscreenElement`, 5000); await h.wait(1500);
+  check('Escape: back to the window\'s previous size and spot', JSON.stringify(await R('#webamp .gen-window')) === JSON.stringify(spot) && (await store('JSON.stringify(s.windows.genWindows.milkdrop.position)')) === positions && JSON.stringify(await js('[innerWidth, innerHeight]')) === JSON.stringify(winSize), JSON.stringify([spot, await R('#webamp .gen-window')]));
+
+  console.log('12. Loading presets');
+  const fx = (n) => ({ name: n, text: fs.readFileSync(path.join(__dirname, '..', 'fixtures', 'milkdrop', n), 'utf8') });
+  const count0 = (await S()).presets;
+  await take();
+  const res = await js(`WinifyMilkdrop.loadPresetFiles(${JSON.stringify(['equations-only.milk', 'with-shader.milk', 'butterchurn.json', 'shader-fails.milk', 'not-a-preset.milk', 'old-format.json'].map(fx))})`);
+  check('.milk (with and without shaders) and .json load; the rest are skipped with a reason',
+    JSON.stringify(res.added) === JSON.stringify(['equations-only', 'with-shader', 'butterchurn']) &&
+    JSON.stringify(res.skipped.map((x) => x.name + ': ' + x.error)) === JSON.stringify(['shader-fails.milk: its shaders could not be converted', 'not-a-preset.milk: not a Milkdrop preset', 'old-format.json: older Butterchurn format (JavaScript equations), not supported']), JSON.stringify(res));
+  s = await S();
+  check('...they join the built-in ones; the first is shown, with its name', s.presets === count0 + 3 && s.name === 'equations-only' && (await js(`document.querySelector('#webamp .winify-md-name').textContent`)) === 'equations-only', JSON.stringify(s));
+  const note = await js(`(() => { const e = document.querySelector('#webamp .winify-md-note'); return e && e.classList.contains('shown') ? e.textContent : null; })()`);
+  check('...a short note in the window, not a pop-up', /^Loaded 3 presets\. Skipped 3: shader-fails\.milk/.test(note || '') && !(await js('loud.some((l) => l[0] === "alert")')), note);
+  check('...drawn, no WebGL errors', (await rendersIn(1000)) > 20 && !(await js('errors.length')));
+  await key('Space'); check('...the next one comes up with its name', (await S()).name === 'with-shader' && (await js(`document.querySelector('#webamp .winify-md-name').textContent`)) === 'with-shader');
+  const again = await js(`WinifyMilkdrop.loadPresetFiles(${JSON.stringify([fx('equations-only.milk')])})`);
+  check('loading the same file again replaces it, no duplicate', JSON.stringify(again.added) === '["equations-only"]' && (await S()).presets === count0 + 3);
+  check('loading sent nothing to Spotify', (await take()).length === 0);
+  await js('location.reload()'); await h.wait(500);
+  while (!(await js('window.mounted === true').catch(() => false))) await h.wait(100);
+  s = await until(`WinifyMilkdrop.state().presets > 0 && WinifyMilkdrop.state()`, 15000);
+  const names = await js(`WinifyWebamp.getInstance().store.getState().milkdrop.presets.slice(-3).map((p) => p.name)`);
+  check('remembered between launches', s && s.presets === count0 + 3 && JSON.stringify(names) === '["equations-only","with-shader","butterchurn"]', JSON.stringify(names));
+  check('...auto-cycle setting remembered too', (await S()).autoCycle === true);
 
   const errs = JSON.parse(await js('JSON.stringify(errors)'));
   check('no page errors', errs.length === 0, JSON.stringify(errs));

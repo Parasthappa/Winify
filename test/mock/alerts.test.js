@@ -13,7 +13,6 @@ h.open().then(async ({ win, js }) => {
   await js('loud.length = 0');
   const menus = {
     '#playlist-selection-menu': ['.invert-selection', '.select-zero', '.select-all'],
-    '#playlist-list-menu': ['.load-list'],
   };
   for (const [menu, items] of Object.entries(menus)) {
     for (const item of items) {

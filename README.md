@@ -121,8 +121,7 @@ all control Spotify.
 
 ### Choosing a playlist
 
-Press **Eject**, press **L**, or choose **LIST OPTS > load list** in the
-playlist window. Pick Liked Songs or one of your playlists (type to filter).
+Press **Eject** or press **L**. Pick Liked Songs or one of your playlists (type to filter).
 
 ### Finding a track
 
@@ -205,15 +204,40 @@ Good to know:
 ## Milkdrop
 
 Winamp's big visualizer, Milkdrop, has its own window. Press the **V** button
-on the left edge of the main window, or choose **Milkdrop visualizer** from
-Winify's menu-bar icon. It needs the same setup as the small visualizer
-(above).
+on the left edge of the main window or the playlist window's **VIZ** button,
+or choose **Milkdrop visualizer** from Winify's menu-bar icon. It needs the
+same setup as the small visualizer (above).
 
-- It changes to a new random picture every 30 seconds or so.
-- **Space**: the next picture. **R**: a random one. **Backspace**: the one
-  before. (Click the Milkdrop window first.)
-- **Double-click** for full screen; **Escape** to leave it.
+- It changes to a new random picture (a "preset") every 30 seconds or so.
+- **Right-click** the Milkdrop window for everything else. The keys work once
+  you have clicked the window:
+
+  | | Key |
+  |---|---|
+  | Full screen (also double-click) | **F** (**Escape** to leave) |
+  | Next preset | **Space** |
+  | Previous preset (back through the ones you saw) | **Backspace** |
+  | Random preset | **R** |
+  | Auto-cycle on or off (the changes every 30 seconds) | **C** |
+  | Load presets | **O** |
+
 - Drag its bottom-right corner to make it bigger.
+
+### Adding presets
+
+Choose **Load presets…** and pick preset files, a folder of them, or both (or
+drop them on the Milkdrop window). They join the built-in ones and stay
+between launches.
+
+- **.json** presets made for Butterchurn (the web version of Milkdrop) work
+  as they are, except older ones made for its earlier versions, which are
+  skipped.
+- **.milk** presets (original Milkdrop) are converted as they load. Simpler
+  ones convert well; for many newer ones the conversion fails and they are
+  skipped, and some that do load may look a little different from Milkdrop.
+
+Files that cannot be used are skipped, with a short note in the Milkdrop
+window.
 
 Milkdrop works your Mac's graphics hard, so it stops drawing whenever its
 window is closed, Winify is hidden or minimized, or the music is paused.
@@ -237,6 +261,7 @@ Winify keeps everything on your Mac:
 - **Your Client ID**, in Winify's own settings.
 - **Your Spotify sign-in**, only if **Remember me** is on. **Disconnect**
   removes it.
+- **Milkdrop presets you add**, in Winify's own storage.
 
 Winify connects only to:
 

@@ -30,6 +30,10 @@ global.fetch = async (u, o = {}) => {
   if (/^https:\/\/(api|accounts)\.spotify\.com\//.test(url)) { spotifySeen.push((o.method || 'GET') + ' ' + new URL(url).pathname); const r = spotify(o.method || 'GET', url); return new Response(r.body == null ? null : JSON.stringify(r.body), { status: r.status, headers: { 'Content-Type': 'application/json' } }); }
   return realFetch(u, o);
 };
+// Milkdrop > Load presets...: the macOS dialog answers with the fixtures folder.
+const { dialog } = require('electron');
+const dialogCalls = [];
+dialog.showOpenDialog = async (...args) => { dialogCalls.push(args[args.length - 1]); return { canceled: false, filePaths: [path.join(__dirname, '..', 'fixtures', 'milkdrop')] }; };
 require(path.join(__dirname, '..', '..', 'main.js'));
 setTimeout(() => { console.log('WATCHDOG'); app.exit(2); }, 150000);
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -76,6 +80,14 @@ app.whenReady().then(async () => {
   const r0 = (await js('WinifyMilkdrop.state()')).renders; await wait(1000); const r1 = (await js('WinifyMilkdrop.state()')).renders;
   check('drawing frames (presets compiled to WebAssembly under the policy)', !capturing || r1 - r0 > 30, (r1 - r0) + ' frames/s' + (capturing ? '' : ' (no capture on this Mac: not drawing, by design)'));
   check('no security-policy or WebAssembly errors', !logs.some((m) => /Content Security|Refused to|CompileError|wasm-unsafe-eval|WebAssembly/i.test(m)), logs.filter((m) => /Content Security|Refused|CompileError|WebAssembly/i.test(m)).slice(0, 2).join(' | '));
+  const loaded = await js('WinifyMilkdrop.choosePresets()');
+  const opts = dialogCalls[0] || {};
+  check('Load presets: one dialog for files, folders or both', JSON.stringify(opts.properties) === '["openFile","openDirectory","multiSelections"]', JSON.stringify(opts.properties));
+  check('...a folder is searched; converted off the page under the real policy; good ones added, the rest noted',
+    loaded && JSON.stringify(loaded.added) === '["butterchurn","equations-only","with-shader"]' && loaded.skipped.length === 3, JSON.stringify(loaded));
+  const workerPolicy = await js(`fetch('/milkdrop-convert-worker.js').then((r) => r.headers.get('content-security-policy'))`);
+  check('...the converter worker runs under its own policy: no network', /default-src 'none'/.test(workerPolicy || '') && /connect-src data:/.test(workerPolicy || ''), workerPolicy);
+  check('...still no security-policy errors', !logs.some((m) => /Content Security|Refused to/i.test(m)), logs.filter((m) => /Content Security|Refused/i.test(m)).slice(0, 2).join(' | '));
   const open = await cpu(10000);
   fs.writeFileSync(path.join(__dirname, '..', '.output', 'milkdrop-app.png'), (await win.webContents.capturePage()).toPNG());
 

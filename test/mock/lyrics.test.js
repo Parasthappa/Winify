@@ -108,10 +108,11 @@ h.open().then(async ({ win, js }) => {
   const visible = items.filter((x) => x[1]).map((x) => x[0]);
   check('Playback: "10 tracks back" / "10 tracks fwd" hidden; Back/Fwd 5 seconds and Previous..Next kept', !visible.includes('10 tracks back') && !visible.includes('10 tracks fwd') && visible.includes('Back 5 seconds') && visible.includes('Next'), JSON.stringify(visible));
   await key('Escape'); await h.click(win, js, '#playlist-window', 0.5, 0.02); await h.wait(200);
-  // LIST OPTS: only load list.
+  // LIST OPTS is VIZ now (Milkdrop): no menu of its own.
   await h.click(win, js, '#playlist-list-menu'); await h.wait(300);
-  const list = await js(`[...document.querySelectorAll('#playlist-list-menu li')].map(l => [l.firstElementChild && l.firstElementChild.className, getComputedStyle(l).display !== 'none'])`);
-  check('LIST OPTS: only "load list" left (new list, save list hidden)', JSON.stringify(list.filter((x) => x[1]).map((x) => x[0])) === JSON.stringify(['load-list']), JSON.stringify(list));
+  const list = await js(`[...document.querySelectorAll('#playlist-list-menu li')].filter(l => getComputedStyle(l).display !== 'none').length`);
+  check('LIST OPTS (now VIZ): no menu of its own', list === 0, JSON.stringify(list));
+  if (await js('WinifyMilkdrop.isOpen()')) await js('WinifyMilkdrop.toggle()');
   await h.click(win, js, '#playlist-window', 0.5, 0.02); await h.wait(200);
   // EQ > Presets: opens nothing.
   await js(`WinifyWebamp.getInstance().store.dispatch({ type: 'TOGGLE_WINDOW', windowId: 'equalizer' })`); await h.wait(400);
