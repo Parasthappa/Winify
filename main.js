@@ -132,6 +132,7 @@ let authTimer = null;
 let remember = false; // mirrors the "remember me" lamp
 let capturingAudio = false; // mirrors the renderer's capture state, for menu labels
 let webampDoubled = true; // mirrors Webamp's double-size mode, for the menu
+let milkdropOpen = false;  // mirrors the Milkdrop window, for the menu
 let tray = null;
 let connected = false; // real Spotify connection state, shown in the menu bar
 let isQuitting = false;
@@ -548,6 +549,16 @@ function buildTray() {
       checked: webampDoubled,
       enabled: connected,
       click: () => send('ui:command', { name: 'toggle-doublesize' }),
+    },
+    {
+      label: 'Milkdrop visualizer',
+      type: 'checkbox',
+      checked: milkdropOpen,
+      enabled: connected,
+      click: () => {
+        showWindow();
+        send('ui:command', { name: 'toggle-milkdrop' });
+      },
     },
     {
       label: 'Load skin...',
@@ -1020,6 +1031,11 @@ ipcMain.handle('transfer-playback', async (_event, deviceId, startPlaying) => {
 
 ipcMain.on('webamp-state', (_event, doubled) => {
   webampDoubled = doubled === true;
+  buildTray();
+});
+
+ipcMain.on('milkdrop-state', (_event, open) => {
+  milkdropOpen = open === true;
   buildTray();
 });
 

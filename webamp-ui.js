@@ -16,6 +16,7 @@ import { SpotifyMedia, middleware, handleTrackDropEvent, attach, detach } from '
 import { open as openPicker } from './webamp-picker.js';
 import * as inert from './webamp-inert.js';
 import * as vis from './webamp-vis.js';
+import * as milkdrop from './webamp-milkdrop.js';
 
 let webamp = null;
 let mounted = false;
@@ -36,7 +37,9 @@ const OPTIONS = {
   // Private Webamp options; the version is pinned in package.json because
   // of them, and attach() verifies they took effect.
   __customMediaClass: SpotifyMedia,
-  __customMiddlewares: [middleware],
+  __customMiddlewares: [middleware, milkdrop.middleware],
+  // Webamp's Milkdrop window, drawn by Butterchurn (webamp-milkdrop.js).
+  __butterchurnOptions: milkdrop.butterchurnOptions,
   handleTrackDropEvent,
   // LIST OPTS > load list opens the playlist picker; returning null leaves
   // Webamp's playlist alone (the picker plays the choice itself).
@@ -62,7 +65,9 @@ const DEFAULT_PLAYLIST_SIZE = [0, 5];
 // Those cannot be trusted, so they are dropped rather than restored.
 const LAYOUT_KEY = 'winify.layout.v2';
 const STALE_LAYOUT_KEYS = ['winify.layout.v1'];
-const LAYOUT_WINDOWS = ['main', 'equalizer', 'playlist'];
+const LAYOUT_WINDOWS = ['main', 'equalizer', 'playlist', 'milkdrop'];
+// Milkdrop is Webamp's only generic window, which has no id of its own.
+const WINDOW_SELECTORS = { main: '#main-window', equalizer: '#equalizer-window', playlist: '#playlist-window', milkdrop: '.gen-window' };
 const SAVE_DELAY_MS = 400;
 
 // Winify's window wraps the player: its size follows the layout, edge to
@@ -105,10 +110,13 @@ function currentLayout() {
     shade[id] = !!state.windows.genWindows[id].shade;
     open[id] = !!state.windows.genWindows[id].open;
   }
+  // Taken down while Winify is out of sight, Milkdrop is still open.
+  if (milkdrop.isSuspended()) open.milkdrop = true;
   return {
     doubled: state.display.doubled,
     positions,
     playlistSize: state.windows.genWindows.playlist.size,
+    milkdropSize: state.windows.genWindows.milkdrop.size,
     // Shaded windows are 14px tall, so positions only make sense with these.
     shade,
     // Which windows are showing; the equalizer is closed until you open it.
@@ -130,27 +138,46 @@ async function waitForSize(container, timeoutMs = 10000) {
   }
 }
 
-// Pixel sizes of the three windows for a layout, as Webamp draws them.
-// Main and equalizer double; the playlist grows by 25x29 px segments instead.
-function windowSizes(doubled, playlistSize, shade = {}) {
-  const k = doubled ? 2 : 1;
-  const [pw, ph] = playlistSize || [0, 0];
+// Pixel sizes of the windows for a layout, as Webamp draws them. Main and
+// equalizer double; the playlist and Milkdrop grow by 25x29 px segments
+// instead.
+function windowSizes(layout) {
+  const k = layout.doubled ? 2 : 1;
+  const shade = layout.shade || {};
+  const [pw, ph] = layout.playlistSize || [0, 0];
+  const [mw, mh] = layout.milkdropSize || milkdrop.DEFAULT_SIZE;
   return {
     main: { w: 275 * k, h: (shade.main ? 14 : 116) * k },
     equalizer: { w: 275 * k, h: (shade.equalizer ? 14 : 116) * k },
     playlist: { w: 275 + 25 * pw, h: shade.playlist ? 14 : 116 + 29 * ph },
+    milkdrop: { w: 275 + 25 * mw, h: 116 + 29 * mh },
   };
 }
 
 // The windows that are showing. Layouts saved before open/closed was
-// recorded had every window open; the main window always opens.
+// recorded had every window open; the main window always opens; Milkdrop
+// only when it was left open.
 function shownWindows(layout) {
-  return LAYOUT_WINDOWS.filter((id) => id === 'main' || !layout.open || layout.open[id] !== false);
+  return LAYOUT_WINDOWS.filter((id) => id === 'main' ||
+    (id === 'milkdrop' ? !!(layout.open && layout.open.milkdrop) : !layout.open || layout.open[id] !== false));
+}
+
+// Layouts saved before Milkdrop existed: it is closed, parked to the right of
+// the main window, at its default size.
+function withMilkdrop(layout) {
+  if (!layout || !layout.positions || !layout.positions.main) return layout;
+  if (!layout.positions.milkdrop) {
+    const k = layout.doubled ? 2 : 1;
+    layout.positions.milkdrop = { x: layout.positions.main.x + 275 * k, y: layout.positions.main.y };
+    layout.open = Object.assign({}, layout.open, { milkdrop: false });
+  }
+  if (!Array.isArray(layout.milkdropSize)) layout.milkdropSize = milkdrop.DEFAULT_SIZE;
+  return layout;
 }
 
 // The bounding box of the showing windows.
 function layoutBox(layout) {
-  const sizes = windowSizes(layout.doubled, layout.playlistSize, layout.shade);
+  const sizes = windowSizes(layout);
   const ids = shownWindows(layout);
   const p = layout.positions;
   return {
@@ -169,7 +196,7 @@ function layoutProblem(layout) {
   for (const id of LAYOUT_WINDOWS) {
     if (!pos[id] || !Number.isFinite(pos[id].x) || !Number.isFinite(pos[id].y)) return id + ' window missing';
   }
-  const sizes = windowSizes(layout.doubled, layout.playlistSize, layout.shade);
+  const sizes = windowSizes(layout);
   const rect = (id) => ({ l: pos[id].x, t: pos[id].y, r: pos[id].x + sizes[id].w, b: pos[id].y + sizes[id].h });
   const W = window.screen.availWidth;
   const H = window.screen.availHeight;
@@ -201,12 +228,13 @@ async function applyDefaultLayout(container) {
   const state = webamp.store.getState();
   for (const id of LAYOUT_WINDOWS) {
     const w = state.windows.genWindows[id];
-    const wantOpen = id !== 'equalizer';
+    const wantOpen = id !== 'equalizer' && id !== 'milkdrop';
     if (w.open !== wantOpen) webamp.store.dispatch({ type: 'TOGGLE_WINDOW', windowId: id });
     if (w.shade) webamp.store.dispatch({ type: 'TOGGLE_WINDOW_SHADE_MODE', windowId: id });
   }
   webamp.store.dispatch({ type: 'WINDOW_SIZE_CHANGED', windowId: 'playlist', size: DEFAULT_PLAYLIST_SIZE });
-  const sizes = windowSizes(isDoubled(), DEFAULT_PLAYLIST_SIZE);
+  webamp.store.dispatch({ type: 'WINDOW_SIZE_CHANGED', windowId: 'milkdrop', size: milkdrop.DEFAULT_SIZE });
+  const sizes = windowSizes({ doubled: isDoubled(), playlistSize: DEFAULT_PLAYLIST_SIZE });
   const x = PLAYER_MARGIN;
   const y = PLAYER_MARGIN;
   const layout = currentLayout();
@@ -214,6 +242,7 @@ async function applyDefaultLayout(container) {
     main: { x, y },
     playlist: { x, y: y + sizes.main.h },
     equalizer: { x, y: y + sizes.main.h + sizes.playlist.h },
+    milkdrop: { x: x + sizes.main.w, y },
   };
   await placeLayout(container, layout, { center: true });
 }
@@ -256,7 +285,7 @@ async function placeLayout(container, layout, { center = false } = {}) {
 
 // Whether a window shares an edge with any other showing window.
 function touchesAnother(layout, id) {
-  const sizes = windowSizes(layout.doubled, layout.playlistSize, layout.shade);
+  const sizes = windowSizes(layout);
   const p = layout.positions;
   const a = { l: p[id].x, t: p[id].y, r: p[id].x + sizes[id].w, b: p[id].y + sizes[id].h };
   return shownWindows(layout).some((other) => {
@@ -277,7 +306,7 @@ function placeOpenedEqualizer() {
   const layout = currentLayout();
   const problem = layoutProblem(layout);
   if ((problem && /equalizer/.test(problem)) || !touchesAnother(layout, 'equalizer')) {
-    const sizes = windowSizes(layout.doubled, layout.playlistSize, layout.shade);
+    const sizes = windowSizes(layout);
     const under = layout.open.playlist ? 'playlist' : 'main';
     const p = layout.positions[under];
     webamp.store.dispatch({
@@ -289,6 +318,27 @@ function placeOpenedEqualizer() {
   }
 }
 
+// Opening Milkdrop puts it where it was last left, docked to the player; if
+// the player has moved since, or the spot is off the display or on another
+// window, it docks to the right of the player, top-aligned with the main
+// window. Winify's window then grows to take it in.
+function placeOpenedMilkdrop() {
+  const layout = currentLayout();
+  const problem = layoutProblem(layout);
+  if ((problem && /milkdrop/.test(problem)) || !touchesAnother(layout, 'milkdrop')) {
+    const sizes = windowSizes(layout);
+    const p = layout.positions;
+    const others = shownWindows(layout).filter((id) => id !== 'milkdrop');
+    const right = Math.max(...others.map((id) => p[id].x + sizes[id].w));
+    webamp.store.dispatch({
+      type: 'UPDATE_WINDOW_POSITIONS',
+      positions: { milkdrop: { x: right, y: p.main.y } },
+      absolute: true,
+    });
+    log('milkdrop docked to the right of the player', '(' + (problem || 'was not docked to the player') + ')');
+  }
+}
+
 // If Winify's window could not grow to fit the layout (a small display), slide
 // the whole group into the room there is, keeping it docked.
 async function keepOnScreen(container) {
@@ -296,7 +346,7 @@ async function keepOnScreen(container) {
   const box = container.getBoundingClientRect();
   if (!(box.width > 0 && box.height > 0)) return;
   const rects = LAYOUT_WINDOWS
-    .map((id) => document.querySelector('#webamp #' + (id === 'main' ? 'main-window' : id + '-window')))
+    .map((id) => document.querySelector('#webamp ' + WINDOW_SELECTORS[id]))
     .filter(Boolean)
     .map((el) => el.getBoundingClientRect());
   if (!rects.length) return;
@@ -316,7 +366,7 @@ async function keepOnScreen(container) {
 }
 
 async function restoreLayout(container) {
-  const saved = readLayout();
+  const saved = withMilkdrop(readLayout());
   if (!saved) { await applyDefaultLayout(container); return; }
   const problem = layoutProblem(saved);
   if (problem) {
@@ -329,6 +379,7 @@ async function restoreLayout(container) {
   if (Array.isArray(saved.playlistSize)) {
     webamp.store.dispatch({ type: 'WINDOW_SIZE_CHANGED', windowId: 'playlist', size: saved.playlistSize });
   }
+  webamp.store.dispatch({ type: 'WINDOW_SIZE_CHANGED', windowId: 'milkdrop', size: saved.milkdropSize });
   const genWindows = webamp.store.getState().windows.genWindows;
   for (const id of LAYOUT_WINDOWS) {
     if (saved.shade && !!saved.shade[id] !== !!genWindows[id].shade) {
@@ -336,7 +387,7 @@ async function restoreLayout(container) {
     }
   }
   for (const id of LAYOUT_WINDOWS) {
-    const wantOpen = id === 'main' || !saved.open || saved.open[id] !== false;
+    const wantOpen = shownWindows(saved).includes(id);
     if (wantOpen !== !!webamp.store.getState().windows.genWindows[id].open) {
       webamp.store.dispatch({ type: 'TOGGLE_WINDOW', windowId: id });
     }
@@ -361,8 +412,8 @@ let unsubscribeLayout = null;
 // Moving a window does not; opening, closing, shading, resizing or doubling
 // one does.
 function layoutShape() {
-  const { doubled, open, shade, playlistSize } = currentLayout();
-  return JSON.stringify({ doubled, open, shade, playlistSize });
+  const { doubled, open, shade, playlistSize, milkdropSize } = currentLayout();
+  return JSON.stringify({ doubled, open, shade, playlistSize, milkdropSize });
 }
 
 // A pointer button is down: something is being dragged or resized. Refitting
@@ -384,11 +435,15 @@ function watchLayout(container) {
   };
   let shape = layoutShape();
   let eqOpen = currentLayout().open.equalizer;
+  let mdOpen = currentLayout().open.milkdrop;
   unsubscribeLayout = webamp.store.subscribe(() => {
     if (!webamp) return;
     const isOpen = !!webamp.store.getState().windows.genWindows.equalizer.open;
     if (isOpen && !eqOpen) placeOpenedEqualizer();
     eqOpen = isOpen;
+    const isMdOpen = currentLayout().open.milkdrop;
+    if (isMdOpen && !mdOpen) placeOpenedMilkdrop();
+    mdOpen = isMdOpen;
     const nowShape = layoutShape();
     if (nowShape !== shape) {
       shape = nowShape;
@@ -451,6 +506,7 @@ async function doMount(containerId) {
   attach(webamp);
   inert.attach(webamp);
   vis.attach(webamp);
+  milkdrop.attach(webamp);
   log('rendered into #' + containerId, 'doubled =', isDoubled());
   return true;
 }
@@ -461,6 +517,7 @@ function unmount() {
   if (unsubscribeLayout) { unsubscribeLayout(); unsubscribeLayout = null; }
   document.removeEventListener('pointerdown', onPointerDown, true);
   document.removeEventListener('pointerup', onPointerUp, true);
+  milkdrop.detach();
   vis.detach();
   inert.detach();
   detach();

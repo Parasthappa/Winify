@@ -163,8 +163,8 @@ library; not every song has them.
 
 ### Menu-bar icon
 
-Winify's icon in the macOS menu bar lets you show or hide Winify, change your
-Client ID, disconnect, or quit. Closing Winify's window hides it; use **Quit
+Winify's icon in the macOS menu bar lets you show or hide Winify, open
+Milkdrop, change your Client ID, disconnect, or quit. Closing Winify's window hides it; use **Quit
 Winify** to close it completely.
 
 ## Optional: the visualizer
@@ -201,6 +201,22 @@ Good to know:
 - The first time, macOS asks to allow microphone access. That is how macOS
   describes listening to BlackHole.
 - If you hear nothing at all, your speakers are probably not ticked in step 4.
+
+## Milkdrop
+
+Winamp's big visualizer, Milkdrop, has its own window. Press the **V** button
+on the left edge of the main window, or choose **Milkdrop visualizer** from
+Winify's menu-bar icon. It needs the same setup as the small visualizer
+(above).
+
+- It changes to a new random picture every 30 seconds or so.
+- **Space**: the next picture. **R**: a random one. **Backspace**: the one
+  before. (Click the Milkdrop window first.)
+- **Double-click** for full screen; **Escape** to leave it.
+- Drag its bottom-right corner to make it bigger.
+
+Milkdrop works your Mac's graphics hard, so it stops drawing whenever its
+window is closed, Winify is hidden or minimized, or the music is paused.
 
 ## Troubleshooting
 

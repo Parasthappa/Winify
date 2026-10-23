@@ -76,6 +76,15 @@ Developer ID-signed and notarized app, which macOS may treat differently;
 worth retesting when Winify is packaged. Until then, BlackHole provides the
 loopback (README, "Optional: the visualizer").
 
+## Milkdrop
+
+Webamp's own Milkdrop window, drawn by Butterchurn (`butterchurn` and
+`butterchurn-presets`, the versions Webamp 2.3.1 was built with). Both load
+from `node_modules` the first time the window opens; nothing goes over the
+network. Butterchurn compiles each preset's equations to WebAssembly, which
+is why the page's security policy allows `'wasm-unsafe-eval'` (WebAssembly
+compilation only, not JavaScript `eval`).
+
 ## Permissions requested
 
 | Scope | Why |
@@ -114,6 +123,7 @@ and the sign-in screen asks to sign in again.
 | `webamp-room.js` | Grows the app window while one of them is open |
 | `webamp-inert.js` | Keeps Webamp controls with no Spotify meaning quiet |
 | `webamp-vis.js` | Feeds Webamp's visualizer from the audio capture |
+| `webamp-milkdrop.js` | Webamp's Milkdrop window, drawn by Butterchurn from the audio capture |
 | `drm-debug.js` | DRM diagnostics, inactive unless `--drm-debug` |
 
 Playback goes through `window.WinifyPlayer` (`play()`, `pause()`,

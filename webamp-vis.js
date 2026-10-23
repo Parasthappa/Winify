@@ -19,8 +19,8 @@
  *
  * The handle provides what Webamp's visualizer reads (fftSize,
  * frequencyBinCount, getByteTimeDomainData) and reports silence while there
- * is no capture. It is not a real AudioNode: Webamp's own Milkdrop window
- * would need one, and is not used.
+ * is no capture. It is not a real AudioNode; Webamp's Milkdrop window, which
+ * would want one, gets its audio separately (webamp-milkdrop.js).
  */
 
 const log = (...args) => console.log('[winify/vis]', ...args);
