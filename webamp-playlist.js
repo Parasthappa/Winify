@@ -914,23 +914,27 @@ function shuffle(list) {
   return list;
 }
 
-// Shuffle on: the current track, then everything else in random order (tracks
-// queued to play next stay next). Off: the source's own order, carrying on
-// from the current track's place in it; skips are kept either way.
+// Shuffle on: the current track, then the rest of the source in random order.
+// Off: the source's own order, carrying on from the current track's place in
+// it. Skips are kept either way.
 function applyShuffle() {
   // The playing track, even if this poll has not placed it yet.
   const cur = matches(entries[currentIndex]) ? entries[currentIndex] : entries.find((e) => !e.isLabel && matches(e)) || entries[currentIndex];
   if (!cur) return;
   currentIndex = entries.indexOf(cur);
-  const queued = [];
-  for (let j = currentIndex + 1; entries[j] && entries[j].inserted; j++) queued.push(entries[j]);
+  // Queued tracks are not part of the source and are never shuffled: those
+  // already played stay before the current track, the rest come right after.
+  const extra = entries.filter((e) => !origOrder.includes(e) && e !== cur);
+  const played = extra.filter((e) => entries.indexOf(e) < currentIndex);
+  const toCome = extra.filter((e) => entries.indexOf(e) > currentIndex);
   let list;
   if (shuffleOn) {
-    list = [cur].concat(queued, shuffle(entries.filter((e) => e !== cur && !queued.includes(e) && !e.isLabel)));
+    list = played.concat([cur], toCome, shuffle(origOrder.filter((e) => e !== cur && !e.isLabel)));
   } else {
-    list = origOrder.filter((e) => !queued.includes(e));
+    list = origOrder.slice();
     if (!list.includes(cur)) list.unshift(cur);
-    list.splice(list.indexOf(cur) + 1, 0, ...queued);
+    list.splice(list.indexOf(cur), 0, ...played);
+    list.splice(list.indexOf(cur) + 1, 0, ...toCome);
   }
   preparedFor = null;
   setOrder(list, cur);
