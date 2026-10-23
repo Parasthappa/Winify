@@ -143,6 +143,13 @@ To switch playlists, press **Eject** (in the main window or the playlist
 window), or choose **LIST OPTS > load list**. Pick Liked Songs or any of your
 playlists; type to filter. It plays from track 1. Escape closes it.
 
+To find any track, press **J** (or right-click the main window, **Play >
+Jump to track...**, or use the menu bar). Type to search Spotify. **Enter** or
+double-click plays the track within its album; **Shift+Enter** or right-click
+**Add to queue** queues it without interrupting what is playing. Right-click a
+track in the playlist window to queue it too. Winify never changes your
+playlists.
+
 Close (x) and Exit hide the Winify window and minimize (_) minimizes it, as
 the window's own buttons do. Controls with no Spotify equivalent (balance,
 the equalizer, adding or removing files, saving lists) do nothing.
@@ -271,6 +278,8 @@ app is packaged the prompt names *Electron* rather than Winify.
 | `webamp-spotify.js` | Connects Webamp's controls and display to Spotify |
 | `webamp-playlist.js` | Fills the playlist window from the current Spotify context |
 | `webamp-picker.js` | The playlist picker (Eject, LIST OPTS > load list) |
+| `webamp-search.js` | Jump to track: search, play within album, add to queue |
+| `webamp-room.js` | Grows the window while a Winify dialog is open |
 | `webamp-inert.js` | Keeps controls with no Spotify meaning quiet |
 | `webamp-vis.js` | Feeds Webamp's visualizer from the system-audio capture |
 | `drm-debug.js` | EME instrumentation, inert unless debugging |

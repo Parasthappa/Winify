@@ -10,6 +10,8 @@
  * skin is loaded rather than looking like a modern popup.
  */
 
+import { makeRoom } from './webamp-room.js';
+
 const PAGE = 50;                    // the /me/playlists maximum
 const PARALLEL_PAGES = 4;
 const ROW = 13;                     // Webamp's playlist row height
@@ -314,10 +316,17 @@ function onKey(e) {
 
 // ---- Open / close / pick ---------------------------------------------------------
 
+let opening = false;
+
 export async function open() {
-  if (!ctx) return;
+  if (!ctx || opening) return;
   if (el) { el.querySelector('.wp-filter').focus(); return; }
+  // Winify's window wraps the player and is narrower than the picker.
+  opening = true;
+  const release = await makeRoom(WIDTH + 16, 34 + 13 + VISIBLE_ROWS * ROW + 16);
+  opening = false;
   el = build();
+  el.releaseRoom = release;
   rows = [];
   shown = [];
   selected = 0;
@@ -346,6 +355,7 @@ export function close() {
   if (!el) return;
   el.backdrop.remove();
   el.remove();
+  el.releaseRoom();
   el = null;
   drawnKey = null;
 }

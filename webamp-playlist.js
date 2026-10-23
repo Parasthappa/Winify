@@ -357,6 +357,13 @@ function onDoubleClickCapture(e) {
   }
 }
 
+// The Spotify track behind a playlist row (for the right-click menu), or
+// null for the stand-in row and anything unplayable.
+export function entryById(id) {
+  const e = entries.find((x) => x.id === id);
+  return e && e.uri && e.playable ? { uri: e.uri, name: e.name } : null;
+}
+
 export function takeDoubleClick() {
   const pending = doubleClickPending;
   doubleClickPending = false;

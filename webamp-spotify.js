@@ -28,6 +28,7 @@
 
 import * as playlist from './webamp-playlist.js';
 import * as picker from './webamp-picker.js';
+import * as search from './webamp-search.js';
 import { analyserHandle } from './webamp-vis.js';
 
 const API = 'https://api.spotify.com/v1';
@@ -600,6 +601,10 @@ export function attach(instance) {
     webamp, now, api, say, log, warn, refreshSoon,
     deviceId: winifyDeviceId,
   });
+  search.init({
+    webamp, now, api, say, log, warn, refreshSoon,
+    deviceId: winifyDeviceId,
+  }, playlist);
   attached = true;
   guardMediaFilePrompt();
   document.addEventListener('click', onClickCapture, true);
@@ -630,6 +635,7 @@ export function detach() {
   attached = false;
   playlist.reset();
   picker.reset();
+  search.reset();
   timers.forEach(clearInterval);
   timers = [];
   document.removeEventListener('click', onClickCapture, true);

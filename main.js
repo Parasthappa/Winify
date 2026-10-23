@@ -497,6 +497,14 @@ function buildTray() {
       click: chooseSkin,
     },
     {
+      label: 'Jump to track...  (J)',
+      enabled: connected,
+      click: () => {
+        showWindow();
+        send('ui:command', { name: 'jump-to-track' });
+      },
+    },
+    {
       label: 'Reset window layout',
       enabled: connected,
       click: () => {

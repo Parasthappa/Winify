@@ -52,6 +52,9 @@ window.spotify.onCommand(async (command) => {
     case 'audio-stop':
       window.WinifyAudio.stop();
       break;
+    case 'jump-to-track':
+      if (window.WinifySearch) window.WinifySearch.open();
+      break;
     case 'reset-layout':
       window.WinifyWebamp.resetLayout();
       window.spotify.webampStateChanged(window.WinifyWebamp.isDoubled());
