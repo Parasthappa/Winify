@@ -224,12 +224,13 @@ function createWindow() {
     return { action: 'deny' };
   });
 
-  // Audio capture is diagnosed from the terminal, so its logs are mirrored
-  // there always -- not only under --drm-debug, where they used to hide.
+  // Audio capture and lyrics are diagnosed from the terminal, so their logs
+  // are mirrored there always -- not only under --drm-debug, where they used
+  // to hide.
   win.webContents.on('console-message', (event) => {
     const text = (event && event.message) || '';
     if (DRM_DEBUG) return; // the debug path already mirrors everything
-    if (text.startsWith('[winify/audio]')) console.log(text);
+    if (text.startsWith('[winify/audio]') || text.startsWith('[winify/lyrics]')) console.log(text);
   });
 }
 
@@ -903,7 +904,7 @@ const LRCLIB_TIMEOUT_MS = 15000;
 ipcMain.handle('lrclib', async (_event, path, params) => {
   if (!LRCLIB_PATHS.has(path)) throw new Error('not an LRCLIB lookup: ' + path);
   const res = await fetch(LRCLIB + path + '?' + new URLSearchParams(params), {
-    headers: { 'User-Agent': 'Winify/' + app.getVersion() + ' (Winamp-style Spotify player; Electron)' },
+    headers: { 'User-Agent': 'Winify/' + require('./package.json').version + ' (Winamp-style Spotify player; Electron)' },
     signal: AbortSignal.timeout(LRCLIB_TIMEOUT_MS),
   });
   if (!res.ok) return { status: res.status, body: null };

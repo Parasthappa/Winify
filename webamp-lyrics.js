@@ -1,8 +1,9 @@
 /* Lyrics: the full lyrics of the current track, in a Winamp-styled window.
  *
- * Opened by the I button on the main window's clutter bar, MISC > FILE INF in
- * the playlist window, and Option+3 (classic Winamp's Alt+3, file info). The
- * I button and Option+3 toggle it. It stays open while the player is used,
+ * Opened and closed by the I button on the main window's clutter bar, the
+ * playlist window's MISC button (relabelled LYRIC in the default skin; see
+ * "The LYRIC button" below), and Option+3 (classic Winamp's Alt+3, file
+ * info). It stays open while the player is used,
  * follows every track change (whatever started it), and is reopened at launch
  * if it was left open. Placement, dragging and the remembered position are
  * the shared custom-window behaviour (webamp-dialog.js).
@@ -27,7 +28,7 @@ const WATCH_MS = 500;               // how often the current track is checked
 const DURATION_SLACK_S = 4;         // a search match this close is the same recording
 const BUSY_RETRY_MS = 2000;
 
-let ctx = null;                     // { webamp, api, now, log, warn }
+let ctx = null;                     // { webamp, api, now }
 let el = null;
 let opening = false;
 let watchTimer = null;
@@ -35,6 +36,10 @@ let shownUri;                       // the track the window shows (undefined = n
 let lookupSeq = 0;
 const lyricsCache = new Map();      // track URI -> { state, plain, synced, source }
 const detailsCache = new Map();     // track URI -> { name, artist, album, durationS }
+
+// Main mirrors these to the terminal, where lyrics problems are diagnosed.
+const log = (...args) => console.log('[winify/lyrics]', ...args);
+const warn = (...args) => console.warn('[winify/lyrics]', ...args);
 
 // ---- Finding the lyrics -----------------------------------------------------------
 
@@ -51,7 +56,7 @@ async function trackDetails(uri) {
     d = { name: t.name, artist: t.artists && t.artists[0] ? t.artists[0].name : d.artist,
       album: t.album ? t.album.name : d.album, durationS: Math.round(t.duration_ms / 1000) };
   } catch (err) {
-    ctx.warn('lyrics: track details from Spotify failed, using the player\'s -', err.message);
+    warn('track details from Spotify failed, using the player\'s -', err.message);
   }
   detailsCache.set(uri, d);
   return d;
@@ -99,13 +104,16 @@ async function lrclib(path, params) {
 }
 
 async function lookUp(d) {
+  log('looking up', JSON.stringify(d));
   const got = answered(await lrclib('/api/get', {
     track_name: d.name, artist_name: d.artist, album_name: d.album, duration: d.durationS,
   }), true);
   const exact = got.status === 200 && got.body && fromRecord(got.body, 'get');
+  log('/api/get ->', got.status, exact ? exact.state : 'nothing usable');
   if (exact) return exact;
   const found = answered(await lrclib('/api/search', { track_name: cleanName(d.name), artist_name: d.artist }));
   const match = Array.isArray(found.body) ? bestMatch(found.body, d) : null;
+  log('/api/search ->', found.status, (Array.isArray(found.body) ? found.body.length : 0) + ' results,', match ? 'matched #' + match.id : 'no match');
   return (match && fromRecord(match, 'search')) || { state: 'none' };
 }
 
@@ -289,13 +297,13 @@ async function show(uri) {
     result = await lookUp(d);
   } catch (err) {
     if (seq !== lookupSeq) return;
-    ctx.warn('lyrics: LRCLIB lookup failed -', err.message);
+    warn('lookup failed -', err.message);
     draw(head, null, (err.busy ? 'LRCLIB is busy.' : 'Couldn’t reach LRCLIB.') + ' Click to try again.',
       () => { if (shownUri === uri) show(uri); });
     return;
   }
   lyricsCache.set(uri, result);
-  ctx.log('lyrics:', head.title, '-', result.state + (result.source ? ' (' + result.source + ')' : ''),
+  log(head.title, '-', result.state + (result.source ? ' (' + result.source + ')' : ''),
     result.synced ? '- synced lyrics kept' : '');
   if (seq === lookupSeq) render(head, result);
 }
@@ -328,6 +336,7 @@ export async function open() {
   el = build(spot);
   el.releaseRoom = spot.release;
   remember(true);
+  log('window opened at', spot.x + ',' + spot.y, 'in a', window.innerWidth + 'x' + window.innerHeight, 'window');
   shownUri = undefined;
   watch();
   watchTimer = setInterval(watch, WATCH_MS);
@@ -343,6 +352,7 @@ export function close(byUser) {
   el.releaseRoom();
   el = null;
   if (byUser) remember(false);
+  log('window closed');
 }
 
 export function toggle() {
@@ -356,10 +366,14 @@ export const isOpen = () => !!el;
 
 function onClickCapture(e) {
   if (!ctx || !(e.target instanceof Element)) return;
-  if (e.target.closest('#webamp #button-i')) toggle();
-  // MISC > FILE INF: Webamp's own "not supported" alert is kept quiet
-  // (webamp-inert.js); the menu closes as usual.
-  else if (e.target.closest('#webamp #playlist-misc-menu .file-info')) open();
+  if (e.target.closest('#webamp #button-i')) {
+    toggle();
+  } else if (e.target.closest('#webamp #playlist-misc-menu')) {
+    // In place of Webamp's SORT LIST / FILE INF / MISC OPTS menu.
+    e.preventDefault();
+    e.stopPropagation();
+    toggle();
+  }
 }
 
 // Option+3 (Alt+3). Matched by key position: Option+3 types "£" or "#".
@@ -371,12 +385,127 @@ function onKeyDown(e) {
   toggle();
 }
 
+// ---- The LYRIC button -----------------------------------------------------------------
+// MISC's label is part of the skin's playlist bitmap (bottom-left corner,
+// 125x38). In the default skin it is redrawn as LYRIC, in the same 5 px
+// lettering and the bitmap's own colours, with a pressed state. Other skins
+// keep their own art. Every skin gets the "Lyrics" tooltip.
+
+const BUTTON = { x: 101, y: 8, w: 22, h: 18 };        // MISC within that bitmap
+// The default skin's MISC button, pixel for pixel (see COLORS).
+const BASE_MISC = [
+  '.....................#',
+  '.ooooooooooooooooooo.x',
+  '.o*****************.#+',
+  '.o*****************.=+',
+  '.o*****************.=+',
+  '.o*****************.=+',
+  '.o*-***-*-**--**--*.=+',
+  '.o*--*--***-***-***.=+',
+  '.o*-----*-**-**-***.=+',
+  '.o*-*-*-*-***-*-***.=+',
+  '.o*-***-*-*--***--*.=+',
+  '.o*****************.=+',
+  '.o*****************.=+',
+  '.o*****************.=+',
+  '.o*****************.=+',
+  '.o..................=+',
+  '..#==================+',
+  '#x++++++++++++++++++++',
+];
+const COLORS = { '.': '#adb4c4', '#': '#8192a5', o: '#edffff', x: '#576476', '*': '#bfcdd3', '+': '#4e586e', '=': '#798296', '-': '#2f374d' };
+// L Y R I C: 3+1+3+1+3+1+1+1+3 = 17 px, the button face's full width
+// (columns 2-18), in the letters the other buttons use (R from REM, C and
+// I from MISC, L from SEL).
+const LYRIC = [
+  '#...#.#.##..#..##',
+  '#...#.#.#.#.#.#..',
+  '#....#..##..#.#..',
+  '#....#..#.#.#.#..',
+  '###..#..#.#.#..##',
+];
+const LETTER_TOP = 6;
+const LETTER_LEFT = 2;
+
+let lyricStyle = null;
+let checkedSkin = null;
+let unsubscribeSkin = null;
+
+const hex = (r, g, b) => '#' + [r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('');
+
+function isDefaultMisc(data) {
+  for (let y = 0; y < BUTTON.h; y++) {
+    for (let x = 0; x < BUTTON.w; x++) {
+      const i = (y * BUTTON.w + x) * 4;
+      if (hex(data[i], data[i + 1], data[i + 2]) !== COLORS[BASE_MISC[y][x]]) return false;
+    }
+  }
+  return true;
+}
+
+// The button, normal or pressed (bevel inverted, lettering one pixel lower).
+function drawLyric(pressed) {
+  const c = document.createElement('canvas');
+  c.width = BUTTON.w;
+  c.height = BUTTON.h;
+  const g = c.getContext('2d');
+  const put = (x, y, key) => { g.fillStyle = COLORS[key]; g.fillRect(x, y, 1, 1); };
+  for (let y = 0; y < BUTTON.h; y++) {
+    for (let x = 0; x < BUTTON.w; x++) {
+      let key = BASE_MISC[y][x];
+      if (key === '-') key = '*';                                   // clear MISC
+      if (pressed) {
+        const topLeft = (y === 1 && x >= 1 && x <= 19) || (x === 1 && y >= 1 && y <= 15);
+        const bottomRight = (y === 15 && x >= 2 && x <= 19) || (x === 19 && y >= 2 && y <= 15);
+        if (topLeft) key = '.';
+        else if (bottomRight) key = 'o';
+      }
+      put(x, y, key);
+    }
+  }
+  const top = LETTER_TOP + (pressed ? 1 : 0);
+  LYRIC.forEach((row, dy) => [...row].forEach((p, dx) => { if (p === '#') put(LETTER_LEFT + dx, top + dy, '-'); }));
+  return c.toDataURL('image/png');
+}
+
+// On each skin change: redraw MISC as LYRIC if it is the default skin's.
+function relabel() {
+  if (!ctx) return;
+  const misc = document.querySelector('#webamp #playlist-misc-menu');
+  if (misc && misc.title !== 'Lyrics') misc.title = 'Lyrics';
+  const corner = document.querySelector('#webamp .playlist-bottom-left');
+  const url = corner && (/url\("([^"]+)"\)/.exec(getComputedStyle(corner).backgroundImage) || [])[1];
+  if (!url || url === checkedSkin) return;
+  checkedSkin = url;
+  const img = new Image();
+  img.onload = () => {
+    if (checkedSkin !== url || !lyricStyle) return;
+    const c = document.createElement('canvas');
+    c.width = BUTTON.w;
+    c.height = BUTTON.h;
+    const g = c.getContext('2d');
+    g.drawImage(img, BUTTON.x, BUTTON.y, BUTTON.w, BUTTON.h, 0, 0, BUTTON.w, BUTTON.h);
+    const isDefault = img.width === 125 && isDefaultMisc(g.getImageData(0, 0, BUTTON.w, BUTTON.h).data);
+    lyricStyle.textContent = isDefault ? `
+      #webamp #playlist-misc-menu { background: url("${drawLyric(false)}") no-repeat; image-rendering: pixelated; }
+      #webamp #playlist-misc-menu:active { background-image: url("${drawLyric(true)}"); }` : '';
+    log('MISC button:', isDefault ? 'default skin - relabelled LYRIC' : 'skin\'s own art kept');
+  };
+  img.src = url;
+}
+
 // ---- Lifecycle ----------------------------------------------------------------------
 
 export function init(c) {
   ctx = c;
   document.addEventListener('click', onClickCapture, true);
   document.addEventListener('keydown', onKeyDown);
+  lyricStyle = document.createElement('style');
+  lyricStyle.id = 'winify-lyric-button';
+  document.head.appendChild(lyricStyle);
+  checkedSkin = null;
+  unsubscribeSkin = ctx.webamp.store.subscribe(relabel);
+  relabel();
   let wasOpen = false;
   try { wasOpen = localStorage.getItem(OPEN_KEY) === '1'; } catch (e) { /* storage unavailable */ }
   if (wasOpen) open();
@@ -386,6 +515,10 @@ export function reset() {
   close(false);
   document.removeEventListener('click', onClickCapture, true);
   document.removeEventListener('keydown', onKeyDown);
+  if (unsubscribeSkin) unsubscribeSkin();
+  unsubscribeSkin = null;
+  if (lyricStyle) lyricStyle.remove();
+  lyricStyle = null;
   ctx = null;
   lyricsCache.clear();
   detailsCache.clear();

@@ -5,6 +5,9 @@
  * picker. Each is neutralised narrowly, only for the control that triggers
  * it, so Webamp's useful dialogs (a skin that fails to load, say) still show.
  *
+ * Menu items with no Spotify meaning at all are hidden rather than left doing
+ * nothing (see DEAD_MENU_ITEMS).
+ *
  * Close and minimize act on the Winify window, as a native app's would:
  * Webamp's own close would otherwise remove the whole interface, leaving an
  * empty window until relaunch.
@@ -29,8 +32,42 @@ let realAnchorClick = null;
 // (.wsz/.zip) still prompt normally.
 let realInputClick = null;
 
+// Hidden, not removed: the menus are Webamp's (React's) to rebuild.
+//   Playback > 10 tracks back / fwd   Webamp stepping its own list (Spotify
+//                                     plays the order; Next/Previous remain)
+//   LIST OPTS > new list, save list   nothing to clear or save (load list
+//                                     opens the playlist picker)
+//   EQ > Presets                      Spotify has no EQ: presets only moved
+//                                     the sliders; Save and From Eqf... are
+//                                     file dialogs. The button opens nothing.
+const DEAD_MENU_ITEMS = new Set(['10 tracks back', '10 tracks fwd']);
+const DEAD_MENU_CSS = `
+  #webamp #playlist-list-menu li:has(.new-list),
+  #webamp #playlist-list-menu li:has(.save-list) { display: none; }`;
+let deadMenuStyle = null;
+
+function hideDeadItems() {
+  for (const li of document.querySelectorAll('#webamp-context-menu li')) {
+    const label = li.firstChild && li.firstChild.nodeType === Node.TEXT_NODE ? li.firstChild.textContent.trim() : '';
+    if (DEAD_MENU_ITEMS.has(label) && li.style.display !== 'none') li.style.display = 'none';
+  }
+}
+
+// Webamp attaches its menus straight to <body>; watching only <body>'s own
+// children keeps this off Webamp's constant redraws.
+const menuObserver = new MutationObserver(() => {
+  hideDeadItems();
+  // A menu's items can land a frame after the menu itself.
+  if (document.getElementById('webamp-context-menu')) requestAnimationFrame(hideDeadItems);
+});
+
 function onClickCapture(e) {
   if (!attached || !(e.target instanceof Element)) return;
+  if (e.target.closest('#webamp #presets-context')) {
+    e.preventDefault();
+    e.stopPropagation();
+    return;
+  }
   // Clearing the list sends STOP first; it must not pause Spotify.
   if (e.target.closest('#webamp .remove-all, #webamp .new-list')) ignoreStopFromListClear();
   if (e.target.closest(QUIET_ALERT_ITEMS)) {
@@ -88,6 +125,11 @@ export function attach(webamp) {
   install();
   attached = true;
   document.addEventListener('click', onClickCapture, true);
+  deadMenuStyle = document.createElement('style');
+  deadMenuStyle.id = 'winify-dead-menu-items';
+  deadMenuStyle.textContent = DEAD_MENU_CSS;
+  document.head.appendChild(deadMenuStyle);
+  menuObserver.observe(document.body, { childList: true });
   unsubscribers = [
     webamp.onWillClose((cancel) => {
       cancel();
@@ -100,6 +142,9 @@ export function attach(webamp) {
 export function detach() {
   attached = false;
   document.removeEventListener('click', onClickCapture, true);
+  menuObserver.disconnect();
+  if (deadMenuStyle) deadMenuStyle.remove();
+  deadMenuStyle = null;
   unsubscribers.forEach((off) => { try { off(); } catch (e) { /* gone */ } });
   unsubscribers = [];
 }
