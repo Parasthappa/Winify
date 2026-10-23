@@ -2,7 +2,8 @@
 (function () {
   'use strict';
   var PROPS = {"accent": "#ffb300", "action": "#1ed760", "outcome": "success"};
-  // no Tweaks panel here: ?outcome=free-account or ?outcome=network demos the error state
+  // no Tweaks panel here: ?outcome=free-account, network or redirect demos an
+  // error state; ?outcome=setup the Client ID setup step
   var DEMO = false;
   try { var q = new URLSearchParams(location.search).get('outcome'); if (q) { PROPS.outcome = q; DEMO = true; } } catch (e) {}
   var IPC = (typeof window !== 'undefined' && window.spotify) ? window.spotify : null;
@@ -14,6 +15,8 @@
   // 1200x790 window on a 1440x900 display. A uniform scale of the whole
   // design, so nothing is rearranged.
   var SIGN_IN_SCALE = 0.356;
+  // First run: how long "CLIENT ID SAVED" shows before signing in by itself.
+  var SAVED_PAUSE_MS = 1400;
 
   var queued = false, comp = null, vals = {}, bindings = [];
   function schedule() {
@@ -34,7 +37,11 @@
   class Component extends DCLogic {
   constructor(props) {
     super(props);
-    this.state = { powered: true, asleep: false, remember: false, status: 'idle', step: 0, btnHover: false };
+    this.state = { powered: true, asleep: false, remember: false, status: 'idle', step: 0, btnHover: false,
+      // the setup step: your own Spotify app's Client ID
+      setup: props && props.outcome === 'setup', setupWelcome: props && props.outcome === 'setup',
+      setupFirstRun: props && props.outcome === 'setup',
+      setupBusy: false, setupError: null, setupCurrent: null, setupSaved: false, autoSignIn: false };
   }
 
   componentWillUnmount() {
@@ -67,6 +74,68 @@
     return 'rgba(' + out[0] + ',' + out[1] + ',' + out[2] + ',' + a + ')';
   }
 
+  // Sign in: the main process walks the handshake and reports each step.
+  startSignIn() {
+    var self = this;
+    if (this.timer) { clearInterval(this.timer); this.timer = null; }
+    this.setState({ status: 'connecting', step: 0, asleep: false, failKind: null, setupSaved: false });
+
+    // Real login. Main process drives step/error/connected over IPC.
+    if (IPC && !DEMO) { IPC.login(); return; }
+
+    // Demo fallback (?outcome=... or opened outside Electron): the
+    // original simulated walk, untouched.
+    this.timer = setInterval(function () {
+      var cur = (self.state && self.state.step) || 0;
+      var fail = { 'free-account': 2, 'network': 0, 'rescope': 0, 'redirect': 0 }[self.props.outcome];
+      if (fail != null && cur >= fail) {
+        clearInterval(self.timer); self.timer = null;
+        self.setState({ status: 'error', step: 0, failKind: self.props.outcome });
+        return;
+      }
+      var next = cur + 1;
+      if (next >= 4) {
+        clearInterval(self.timer); self.timer = null;
+        self.setState({ status: 'connected', step: 0 });
+      } else {
+        self.setState({ step: next });
+      }
+    }, 700);
+  }
+
+  // The setup step's Save: Spotify is asked (by the main process) whether it
+  // knows the Client ID; only then is it kept.
+  submitSetup() {
+    var self = this;
+    var s = this.state || {};
+    if (s.setupBusy) { return; }
+    var field = document.getElementById('sa-client-id');
+    var value = field ? field.value.trim() : '';
+    if (!value) { this.setState({ setupError: 'format' }); return; }
+    if (!IPC || !IPC.setClientId) {        // demo: any 32-character hex string will do
+      this.setState({ setupError: /^[0-9a-f]{32}$/i.test(value) ? null : 'format', setup: !/^[0-9a-f]{32}$/i.test(value), setupSaved: /^[0-9a-f]{32}$/i.test(value) });
+      return;
+    }
+    this.setState({ setupBusy: true, setupError: null });
+    IPC.setClientId(value).then(function (verdict) {
+      if (verdict === 'ok' && (self.state || {}).setupFirstRun) {
+        // First run: say it worked, then straight on to signing in.
+        self.setState({ setup: false, setupFirstRun: false, setupBusy: false, setupError: null, setupSaved: true, autoSignIn: true, status: 'idle', step: 0, failKind: null });
+        setTimeout(function () {
+          self.setState({ autoSignIn: false });
+          self.startSignIn();
+        }, SAVED_PAUSE_MS);
+      } else if (verdict === 'ok') {
+        self.setState({ setup: false, setupBusy: false, setupError: null, setupSaved: true, status: 'idle', step: 0, failKind: null });
+      } else {
+        self.setState({ setupBusy: false, setupError: verdict });
+        if (field) { field.focus(); field.select(); }
+      }
+    }, function () {
+      self.setState({ setupBusy: false, setupError: 'unreachable' });
+    });
+  }
+
   renderVals() {
     var self = this;
     var s = this.state || {};
@@ -78,10 +147,14 @@
     var status = powered ? (s.status || 'idle') : 'idle';
     var remember = s.remember === true;
 
-    var connecting = status === 'connecting';
-    var connected = status === 'connected';
-    var failed = status === 'error';
+    var setup = powered && s.setup === true;
+    // first run: the welcome screen, then (Get started) the Client ID step
+    var welcome = setup && s.setupWelcome === true;
+    var connecting = !setup && status === 'connecting';
+    var connected = !setup && status === 'connected';
+    var failed = !setup && status === 'error';
     var live = powered && !asleep;
+    var redirectHelp = failed && s.failKind === 'redirect';
 
     var eqHeights = [21, 35, 54, 72, 47, 63, 84, 58, 40, 26];
     var eqDur   = [1050, 1550, 920, 1310, 1750, 1160, 1460, 1000, 1650, 1240];
@@ -106,8 +179,17 @@
       'free-account': { at: 2, text: 'SPOTIFY PREMIUM NOT DETECTED' },
       'network':      { at: 0, text: 'CONNECTION FAILED \u00b7 NO RESPONSE' },
       // a stored session that predates permissions Winify now needs
-      'rescope':      { at: 0, text: 'NEW PERMISSIONS \u00b7 SIGN IN AGAIN' }
+      'rescope':      { at: 0, text: 'NEW PERMISSIONS \u00b7 SIGN IN AGAIN' },
+      // the browser never called back: Spotify most likely refused the
+      // redirect URI, which it says only in the browser
+      'redirect':     { at: 0, text: 'NO REPLY \u00b7 CHECK THE REDIRECT URI' }
     };
+    var SETUP_ERRORS = {
+      'format':         'NOT A CLIENT ID \u00b7 32 LETTERS AND DIGITS',
+      'invalid-client': 'SPOTIFY DOES NOT KNOW THIS CLIENT ID',
+      'unreachable':    'COULD NOT REACH SPOTIFY \u00b7 TRY AGAIN'
+    };
+    var setupErr = setup && !s.setupBusy && s.setupError ? (SETUP_ERRORS[s.setupError] || SETUP_ERRORS['invalid-client']) : null;
     var YELLOW = '#ffd23f';
 
     var ctaLabel = 'Continue with Spotify';
@@ -117,6 +199,9 @@
     if (failed) { ctaLabel = 'Try again'; ctaAria = 'Try connecting to Spotify again'; }
     // nothing failed: sign in again, as at first launch
     if (failed && s.failKind === 'rescope') { ctaLabel = 'Continue with Spotify'; ctaAria = 'Sign in to Spotify again to grant new permissions'; }
+    if (setup) { ctaLabel = s.setupBusy ? 'Checking\u2026' : 'Save Client ID'; ctaAria = 'Save your Spotify app\u2019s Client ID'; }
+    if (welcome) { ctaLabel = 'Get started'; ctaAria = 'Set up Winify with your Spotify app'; }
+    if (!setup && s.autoSignIn) { ctaLabel = 'Connecting\u2026'; ctaAria = 'Connecting to Spotify'; }
 
     // connected turns the same glass button red
     var ctaBase = connected ? '#e5352b' : action;
@@ -160,19 +245,30 @@
       ctaBg: ctaBg,
       ctaShadow: ctaShadow,
       ctaBorder: ctaBorder,
-      ctaDisabled: !powered || connecting,
-      isConnecting: connecting,
+      ctaDisabled: !powered || connecting || (setup && s.setupBusy) || s.autoSignIn === true,
+      isConnecting: connecting || (setup && s.setupBusy) || s.autoSignIn === true,
+
+      showSetup: setup && !welcome,
+      showLogoParts: (!setup || welcome) && !redirectHelp,
+      showRedirectHelp: redirectHelp,
+      showWaitHint: connecting && (s.step || 0) === 0,
+      showChangeLink: !setup && !connecting && !connected && !s.autoSignIn && !!IPC,
+      setupPlaceholder: s.setupCurrent ? 'now: ' + s.setupCurrent : 'paste your Client ID',
       showMark: !connected,
 
-      statusIdle: !connecting && !connected && !failed,
-      statusBusy: connecting,
-      statusOn: connected,
-      statusErr: failed,
-      statusText: connected ? 'CONNECTED'
+      statusIdle: setup ? (!s.setupBusy && !setupErr) : (!connecting && !connected && !failed && !s.autoSignIn),
+      statusBusy: connecting || (setup && s.setupBusy),
+      statusOn: connected || (!setup && s.autoSignIn === true),
+      statusErr: failed || !!setupErr,
+      statusText: welcome ? 'WELCOME \u00b7 FIRST-TIME SETUP'
+        : setup ? (s.setupBusy ? 'CHECKING CLIENT ID\u2026' : setupErr || 'PASTE YOUR SPOTIFY CLIENT ID')
+        : connected ? 'CONNECTED'
         : failed ? ((FAILS[s.failKind] || FAILS['network']).text)
         : connecting ? STEPS[Math.min(s.step || 0, STEPS.length - 1)]
+        : s.autoSignIn ? 'CLIENT ID SAVED \u00b7 SIGNING YOU IN\u2026'
+        : s.setupSaved ? 'CLIENT ID SAVED \u00b7 READY TO SIGN IN'
         : 'NOT CONNECTED',
-      statusColor: connected ? action : (failed ? YELLOW : '#7d878f'),
+      statusColor: (connected || (!setup && s.autoSignIn)) ? action : ((failed || setupErr) ? YELLOW : '#7d878f'),
       spinTrack: 'rgba(141,151,161,.28)',
       spinHead: '#b9c3cc',
       onLedBg: 'radial-gradient(circle at 38% 32%, ' + this.mix(action, true, 0.55) + ' 0%, ' + action + ' 45%, ' + this.mix(action, false, 0.35) + ' 100%)',
@@ -213,37 +309,29 @@
       onCtaLeave: function () {
         self.setState({ btnHover: false });
       },
+      onSetupKey: function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); self.submitSetup(); }
+      },
+      onGuide: function () {
+        if (IPC && IPC.openSetupGuide) { IPC.openSetupGuide(); }
+      },
+      onChangeId: function () {
+        if (IPC && IPC.changeClientId) { IPC.changeClientId(); }
+      },
       onAuth: function () {
-        if (!powered || connecting) { return; }
+        if (welcome) {
+          self.setState({ setupWelcome: false });
+          setTimeout(function () { var f = document.getElementById('sa-client-id'); if (f) { f.focus(); } }, 0);
+          return;
+        }
+        if (setup) { self.submitSetup(); return; }
+        if (!powered || connecting || s.autoSignIn) { return; }
         if (connected) {
           if (IPC) { IPC.disconnect(); }
           self.setState({ status: 'idle', step: 0 });
           return;
         }
-        if (self.timer) { clearInterval(self.timer); self.timer = null; }
-        self.setState({ status: 'connecting', step: 0, asleep: false, failKind: null });
-
-        // Real login. Main process drives step/error/connected over IPC.
-        if (IPC && !DEMO) { IPC.login(); return; }
-
-        // Demo fallback (?outcome=... or opened outside Electron): the
-        // original simulated walk, untouched.
-        self.timer = setInterval(function () {
-          var cur = (self.state && self.state.step) || 0;
-          var fail = FAILS[self.props.outcome];
-          if (fail && cur >= fail.at) {
-            clearInterval(self.timer); self.timer = null;
-            self.setState({ status: 'error', step: 0, failKind: self.props.outcome });
-            return;
-          }
-          var next = cur + 1;
-          if (next >= STEPS.length) {
-            clearInterval(self.timer); self.timer = null;
-            self.setState({ status: 'connected', step: 0 });
-          } else {
-            self.setState({ step: next });
-          }
-        }, 700);
+        self.startSignIn();
       }
     };
   }
@@ -409,6 +497,19 @@
     IPC.onAuthRestored(function () {
       comp.setState({ status: 'connected', step: 0, remember: true, failKind: null });
       showApp(true);
+    });
+
+    // No Client ID yet, a new one wanted, or Spotify no longer knows it.
+    IPC.onAuthSetup(function (info) {
+      if (comp.timer) { clearInterval(comp.timer); comp.timer = null; }
+      comp.setState({ setup: true, setupWelcome: !!(info && info.firstRun), setupFirstRun: !!(info && info.firstRun), setupBusy: false, setupError: (info && info.error) || null,
+        setupCurrent: (info && info.current) || null, setupSaved: false, status: 'idle', step: 0, failKind: null });
+      showApp(false);
+      fitWindowToSignIn();
+      setTimeout(function () {
+        var field = document.getElementById('sa-client-id');
+        if (field) { field.value = ''; field.focus(); }
+      }, 0);
     });
 
     IPC.onSignedOut(function () {

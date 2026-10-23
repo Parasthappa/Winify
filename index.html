@@ -5,7 +5,7 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://sdk.scdn.co blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://*.scdn.co; media-src 'self' blob: https://*.scdn.co; connect-src 'self' https://api.spotify.com https://*.spotify.com wss://*.spotify.com https://*.scdn.co; frame-src 'self' https://sdk.scdn.co blob:; worker-src 'self' blob:; child-src 'self' blob:">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Winify — Sign in</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:ital,wght@0,600;0,700;0,900;1,900&amp;family=JetBrains+Mono:wght@400;500;700&amp;family=Saira+Condensed:wght@600;700&amp;display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:ital,wght@0,600;0,700;0,900;1,900&amp;family=JetBrains+Mono:wght@400;500;700&amp;family=Saira+Condensed:wght@600;700&amp;family=Source+Code+Pro:wght@400;500;600&amp;display=swap">
 <style>
   body { margin: 0; background: #0b0d0f; font-family: 'Archivo', ui-sans-serif, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
   a { color: #ff8a2b; }
@@ -16,6 +16,21 @@
   .sa-cta { transition: background .18s ease, box-shadow .18s ease, border-color .18s ease, transform .1s ease; }
   .sa-cta:active { transform: translateY(3px); }
   .sa-cta:disabled { filter: grayscale(.9) brightness(.58); cursor: not-allowed; }
+  /* The setup step's Client ID field and the display's text links. */
+  .sa-input { box-sizing: border-box; width: 820px; height: 78px; padding: 0 26px; border-radius: 12px; border: 2px solid rgba(141,151,161,.38); background: rgba(3,9,15,.7); box-shadow: inset 0 3px 10px rgba(0,0,0,.8); color: #f2f8fc; caret-color: #ffb300; font-family: 'Source Code Pro', monospace; font-weight: 500; font-size: 34px; letter-spacing: 1.5px; text-align: center; outline: none; transition: border-color .15s ease, box-shadow .15s ease; }
+  .sa-input::placeholder { color: #8a98a4; letter-spacing: 1.5px; font-weight: 400; }
+  /* What the user needs to read on the display: Source Code Pro, brighter
+     than the display's own labels and status line. */
+  .sa-info { font-family: 'Source Code Pro', monospace; color: #dfe8ef; }
+  .sa-input:focus { border-color: rgba(255,179,0,.75); box-shadow: inset 0 3px 10px rgba(0,0,0,.8), 0 0 22px rgba(255,179,0,.22); }
+  /* Buttons on the display: outlined, so they don't read as status text. */
+  .sa-link { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; padding: 9px 18px; border-radius: 12px; border: 2px solid rgba(255,179,0,.6); background: rgba(255,179,0,.1); box-shadow: inset 0 1px 0 rgba(255,255,255,.08); font-family: 'JetBrains Mono', monospace; font-size: 20px; letter-spacing: 2px; line-height: 1; color: #ffc233; text-shadow: 0 0 10px rgba(255,179,0,.3); transition: background .15s ease, border-color .15s ease, box-shadow .15s ease, color .15s ease; }
+  .sa-link:hover { color: #ffd23f; border-color: rgba(255,210,63,.95); background: rgba(255,179,0,.2); box-shadow: 0 0 18px rgba(255,179,0,.3), inset 0 1px 0 rgba(255,255,255,.1); }
+  .sa-link:active { transform: translateY(1px); background: rgba(255,179,0,.26); }
+  .sa-link:focus-visible { outline: 2px solid #ffd23f; outline-offset: 3px; }
+  /* the quieter one (CHANGE CLIENT ID): same shape, in the display's grey */
+  .sa-link.sa-quiet { color: #9aa6b0; border-color: rgba(141,151,161,.45); background: rgba(141,151,161,.08); text-shadow: none; }
+  .sa-link.sa-quiet:hover { color: #d8e1e8; border-color: rgba(185,195,204,.8); background: rgba(141,151,161,.18); box-shadow: 0 0 14px rgba(141,151,161,.25); }
   .sa-checkwrap:hover .sa-check { filter: brightness(1.12); }
   .sa-check { transition: filter .12s ease; }
   button:focus-visible, a:focus-visible { outline: 3px solid #ffb066; outline-offset: 5px; }
@@ -216,14 +231,15 @@
 
   <!-- ============ TITLE BAR ============ -->
   <div style="position: absolute; left: 134px; top: 136px; width: 1017px; height: 50px; display: flex; align-items: center; gap: 26px;">
-    <span style="font-family: 'Saira Condensed', 'Archivo', sans-serif; font-weight: 700; font-size: 36px; letter-spacing: 3px; color: #262c32; text-shadow: 0 1px 0 rgba(255,255,255,.85);">WINIFY</span>
+    <!-- the wordmark (same file as the display's logo), drawn in the title's near-black, engraved -->
+    <span role="img" aria-label="Winify" style="display: block; flex: none; width: 204px; height: 27px; background-color: #262c32; -webkit-mask: url(assets/winify-logo.svg) left center / contain no-repeat; mask: url(assets/winify-logo.svg) left center / contain no-repeat; filter: drop-shadow(0 1px 0 rgba(255,255,255,.85));"></span>
     <span style="display: flex; flex-direction: column; gap: 4px; width: 32px;">
       <span style="display: block; height: 5px; background: #565e66; box-shadow: 0 1px 0 rgba(255,255,255,.7);"></span>
       <span style="display: block; height: 5px; background: #565e66; box-shadow: 0 1px 0 rgba(255,255,255,.7);"></span>
       <span style="display: block; height: 5px; background: #565e66; box-shadow: 0 1px 0 rgba(255,255,255,.7);"></span>
       <span style="display: block; height: 5px; background: #565e66; box-shadow: 0 1px 0 rgba(255,255,255,.7);"></span>
     </span>
-    <span style="font-family: 'JetBrains Mono', monospace; font-weight: 500; font-size: 19px; letter-spacing: 2.4px; color: #5f676e; text-shadow: 0 1px 0 rgba(255,255,255,.7);">SPOTIFY &amp; WINAMP REMASTERED</span>
+    <span style="font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 22px; letter-spacing: 2.4px; color: #4f575e; text-shadow: 0 1px 0 rgba(255,255,255,.7);">SPOTIFY &amp; WINAMP REMASTERED</span>
 
     <span style="margin-left: auto; display: flex; align-items: center; gap: 8px;">
       <button type="button" class="sa-win" onClick="{{onSleep}}" aria-label="{{sleepLabel}}" aria-pressed="{{isAsleep}}" style="width: 44px; height: 44px; padding: 0; display: flex; align-items: center; justify-content: center; border: none; border-radius: 22px; cursor: pointer; background: none;">
@@ -251,6 +267,38 @@
       <div style="position: absolute; left: 0px; top: 0px; right: 0px; bottom: 0px; opacity: {{screenOpacity}}; transition: opacity .25s ease;">
 
         <sc-if value="{{screenLogo}}" hint-placeholder-val="{{ true }}">
+          <!-- setup step: your own Spotify app's Client ID -->
+          <sc-if value="{{showSetup}}">
+            <div style="position: absolute; left: 34px; top: 34px; display: flex; flex-direction: column; font-family: 'JetBrains Mono', monospace; font-weight: 400; font-size: 22px; line-height: 28px; letter-spacing: 1.6px; color: #7d878f; white-space: nowrap;">
+              <span>CONNECT YOUR SPOTIFY APP</span>
+            </div>
+            <div style="position: absolute; left: 88px; top: 118px; width: 820px; display: flex; flex-direction: column; gap: 16px;">
+              <label for="sa-client-id" class="sa-info" style="font-size: 23px; font-weight: 600; letter-spacing: 2.4px; color: #eef4f8;">CLIENT ID</label>
+              <input id="sa-client-id" class="sa-input" type="text" spellcheck="false" autocomplete="off" maxlength="64" placeholder="{{setupPlaceholder}}" onKeyDown="{{onSetupKey}}" aria-describedby="sa-setup-help">
+              <div id="sa-setup-help" class="sa-info" style="display: flex; justify-content: space-between; align-items: center; font-size: 21px; font-weight: 500; letter-spacing: 1px; color: #c9d5de;">
+                <span>From your app at developer.spotify.com</span>
+                <button type="button" class="sa-link" onClick="{{onGuide}}" title="Opens the setup guide">SETUP GUIDE &#x2197;</button>
+              </div>
+            </div>
+          </sc-if>
+          <!-- the browser never answered: say what to check -->
+          <sc-if value="{{showRedirectHelp}}">
+            <div class="sa-info" style="position: absolute; left: 88px; top: 96px; width: 820px; display: flex; flex-direction: column; gap: 18px; font-size: 24px; font-weight: 500; line-height: 32px; letter-spacing: .6px; color: #dfe8ef;">
+              <span>Browser says &#x201c;Invalid redirect URI&#x201d;?</span>
+              <span>Add this Redirect URI to your Spotify app:</span>
+              <span style="color: #ffd23f; font-size: 28px; font-weight: 600; letter-spacing: 1px;">http://127.0.0.1:8888/callback</span>
+              <button type="button" class="sa-link" onClick="{{onGuide}}" style="align-self: flex-start;" title="Opens the setup guide">SETUP GUIDE &#x2197;</button>
+            </div>
+          </sc-if>
+          <!-- waiting on the browser: in case it shows an error instead -->
+          <sc-if value="{{showWaitHint}}">
+            <button type="button" class="sa-link" onClick="{{onGuide}}" style="position: absolute; right: 34px; top: 30px; font-size: 18px;" title="Opens the setup guide">BROWSER SHOWS AN ERROR? &#x2197;</button>
+          </sc-if>
+          <!-- signed out: a different Spotify app -->
+          <sc-if value="{{showChangeLink}}">
+            <button type="button" class="sa-link sa-quiet" onClick="{{onChangeId}}" style="position: absolute; right: 34px; top: 30px; font-size: 18px;">CHANGE CLIENT ID &#x203a;</button>
+          </sc-if>
+          <sc-if value="{{showLogoParts}}">
           <div style="position: absolute; left: 34px; top: 34px; display: flex; flex-direction: column; font-family: 'JetBrains Mono', monospace; font-weight: 400; font-size: 22px; line-height: 28px; letter-spacing: 1.6px; color: #7d878f; white-space: nowrap;">
             <span>BUILT FOR</span>
             <span>SPOTIFY PREMIUM</span>
@@ -265,6 +313,7 @@
               <span class="{{bar.cls}}" style="display: block; width: 12px; height: 44px; background: #8d97a1; transform-origin: bottom; animation-delay: {{bar.d}}ms; animation-duration: {{bar.t}}ms"></span>
             </sc-for>
           </div>
+          </sc-if>
 
           <div role="status" aria-live="polite" style="position: absolute; left: 34px; bottom: 34px; display: flex; align-items: center; gap: 12px; font-family: 'JetBrains Mono', monospace; font-weight: 400; font-size: 21px; letter-spacing: 2.2px; color: {{statusColor}}; white-space: nowrap;">
             <sc-if value="{{statusIdle}}" hint-placeholder-val="{{ true }}">

@@ -1,357 +1,249 @@
 # Winify
 
-A Winamp-styled desktop player for Spotify, built with Electron.
+Spotify, played through a classic Winamp-style player on your Mac.
 
-Winify signs you in with your own Spotify account and registers itself as a
-Spotify Connect device, so audio plays from Winify rather than from the Spotify
-app.
+Winify plays your Spotify music in its own window, with Winamp's buttons,
+playlist window and visualizer. Spotify sees it as a device called **Winify**,
+just like a speaker or your phone.
 
-> **Requires Spotify Premium.** The Spotify Web Playback SDK does not work with
-> free accounts.
+## What you need
+
+- A Mac
+- A **Spotify Premium** account (Spotify does not allow this on free accounts)
+- [Node.js](https://nodejs.org) (version 20 or newer)
+- Python 3 (already on most Macs; used once during setup)
+
+Setup takes about 15 minutes, once.
 
 ## Setup
 
-Winify ships with no credentials. You register your own Spotify application and
-supply its Client ID — this takes a couple of minutes and is free.
+### Step 1: Create your Spotify app
 
-### 1. Register a Spotify app
+Spotify requires every Winify user to register their own (free) Spotify app.
+You will get a **Client ID** from it, which Winify asks for later.
 
-1. Go to the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard)
-   and sign in.
-2. Click **Create app**. Give it any name and description.
-3. Under **Redirect URIs**, add this value **exactly**:
+1. Open the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard)
+   and log in with your Spotify Premium account.
+2. Click **Create app**. Any name and description will do, for example
+   "My Winify".
+3. Under **Redirect URIs**, paste this exactly, then click **Add**:
 
    ```
    http://127.0.0.1:8888/callback
    ```
 
-   It must match character for character, including the port and the `http`
-   scheme. `localhost` instead of `127.0.0.1` will not work.
-4. Select **Web API** and **Web Playback SDK** as the APIs you intend to use.
-5. Save, then open the app's settings and copy its **Client ID**.
+4. Under **Which API/SDKs are you planning to use?**, tick **Web API** and
+   **Web Playback SDK**.
+5. Agree to the terms and click **Save**.
+6. Open your new app's **Settings** and copy the **Client ID** (a mix of 32
+   letters and numbers). You do not need the Client Secret.
 
-You do **not** need the Client Secret. Winify uses the Authorization Code flow
-with PKCE, which is designed for apps that cannot keep a secret, so none is
-requested or stored.
+> **Already have a Spotify developer app?** Spotify allows only one per
+> person, so use it instead of creating a new one. In its **Settings**, add the
+> redirect URI from step 3 next to the ones it already has, and make sure
+> **Web API** and **Web Playback SDK** are ticked. Nothing else changes.
 
-### 2. Configure Winify
+### Step 2: Install Winify
 
-```bash
-cp .env.example .env
-```
-
-Open `.env` and paste your Client ID:
-
-```
-SPOTIFY_CLIENT_ID=your_client_id_here
-```
-
-`.env` is gitignored and will not be committed.
-
-Alternatively, set it in your environment instead of using a file:
-
-```bash
-export SPOTIFY_CLIENT_ID=your_client_id_here
-```
-
-### 3. Install dependencies
+Download this project to your Mac, open **Terminal** in its folder, and run:
 
 ```bash
 npm install
 ```
 
-This pulls in castLabs' Widevine-enabled Electron build rather than stock
-Electron. Spotify's audio is DRM-protected, and stock Electron cannot decrypt
-it.
+### Step 3: Allow Winify to play Spotify's audio
 
-### 4. Sign the Electron binary (required for audio)
+Spotify only sends audio to apps that carry a free signature from castLabs,
+the company that makes the version of Electron Winify is built on. You sign
+your copy once.
 
-**Without this step audio will not play.** Sign-in and device registration will
-work, then every track will skip after a second or two, and the licence request
-will fail with `HTTP 500`.
+1. Install castLabs' signing tool:
 
-Spotify's licence server validates the Verified Media Path (VMP) signature on
-the Electron binary. The prebuilt castLabs binaries carry only a development
-signature, which the production licence server rejects. Signing with castLabs'
-EVS service fixes it. An EVS account is free.
+   ```bash
+   python3 -m pip install --upgrade castlabs-evs
+   ```
 
-```bash
-python3 -m pip install --upgrade castlabs-evs
-```
+2. Create your free castLabs account. You will be asked for an email address,
+   a name and a password (it needs upper and lower case letters, a number and
+   a symbol), then for a code sent to that email.
 
-```bash
-python3 -m castlabs_evs.account signup
-```
+   ```bash
+   python3 -m castlabs_evs.account signup
+   ```
 
-Signup asks for an email address, your name, an organization, an account name
-and a password, then emails a confirmation code. The password must contain a
-symbol character, along with upper case, lower case and a digit — signup fails
-with `InvalidPasswordException` otherwise.
+3. Sign your copy of Winify:
 
-Then sign the Electron distribution that `npm install` placed in
-`node_modules`:
+   ```bash
+   python3 -m castlabs_evs.vmp sign-pkg node_modules/electron/dist
+   ```
 
-```bash
-python3 -m castlabs_evs.vmp sign-pkg node_modules/electron/dist
-```
+4. Check it worked. You should see **Signature is valid**:
 
-Check it worked:
+   ```bash
+   python3 -m castlabs_evs.vmp verify-pkg node_modules/electron/dist
+   ```
 
-```bash
-python3 -m castlabs_evs.vmp verify-pkg node_modules/electron/dist
-```
+> Run step 3 again whenever you run `npm install` again. If music ever starts
+> skipping after a second or two, this is almost always why.
 
-A signed binary reports `Signature is valid: streaming` and a validity period
-of a few years.
-
-> **Re-sign after every `npm install` that reinstalls Electron.** The signature
-> lives inside `node_modules`, which is not tracked by git and is replaced
-> wholesale on reinstall. If playback suddenly starts skipping again, run
-> `verify-pkg` first — an unsigned binary is the usual cause.
-
-### 5. Run
+### Step 4: Start Winify
 
 ```bash
 npm start
 ```
 
-The first launch is slower than usual: Electron downloads the Widevine CDM,
-which is required to decrypt Spotify's audio.
+The first start takes a little longer than later ones.
 
-If the Client ID is missing, Winify tells you so on startup with a dialog and a
-message in the terminal rather than failing with a vague connection error.
+### Step 5: Connect your Spotify app
 
-## Using it
+1. Click **Get started**.
+2. Paste the **Client ID** from step 1 and click **Save Client ID**. Winify
+   checks it with Spotify, then signs you in.
+3. Your browser opens Spotify's sign-in page. Log in and click **Agree**.
+4. Winify shows **CONNECTED** and opens the player.
 
-1. Click **Continue with Spotify** and approve access in your browser.
-2. Winify appears as a Spotify Connect device named **Winify**.
-3. Press **Play** in the Winamp window. Winify takes over your current Spotify
-   session, or starts your Liked Songs if there is nothing to resume. You can
-   also pick Winify from the device list in the Spotify app.
+Next time you open Winify, click **Continue with Spotify**. Turn on
+**Remember me** to stay signed in between launches.
 
-The Winamp controls drive Spotify: Play, Pause, Stop (pauses), Next,
-Previous, the seek bar, volume, Shuffle and Repeat. Balance, the equalizer
-and Eject have no Spotify equivalent and do nothing.
+To use a different Spotify app later, choose **Change Spotify Client ID...**
+from Winify's menu-bar icon, or **CHANGE CLIENT ID** on the sign-in screen.
 
-The playlist window lists the album or playlist being played, with the
-current track highlighted; double-click a track to play it. Spotify only lets
-apps read the contents of playlists you own or collaborate on, so for any
-other playlist, and for Liked Songs, artists and radio, it shows the current
-track and Spotify's Up Next queue instead. When an album or playlist runs out
-and Spotify's Autoplay carries on, the list switches to Autoplay's queue,
-labelled "Autoplay".
+## Using Winify
 
-To switch playlists, press **Eject** (in the main window or the playlist
-window), or choose **LIST OPTS > load list**. Pick Liked Songs or any of your
-playlists; type to filter. It plays from track 1. Escape closes it.
+### Playing music
 
-To find any track, press **J** (or right-click the main window, **Play >
-Jump to track...**, or use the menu bar). Type to search Spotify. **Enter** or
-double-click plays just that track (Spotify's Autoplay, if on, carries on
-after it); **Shift+Enter** or right-click **Add to queue** queues it without
-interrupting what is playing. Right-click also offers **Play album** (from
-that track) and **Play artist**. Right-click a
-track in the playlist window to queue it too. Winify never changes your
-playlists.
+Press **Play**. Winify continues whatever you were last listening to on
+Spotify, or starts your Liked Songs. You can also pick **Winify** from the
+device list in the Spotify app on your phone or computer.
 
-The playlist window's **ADD** button opens the same search as **ADD TO
-QUEUE** (shown in its title): there Enter and double-click queue the track
-and the window stays open for more, while Shift+Enter or right-click > Play
-plays it.
+Play, Pause, Stop, Next, Previous, the position bar, volume, Shuffle and Repeat
+all control Spotify.
 
-For the current track's lyrics, press the **I** button on the main window's
-left edge, **Option+3** (Winamp's Alt+3), or the playlist window's **LYRIC**
-button (MISC in other skins); each opens and closes the lyrics window. It
-follows track changes and is reopened at launch if you left it open. Lyrics
-from [LRCLIB](https://lrclib.net).
+### Choosing a playlist
 
-Close (x) and Exit hide the Winify window and minimize (_) minimizes it, as
-the window's own buttons do. Controls with no Spotify equivalent (balance,
-the equalizer, adding or removing files, saving lists) do nothing.
+Press **Eject**, press **L**, or choose **LIST OPTS > load list** in the
+playlist window. Pick Liked Songs or one of your playlists (type to filter).
 
-**Remember me** stores your refresh token so you stay signed in between
-launches. Leave it off and nothing is written to disk.
+### Finding a track
 
-Winify keeps a menu-bar item showing connection status, with Show/Hide,
-Disconnect and Quit. Closing the window hides it rather than quitting.
+Press **J** (or the playlist window's **ADD** button) and type to search.
 
-## System audio capture (for the visualizers)
+- **Enter** or double-click plays the track. Spotify's Autoplay continues
+  with similar music afterwards.
+- **Shift+Enter** adds it to your queue, to play next.
+- Right-click for more: **Play album** and **Play artist**.
 
-The visualizers run frequency analysis on the audio actually leaving your
-speakers. This is necessary rather than preferred: Spotify's audio is
-DRM-protected, so its waveform cannot be read from the Web Playback SDK, and
-Spotify's audio-analysis and beat-data endpoints were restricted in late 2024.
+### The playlist window
 
-Playback works without any of this. Only the visualizers need it.
+For albums, your own playlists and Liked Songs, the playlist window is
+Winify's own running order:
 
-Capture starts by itself when the player appears and stops when you sign out;
-the menu bar's Start/Stop audio capture controls it by hand. Click the
-visualizer to switch between spectrum bars, oscilloscope and off. It shows
-whatever your Mac is playing, not only Spotify, and it pauses drawing while
-Winify's window is hidden. Without a loopback device it simply stays empty.
+- **Drag** tracks to change the order.
+- **REM** or **Delete** skips the selected tracks. They stay in the list,
+  struck through. Do it again to un-skip them. **Cmd+Z** undoes.
+- **Shuffle** shuffles the list where you can see it. Turn it off to get the
+  original order back.
+- **Double-click** a track to play it. Right-click it to add it to the queue.
+- The first row names what is playing (the album, playlist or artist).
+  Double-click it to play from the top.
 
-While capture runs, macOS shows its orange microphone indicator: it does so
-for any audio input, BlackHole included. Winify does not record you.
+Spotify only lets Winify read playlists you created or collaborate on. For
+other playlists and artists, the window shows what Spotify will play next.
+When your music runs out, Spotify's **Autoplay** carries on, and the window
+shows its list, marked **AUTOPLAY · FROM SPOTIFY**. You can't edit that list.
 
-### macOS: BlackHole + a Multi-Output Device
+Winify never changes your playlists.
 
-macOS has no built-in way for an app to read its own system output, so a
-virtual loopback device is needed.
+### Lyrics
 
-```bash
-brew install blackhole-2ch
-```
+Press the **I** button on the left edge of the main window, **Option+3**, or
+the playlist window's **LYRIC** button. The lyrics window follows the music.
+Lyrics come from [LRCLIB](https://lrclib.net), a free community lyrics
+library; not every song has them.
 
-**Reboot after installing** — the installer says so, and the driver will not
-appear until you do.
+### Menu-bar icon
 
-Then split your audio so it reaches both your ears and Winify:
+Winify's icon in the macOS menu bar lets you show or hide Winify, change your
+Client ID, disconnect, or quit. Closing Winify's window hides it; use **Quit
+Winify** to close it completely.
 
-1. Open **Audio MIDI Setup** (Applications → Utilities)
-2. Click **+** at the bottom left → **Create Multi-Output Device**
-3. Tick **both** your speakers/headphones **and** BlackHole 2ch
-4. Set your speakers as the **Master Device** (clock drift is referenced to it)
-5. Tick **Drift Correction** on the BlackHole row, not the speakers row
-6. **System Settings → Sound → Output** → select the Multi-Output Device
+## Optional: the visualizer
 
-Winify detects the loopback device by name and will log which one it picked:
+The visualizer needs to hear your Mac's sound, which macOS does not allow
+directly. A small free audio tool, BlackHole, makes it possible. Music plays
+fine without it; only the visualizer stays empty.
 
-```
-using device: BlackHole 2ch (Virtual) (system loopback)
-```
+1. Install BlackHole (needs [Homebrew](https://brew.sh)), then **restart your
+   Mac**:
 
-If it instead says `(NOT a loopback device - this hears the room, not the app)`
-it fell back to your microphone, which means the Multi-Output Device is not the
-current output.
+   ```bash
+   brew install blackhole-2ch
+   ```
 
-> **This breaks your macOS volume keys.** macOS cannot control the volume of an
-> aggregate device, so the volume keys and the menu-bar slider stop working
-> while a Multi-Output Device is your output. Set volume inside Winify instead,
-> or switch your output back to your speakers when you are not using the
-> visualizers. This is a limitation of Multi-Output Devices, not of Winify.
+2. Open **Audio MIDI Setup** (in Applications > Utilities).
+3. Click **+** at the bottom left and choose **Create Multi-Output Device**.
+4. Tick **both** your speakers or headphones **and** BlackHole 2ch.
+5. Choose your speakers or headphones as the **Primary Device** (called
+   **Master Device** on older macOS), and tick **Drift Correction** on the
+   BlackHole row.
+6. In **System Settings > Sound > Output**, choose the **Multi-Output
+   Device**.
 
-If you only ever hear silence after switching, your speakers are probably not
-ticked in the Multi-Output Device — it is easy to tick only BlackHole, which
-has no hardware behind it.
+Click the visualizer to switch between bars, waveform and off.
 
-### Why a driver is needed at all
+Good to know:
 
-Electron can capture system audio natively via `setDisplayMediaRequestHandler`
-with `audio: 'loopback'`, which would need no driver and no user setup. On
-macOS it does not currently work: the audio track is created, correctly
-labelled `System audio`, and is already in `readyState: 'ended'` the first time
-it is observed, so no samples ever arrive. See
-[electron/electron#52738](https://github.com/electron/electron/issues/52738).
+- While the Multi-Output Device is your output, your Mac's volume keys don't
+  work. Use Winify's volume slider, or switch your output back when you don't
+  need the visualizer.
+- macOS shows its orange microphone dot while the visualizer listens. Winify
+  only listens to your Mac's own sound and records nothing.
+- The first time, macOS asks to allow microphone access. That is how macOS
+  describes listening to BlackHole.
+- If you hear nothing at all, your speakers are probably not ticked in step 4.
 
-This was tested thoroughly before falling back to a driver. Ruled out: every
-combination of the `MacLoopbackAudioForScreenShare`,
-`MacSckSystemAudioLoopbackOverride` and `MacCatapSystemAudioLoopbackCapture`
-feature flags; both `loopback` and `loopbackWithMute`; `useSystemPicker` true
-and false; stock Electron as well as the castLabs build, which fail
-identically; and an invalid code signature, which was repaired without changing
-the result. macOS 15.6.1, which is new enough for the Core Audio tap API.
+## Troubleshooting
 
-One variable remains untested: a packaged application with a real Developer ID
-signature and notarization. Every test above ran unpackaged with an ad-hoc
-identity and no Team ID, and macOS may treat a properly identified app
-differently. Worth retesting when the app is packaged for release — if it
-works, the BlackHole requirement disappears.
-
-## Permissions requested
-
-| Scope | Why |
+| What you see | What to do |
 |---|---|
-| `user-read-private` | Check the account is Premium |
-| `user-read-email` | Required by the Web Playback SDK |
-| `streaming` | Play audio through the in-app device |
-| `user-read-playback-state` | Read what is playing |
-| `user-read-currently-playing` | Show the current track |
-| `user-modify-playback-state` | Play, pause, skip, seek |
-| `playlist-read-private` | List your playlists, and the tracks in your private ones |
-| `playlist-read-collaborative` | List the tracks in collaborative playlists |
-| `user-library-read` | List Liked Songs |
+| **NO REPLY · CHECK THE REDIRECT URI**, or the browser says **Invalid redirect URI** | In your Spotify app's settings, add `http://127.0.0.1:8888/callback` exactly as written (step 1), then try again. |
+| **SPOTIFY DOES NOT KNOW THIS CLIENT ID** | Copy the Client ID again from your app's settings in the Spotify Developer Dashboard. |
+| **SPOTIFY PREMIUM NOT DETECTED** | Winify needs Spotify Premium. |
+| Music skips after a second or two | Do step 3 again. |
+| **Spotify rate limit - try again in ...** | Spotify is limiting your account for a while. Wait the time shown. |
+| The visualizer is empty | Set up the visualizer (above), and check that the Multi-Output Device is your sound output. |
+| Sign-in never finishes | Another app may be using the same sign-in connection. Quit other music or developer tools and try again. |
 
-If Winify gains a permission after you signed in, the sign-in screen says
-**NEW PERMISSIONS · SIGN IN AGAIN** at launch; signing in once grants it.
+## Privacy
 
-Separately, macOS will ask once for **microphone** access the first time you
-start audio capture. Winify reads the loopback device as an ordinary audio
-input, which is what that permission covers; it does not record you. Before the
-app is packaged the prompt names *Electron* rather than Winify.
+Winify keeps everything on your Mac:
 
-## Project layout
+- **Your Client ID**, in Winify's own settings.
+- **Your Spotify sign-in**, only if **Remember me** is on. **Disconnect**
+  removes it.
 
-| File | Purpose |
-|---|---|
-| `main.js` | Electron main process: auth, token storage, menu bar, local server |
-| `preload.js` | The IPC bridge exposed to the renderer |
-| `index.html` | The sign-in screen and the app view |
-| `winify.js` | The sign-in screen's own state and rendering engine |
-| `player.js` | Web Playback SDK wiring; playback commands on `window.WinifyPlayer` |
-| `renderer.js` | App view wiring |
-| `webamp-ui.js` | Mounts the Winamp interface (Webamp) |
-| `webamp-spotify.js` | Connects Webamp's controls and display to Spotify |
-| `webamp-playlist.js` | Fills the playlist window from the current Spotify context |
-| `webamp-picker.js` | The playlist picker (Eject, LIST OPTS > load list) |
-| `webamp-search.js` | Jump to track: search, play within album, add to queue |
-| `webamp-room.js` | Grows the window while a Winify dialog is open |
-| `webamp-dialog.js` | Placement, dragging, snapping and tooltips for Winify's own windows |
-| `webamp-inert.js` | Keeps controls with no Spotify meaning quiet |
-| `webamp-vis.js` | Feeds Webamp's visualizer from the system-audio capture |
-| `drm-debug.js` | EME instrumentation, inert unless debugging |
+Winify connects only to:
 
-Playback is driven through `window.WinifyPlayer` — `play()`, `pause()`,
-`togglePlay()`, `nextTrack()`, `previousTrack()`, `setVolume()`, `seek()` — so
-the interface can be replaced without touching playback logic.
+- **Spotify**, for your music;
+- **LRCLIB**, when the lyrics window is open (it sends the song's name,
+  artist, album and length to find its lyrics);
+- **Google**, to load the sign-in screen's fonts, and once at first start to
+  download the component that lets Electron play Spotify's protected audio.
 
-## Troubleshooting playback
+It does not collect or send anything else.
 
-Audio plays inside Winify once the Electron binary is VMP-signed (step 4
-above). If tracks skip after a second or two, the signature is almost always
-the cause:
+When you sign in, Winify asks Spotify for permission to see your account type
+(to check for Premium), play music, see and control what is playing, read your
+playlists, and read your Liked Songs.
 
-```bash
-python3 -m castlabs_evs.vmp verify-pkg node_modules/electron/dist
-```
+## For developers
 
-The symptom of an unsigned binary is specific: the device registers fine, a
-queue loads, and then each track is abandoned almost immediately while the
-licence request returns `HTTP 500`:
-
-```
-POST https://api.spotify.com/v1/widevine-license/v1/audio/license  ->  500
-```
-
-Note that Spotify does not list Electron as a supported platform for the Web
-Playback SDK, so this setup is unsupported by Spotify even when it works.
-
-To capture DRM diagnostics — licence traffic, media-pipeline events and EME
-key-status changes, including inside the SDK's cross-origin iframe:
-
-```bash
-npm start -- --drm-debug
-```
-
-This is off by default.
+How Winify is built, and how to work on it: see [DEVELOPMENT.md](DEVELOPMENT.md).
 
 ## Licence
 
 MIT. See [LICENSE](LICENSE).
 
-Winify is an independent project and is not affiliated with, endorsed by, or
-sponsored by Spotify or Winamp. Spotify is a trademark of Spotify AB; Winamp is
-a trademark of its respective owner. You need your own Spotify account and your
-own registered Spotify application to use this software.
-
-## Troubleshooting
-
-**`INVALID_CLIENT: Invalid redirect URI`** — the Redirect URI in your Spotify
-app settings does not exactly match `http://127.0.0.1:8888/callback`.
-
-**Sign-in hangs** — something else may be using port 8888.
-
-**Tracks skip after a second** — the Electron binary is not VMP-signed. See
-[Troubleshooting playback](#troubleshooting-playback).
-
-**Signed out unexpectedly** — your stored token was rejected. Sign in again; if
-it persists, use **Disconnect** from the menu bar to clear it.
+Winify is an independent project. It is not affiliated with, endorsed by or
+sponsored by Spotify or Winamp. Spotify is a trademark of Spotify AB; Winamp
+is a trademark of its owner.

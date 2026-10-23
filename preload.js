@@ -10,6 +10,10 @@ contextBridge.exposeInMainWorld('spotify', {
   cancelLogin: () => ipcRenderer.send('cancel-login'),
   disconnect: () => ipcRenderer.send('disconnect'),
   setRemember: (value) => ipcRenderer.send('set-remember', value),
+  // The setup step: your own Spotify app's Client ID.
+  setClientId: (id) => ipcRenderer.invoke('client-id:set', id),
+  changeClientId: () => ipcRenderer.send('client-id:change'),
+  openSetupGuide: () => ipcRenderer.send('open-setup-guide'),
 
   // Playback support
   getToken: () => ipcRenderer.invoke('get-token'),
@@ -24,6 +28,7 @@ contextBridge.exposeInMainWorld('spotify', {
   onAuthError: on('auth:error'),
   onAuthConnected: on('auth:connected'),
   onAuthRestored: on('auth:restored'),
+  onAuthSetup: on('auth:setup'),
   onSignedOut: on('auth:signed-out'),
   // document.hidden does not reflect win.hide() in Electron, so visibility
   // has to be pushed from the main process.

@@ -5,15 +5,78 @@ const http = require('http');
 const path = require('path');
 
 // Winify ships with no credentials. Every user registers their own Spotify
-// app and supplies its Client ID through a gitignored .env file, or through a
-// SPOTIFY_CLIENT_ID environment variable. See README.md.
+// app (Spotify's Development Mode allows no shared one) and pastes its Client
+// ID on the sign-in screen's setup step; it is stored in Winify's settings
+// (config.json in the user-data folder). For development, a gitignored .env
+// file or a SPOTIFY_CLIENT_ID environment variable can supply it instead; a
+// stored one wins. See README.md.
 try {
   process.loadEnvFile(path.join(__dirname, '.env'));
 } catch {
-  // No .env file -- an environment variable may still supply the Client ID.
+  // No .env file -- the stored Client ID, or the setup step, supplies it.
 }
 
-const CLIENT_ID = (process.env.SPOTIFY_CLIENT_ID || '').trim();
+const ENV_CLIENT_ID = (process.env.SPOTIFY_CLIENT_ID || '').trim();
+const CLIENT_ID_FORMAT = /^[0-9a-f]{32}$/i;
+// The setup guide (README's "Setup" section).
+const SETUP_GUIDE = path.join(__dirname, 'README.md');
+let clientId = '';  // read once the app is ready (the settings live in userData)
+
+function configFile() {
+  return path.join(app.getPath('userData'), 'config.json');
+}
+
+function readConfig() {
+  try {
+    return JSON.parse(fs.readFileSync(configFile(), 'utf8')) || {};
+  } catch {
+    return {};
+  }
+}
+
+function loadClientId() {
+  clientId = String(readConfig().clientId || ENV_CLIENT_ID || '').trim();
+}
+
+function storeClientId(id) {
+  const config = Object.assign(readConfig(), { clientId: id });
+  fs.writeFileSync(configFile(), JSON.stringify(config, null, 2), { mode: 0o600 });
+  clientId = id;
+}
+
+// Is this a Client ID Spotify knows? Spotify's sign-in page accepts any value
+// until after the user has logged in (and then reports problems in the
+// browser, out of Winify's sight), so the token endpoint is asked instead,
+// with a code that cannot be valid: an unknown app is "invalid_client", a
+// known one gets as far as "invalid_grant". Answers 'ok', 'format',
+// 'invalid-client' or 'unreachable'.
+async function checkClientId(id) {
+  if (!CLIENT_ID_FORMAT.test(id)) return 'format';
+  try {
+    const res = await fetch('https://accounts.spotify.com/api/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        code: 'winify-client-id-check',
+        redirect_uri: REDIRECT_URI,
+        client_id: id,
+        code_verifier: 'winify-client-id-check-'.padEnd(64, 'x'),
+      }),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (body.error === 'invalid_client') return 'invalid-client';
+    if (body.error === 'invalid_grant') return 'ok';
+    console.warn('[config] unexpected answer checking the Client ID:', res.status, body.error || '');
+    return 'unreachable';
+  } catch (err) {
+    console.warn('[config] could not check the Client ID:', err.message);
+    return 'unreachable';
+  }
+}
+
+const maskClientId = (id) => (id ? id.slice(0, 4) + '\u2026' + id.slice(-4) : null);
 
 // Loopback audio capture is behind Chromium feature flags on macOS, and they
 // have to be set before the app is ready. Without them getDisplayMedia rejects
@@ -26,23 +89,19 @@ app.commandLine.appendSwitch('enable-features', [
 
 // PKCE is used, so no Client Secret is required and none is read.
 
-const SETUP_HELP = [
-  'Winify needs your own Spotify Client ID.',
-  '',
-  '1. Create an app at https://developer.spotify.com/dashboard',
-  '2. Add this Redirect URI, exactly:',
-  '     http://127.0.0.1:8888/callback',
-  '3. Copy .env.example to .env and put your Client ID in it',
-  '',
-  'Alternatively, set SPOTIFY_CLIENT_ID in your environment before launching.',
-  '',
-  'Full instructions are in README.md.',
-].join('\n');
+// No Client ID yet (or a new one wanted): the sign-in screen's setup step.
+// `error` is why it is shown again ('invalid-client': Spotify no longer knows
+// the stored one). A first run starts at the welcome screen ("Get started").
+function showSetup(error) {
+  setStatus('Connect your Spotify app');
+  send('auth:setup', { current: maskClientId(clientId), error: error || null, firstRun: !clientId && !error });
+}
 
-function reportMissingClientId() {
-  console.error('\n[config] SPOTIFY_CLIENT_ID is not set.\n');
-  console.error(SETUP_HELP + '\n');
-  dialog.showErrorBox('Winify: Spotify Client ID missing', SETUP_HELP);
+// Menu bar > Change Spotify Client ID...: a new app means new tokens.
+function changeClientId() {
+  signOut();
+  showWindow();
+  showSetup();
 }
 const REDIRECT_URI = 'http://127.0.0.1:8888/callback';
 const SCOPES = [
@@ -58,7 +117,7 @@ const SCOPES = [
 ];
 const REQUEST_TIMEOUT_MS = 10000;
 // How long we'll wait for you to finish in the browser before giving up.
-const AUTH_TIMEOUT_MS = 180000;
+const AUTH_TIMEOUT_MS = Number(process.env.WINIFY_AUTH_TIMEOUT_MS) || 180000;
 
 // The four handshake lines the sign-in screen shows, in order.
 const STEP_HANDSHAKE = 0;
@@ -513,6 +572,10 @@ function buildTray() {
     },
     { type: 'separator' },
     {
+      label: 'Change Spotify Client ID...',
+      click: changeClientId,
+    },
+    {
       label: 'Disconnect',
       enabled: connected,
       click: () => {
@@ -629,7 +692,7 @@ async function requestToken(params) {
   const res = await fetch('https://accounts.spotify.com/api/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ client_id: CLIENT_ID, ...params }),
+    body: new URLSearchParams({ client_id: clientId, ...params }),
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`Token request failed (${res.status})`);
@@ -684,10 +747,8 @@ function login() {
   cancelAuth();
   tokens = null;
 
-  if (!CLIENT_ID) {
-    setStatus('No Spotify Client ID configured - see README.md');
-    reportMissingClientId();
-    send('auth:error', 'network');
+  if (!clientId) {
+    showSetup();
     return;
   }
 
@@ -697,7 +758,9 @@ function login() {
 
   // Step 0: listener up, browser opening, waiting for you to approve.
   send('auth:step', STEP_HANDSHAKE);
-  authTimer = setTimeout(() => failAuth('network'), AUTH_TIMEOUT_MS);
+  // No answer at all: most likely Spotify refused the redirect URI, which it
+  // reports only in the browser (an unknown Client ID is caught below).
+  authTimer = setTimeout(() => failAuth('redirect'), AUTH_TIMEOUT_MS);
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, REDIRECT_URI);
@@ -722,11 +785,20 @@ function login() {
   authServer = server;
   server.on('error', () => failAuth('network'));
 
-  server.listen(8888, '127.0.0.1', () => {
+  server.listen(8888, '127.0.0.1', async () => {
+    // A Client ID Spotify does not know (the app was deleted, say) is caught
+    // here rather than in the browser.
+    const verdict = await checkClientId(clientId);
+    if (authServer !== server) return;   // cancelled meanwhile
+    if (verdict === 'invalid-client' || verdict === 'format') {
+      cancelAuth();
+      showSetup('invalid-client');
+      return;
+    }
     const authUrl = new URL('https://accounts.spotify.com/authorize');
     authUrl.search = new URLSearchParams({
       response_type: 'code',
-      client_id: CLIENT_ID,
+      client_id: clientId,
       scope: SCOPES.join(' '),
       redirect_uri: REDIRECT_URI,
       state,
@@ -785,6 +857,10 @@ async function completeLogin(code, verifier) {
 
 // Runs at launch: a stored refresh token skips the sign-in screen entirely.
 async function restoreSession() {
+  if (!clientId) {
+    showSetup();
+    return;
+  }
   let saved;
   try {
     saved = JSON.parse(fs.readFileSync(tokenFile(), 'utf8'));
@@ -792,7 +868,7 @@ async function restoreSession() {
     return; // No stored session; the sign-in screen stays up.
   }
 
-  if (!saved || !saved.refreshToken || !CLIENT_ID) return;
+  if (!saved || !saved.refreshToken) return;
 
   const granted = String(saved.scope || '').split(' ');
   const missing = SCOPES.filter((scope) => !granted.includes(scope));
@@ -931,6 +1007,26 @@ ipcMain.on('audio-state', (_event, capturing) => {
   buildTray();
 });
 
+// The setup step: check a pasted Client ID and keep it if Spotify knows it.
+ipcMain.handle('client-id:set', async (_event, raw) => {
+  const id = String(raw || '').trim();
+  const verdict = await checkClientId(id);
+  if (verdict === 'ok') {
+    if (id !== clientId) {
+      tokens = null;
+      forgetTokens();   // tokens belong to the app that issued them
+    }
+    storeClientId(id);
+    setStatus('Not logged in');
+    console.log('[config] Client ID saved', maskClientId(id));
+  }
+  return verdict;
+});
+ipcMain.on('client-id:change', changeClientId);
+ipcMain.on('open-setup-guide', () => {
+  shell.openPath(SETUP_GUIDE).then((err) => { if (err) console.warn('[config] could not open the setup guide:', err); });
+});
+
 ipcMain.on('ready', () => {
   // Send the current state once the renderer is listening, so it starts from
   // the truth rather than from whatever events happened before it loaded.
@@ -1023,9 +1119,8 @@ app.whenReady().then(async () => {
   if (process.platform === 'darwin' && app.dock) {
     app.dock.setIcon(nativeImage.createFromPath(path.join(__dirname, 'assets', 'icon.png')));
   }
-  // Say so immediately rather than letting the first sign-in attempt fail
-  // with a misleading connection error.
-  if (!CLIENT_ID) reportMissingClientId();
+  loadClientId();
+  if (!clientId) console.log('[config] no Spotify Client ID yet - the sign-in screen asks for one');
 
   await initWidevine();
   try {
