@@ -948,7 +948,7 @@ async function pollCurrentSong() {
 // --- App lifecycle --------------------------------------------------------
 
 // The Web Playback SDK asks for a token whenever it needs one.
-ipcMain.handle('get-token', async () => {
+async function accessToken() {
   if (!tokens) return null;
   if (Date.now() > tokens.expiresAt - 30000) {
     try {
@@ -958,6 +958,27 @@ ipcMain.handle('get-token', async () => {
     }
   }
   return tokens.accessToken;
+}
+ipcMain.handle('get-token', accessToken);
+
+// The page's Web API calls, made here. From the page each one first needs
+// a browser "preflight" request (the page is not on Spotify's origin), which
+// doubles the requests counting toward Spotify's rate limit; from here there
+// is none. The answer goes back as-is: the page handles errors and 429s.
+const API_METHODS = new Set(['GET', 'PUT', 'POST', 'DELETE']);
+ipcMain.handle('spotify-api', async (_event, method, path, body) => {
+  if (!API_METHODS.has(method) || typeof path !== 'string' || !path.startsWith('/')) {
+    throw new Error('not a Web API request: ' + method + ' ' + path);
+  }
+  const token = await accessToken();
+  if (!token) throw new Error('no access token');
+  const res = await fetch('https://api.spotify.com/v1' + path, {
+    method,
+    headers: Object.assign({ Authorization: 'Bearer ' + token }, body ? { 'Content-Type': 'application/json' } : {}),
+    body: body ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
+  return { status: res.status, retryAfter: res.headers.get('retry-after'), text: res.status === 204 ? '' : await res.text() };
 });
 
 // Lyrics come from LRCLIB (lrclib.net). The page cannot set a User-Agent, as

@@ -86,6 +86,11 @@ window.spotify = {
     return { status: 200, body: LRC.search(q) };
   },
   getToken: async () => 'mock-token',
+  // As Winify's main process does it (preload: spotify.api), here through the fake Spotify.
+  api: async (method, path, body) => {
+    const r = await fetch('https://api.spotify.com/v1' + path, { method, body: body ? JSON.stringify(body) : undefined });
+    return { status: r.status, retryAfter: r.headers.get('Retry-After'), text: r.status === 204 ? '' : await r.text() };
+  },
   nowPlaying: (text) => rec('nowPlaying', text),
   windowCommand: (c) => rec('windowCommand', c),
   onVisibility: (fn) => { visibilityListeners.push(fn); },

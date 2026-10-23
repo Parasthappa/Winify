@@ -17,6 +17,8 @@ contextBridge.exposeInMainWorld('spotify', {
 
   // Playback support
   getToken: () => ipcRenderer.invoke('get-token'),
+  // Web API requests, sent by the main process (no browser preflight).
+  api: (method, path, body) => ipcRenderer.invoke('spotify-api', method, path, body),
   transferPlayback: (deviceId, startPlaying) =>
     ipcRenderer.invoke('transfer-playback', deviceId, startPlaying),
   // Lyrics lookups on lrclib.net, made by the main process.

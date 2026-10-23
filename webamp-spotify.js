@@ -32,7 +32,6 @@ import * as search from './webamp-search.js';
 import * as lyrics from './webamp-lyrics.js';
 import { analyserHandle } from './webamp-vis.js';
 
-const API = 'https://api.spotify.com/v1';
 const SDK_POLL_MS = 1000;           // local SDK state, no network
 // The Web API is the only view of other devices, and every request counts
 // toward Spotify's rate limit. While Winify itself plays, the SDK reports
@@ -121,26 +120,21 @@ function rateLimited(method, path, retryAfterS) {
 async function api(method, path, body) {
   const key = limitKey(path);
   if (blockedUntil[key] > Date.now()) throw rateLimited(method, path, (blockedUntil[key] - Date.now()) / 1000);
-  const token = await window.spotify.getToken();
-  if (!token) throw new Error('no access token');
-  const res = await fetch(API + path, {
-    method,
-    headers: Object.assign({ Authorization: 'Bearer ' + token },
-      body ? { 'Content-Type': 'application/json' } : {}),
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  // Sent by the main process: from this page every request would first need
+  // a browser preflight, doubling what counts toward Spotify's rate limit.
+  const res = await window.spotify.api(method, path, body);
   if (res.status === 204) return null;
   if (res.status === 429) {
-    const retryAfter = Number(res.headers.get('Retry-After')) || 5;
+    const retryAfter = Number(res.retryAfter) || 5;
     blockedUntil[key] = Date.now() + retryAfter * 1000;
     warn('Spotify rate limit on', key, '- no requests there for', retryAfter, 's');
     throw rateLimited(method, path, retryAfter);
   }
-  const text = await res.text();
+  const text = res.text;
   let json = null;
   try { json = text ? JSON.parse(text) : null; } catch (e) { /* not JSON */ }
-  if (!res.ok) {
-    const msg = (json && json.error && json.error.message) || text || res.statusText;
+  if (res.status < 200 || res.status > 299) {
+    const msg = (json && json.error && json.error.message) || text || String(res.status);
     const err = new Error(method + ' ' + path + ' -> ' + res.status + ': ' + msg);
     err.status = res.status;
     throw err;
