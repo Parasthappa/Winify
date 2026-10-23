@@ -381,6 +381,7 @@ async function commandStop() {
 
 function commandSkip(direction) {
   if (now.where !== 'winify') return notHere(direction === 1 ? 'Next' : 'Previous');
+  if (direction === 1 && playlist.takeOverNext()) return;   // a Play track: on to Autoplay
   const fn = direction === 1 ? window.WinifyPlayer.nextTrack : window.WinifyPlayer.previousTrack;
   fn().then(refreshSoon);
 }
@@ -593,7 +594,7 @@ export function attach(instance) {
   }
 
   playlist.init({
-    webamp, now, api, say, log, warn, refreshSoon,
+    webamp, now, api, say, log, warn, refreshSoon, positionMs,
     dispatch: dispatchRemote,
     deviceId: winifyDeviceId,
   });

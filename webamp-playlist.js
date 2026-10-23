@@ -18,6 +18,14 @@
  * same happens after a single track started from Jump to track ends. A queue
  * started from an artist is labelled with the artist's name.
  *
+ * Play track (Jump to track) means "this track, then Autoplay". Spotify only
+ * autoplays when an album or playlist runs out, never after a track played on
+ * its own, so the track is played within its album and, just before it ends
+ * (or on Next), Winify jumps to the album's last moment: the album runs out
+ * and Spotify's Autoplay, seeded from it, carries on. Meanwhile the window
+ * shows only that track and a line saying what comes after it. With repeat
+ * on, the track repeats instead; Next still moves on to Autoplay.
+ *
  * The list is swapped in only when completely loaded, so it never shows half
  * a playlist; until then the single stand-in entry shows the current track.
  * Webamp's title, total time and seek bar read from whichever entry is
@@ -34,6 +42,9 @@ const ID_BASE = 1000000;            // clear of Webamp's own ids, which count fr
 const STANDIN_ID = 424242;
 const STANDIN_URL = 'winify:spotify';
 const IDLE_NAME = 'Winify - press Play to resume Spotify';
+const END_LEAD_MS = 1200;           // end the album this long before the track ends
+const ALBUM_TAIL_MS = 300;          // ...by playing this much of its last track
+const PLAN_WAIT_MS = 10000;         // how long a Play track may take to start
 
 let ctx = null;                     // { webamp, dispatch, api, now, say, log, warn, refreshSoon, deviceId }
 let mode = 'standin';               // 'standin' | 'list' | 'queue'
@@ -43,7 +54,8 @@ let listName = null;
 let currentIndex = -1;
 let autoplay = false;               // the source ran out and Spotify's Autoplay took over
 let cameFromList = false;           // the previous source was a full list
-let singleTrackUri = null;          // a single track Winify started (Jump to track)
+let singleTrackUri = null;          // a single track Winify started on its own (no album)
+let plan = null;                    // Play track, then Autoplay: { uri, albumUri, albumTracks, shown, line, ... }
 let contextList = null;             // the last full list loaded: { uri, list, name }
 const artistNames = {};             // artist URI -> name, for the label row
 let seenContext;                    // undefined = never synced
@@ -247,8 +259,13 @@ async function loadLikedSongs(gen) {
 async function loadQueue() {
   const q = await ctx.api('GET', '/me/player/queue');
   const list = [];
-  if (q && q.currently_playing) list.push(row(q.currently_playing));
-  ((q && q.queue) || []).forEach((t) => list.push(row(t)));
+  const current = q && q.currently_playing;
+  if (current) list.push(row(current));
+  let queued = (q && q.queue) || [];
+  // For a track played on its own Spotify reports that same track over and
+  // over as "up next"; nothing is actually queued.
+  if (current && queued.length && queued.every((t) => t && t.uri === current.uri)) queued = [];
+  queued.forEach((t) => list.push(row(t)));
   return list;
 }
 
@@ -325,6 +342,152 @@ async function refreshQueue(gen, contextUri) {
   }
 }
 
+// ---- Play track, then Autoplay ---------------------------------------------------
+
+const isPlanTrack = (n) => !!n.trackUri && (n.trackUri === plan.uri || n.linkedFromUri === plan.uri);
+const lineFor = (n) => (n.repeat === 'off' ? 'Autoplay starts after this track' : 'Repeating this track');
+
+// The album's last track: { uri, linkedUri, position, durationMs, isPlan }.
+function lastTrack(p) {
+  if (!p.lastPromise) {
+    p.lastPromise = (async () => {
+      const path = '/albums/' + idOf(p.albumUri) + '/tracks?market=from_token&limit=1';
+      const total = p.albumTracks || (await ctx.api('GET', path)).total;
+      const t = (await ctx.api('GET', path + '&offset=' + (total - 1))).items[0];
+      const linkedUri = t.linked_from && t.linked_from.uri;
+      p.last = { uri: t.uri, linkedUri, position: total - 1, durationMs: t.duration_ms,
+        isPlan: total === 1 || t.uri === p.uri || linkedUri === p.uri };
+      return p.last;
+    })();
+    p.lastPromise.catch(() => { p.lastPromise = null; });
+  }
+  return p.lastPromise;
+}
+
+const onLastTrack = (n) => !!plan.last && !!n.trackUri &&
+  (n.trackUri === plan.last.uri || n.trackUri === plan.last.linkedUri || n.linkedFromUri === plan.last.uri);
+
+function endPlan() {
+  if (!plan) return;
+  clearTimeout(plan.timer);
+  plan = null;
+}
+
+// The track alone, then a line saying what follows it.
+function showSingle() {
+  loadGen++;
+  clearTimeout(queueTimer);
+  const n = ctx.now;
+  plan.line = lineFor(n);
+  ctx.dispatch({ type: 'REMOVE_ALL_TRACKS' });
+  entries = [
+    { uri: n.trackUri, linkedUri: n.linkedFromUri, name: (n.artist ? n.artist + ' - ' : '') + n.title,
+      durationMs: n.durationMs, playable: true },
+    { uri: null, name: '\u2014 ' + plan.line + ' \u2014', durationMs: 0, playable: false, isLabel: true },
+  ].map((e, i) => Object.assign({ id: nextId++, position: i }, e));
+  entries.forEach((e, i) => addRow(e.id, e.uri || 'winify:unavailable', e.name, e.durationMs, i));
+  mode = 'single';
+  listContext = plan.albumUri;
+  listName = null;
+  currentIndex = -1;
+  ctx.dispatch({ type: 'SET_PLAYLIST_SCROLL_POSITION', position: 0 });
+  highlight(true);
+}
+
+// Just before the track ends: with repeat off, end the album so Autoplay
+// follows; with repeat-one Spotify repeats it; with repeat-all it is a list
+// of one, so it starts over.
+function scheduleEnd() {
+  clearTimeout(plan.timer);
+  const n = ctx.now;
+  if (n.paused || plan.jumping || !n.durationMs || n.where !== 'winify') return;
+  const left = n.durationMs - ctx.positionMs();
+  plan.timer = setTimeout(atEnd, Math.max(0, left - END_LEAD_MS));
+}
+
+function atEnd() {
+  if (!ctx || !plan || !isPlanTrack(ctx.now) || ctx.now.paused) return;
+  const r = ctx.now.repeat;
+  if (r === 'track') return;
+  if (r === 'context') {
+    ctx.log('play track: repeat is on - playing it again');
+    window.WinifyPlayer.seek(0).then(ctx.refreshSoon);
+    return;
+  }
+  if (plan.last && plan.last.isPlan) return;           // the album ends with it anyway
+  endAlbum('the track is ending');
+}
+
+// Play the album's last moment, so it runs out and Spotify's Autoplay starts.
+async function endAlbum(why) {
+  const p = plan;
+  if (!p || p.jumping) return;
+  p.jumping = true;
+  clearTimeout(p.timer);
+  const deviceId = ctx.deviceId();
+  try {
+    const last = await lastTrack(p);
+    if (plan !== p) return;
+    if (ctx.now.repeat !== 'off') {
+      await ctx.api('PUT', '/me/player/repeat?state=off&device_id=' + encodeURIComponent(deviceId));
+      ctx.log('play track: repeat off, so Autoplay can follow');
+    }
+    if (last.isPlan) {
+      await window.WinifyPlayer.seek(Math.max(0, ctx.now.durationMs - ALBUM_TAIL_MS));
+    } else {
+      await ctx.api('PUT', '/me/player/play?device_id=' + encodeURIComponent(deviceId), {
+        context_uri: p.albumUri, offset: { position: last.position },
+        position_ms: Math.max(0, last.durationMs - ALBUM_TAIL_MS),
+      });
+    }
+    ctx.log('play track:', why, '- ending the album so Spotify\'s Autoplay follows');
+  } catch (err) {
+    if (plan === p) p.jumping = false;
+    ctx.warn('play track: could not move on to Autoplay -', err.message);
+    ctx.say('Could not start Autoplay');
+  }
+  ctx.refreshSoon();
+}
+
+// Follows the plan on each sync. True when it has dealt with this state.
+function followPlan(n, trackChanged) {
+  if (!plan.shown) {
+    if (n.contextUri === plan.albumUri && isPlanTrack(n)) {
+      plan.shown = true;
+      cameFromList = false;
+      autoplay = false;
+      showSingle();
+      scheduleEnd();
+      return true;
+    }
+    if (performance.now() > plan.until) endPlan();     // it never started
+    return false;
+  }
+  if (n.contextUri !== plan.albumUri) { endPlan(); return false; }   // a new source
+  if (isPlanTrack(n)) {
+    if (trackChanged || lineFor(n) !== plan.line) showSingle();
+    scheduleEnd();
+    return true;
+  }
+  if (plan.jumping && onLastTrack(n)) return true;      // the album's last moment
+  // Anything else: Autoplay has begun (or the album carried on). The album
+  // list sorts out which; a track missing from it is Autoplay straight away.
+  endPlan();
+  retriedMissing = n.contextUri + '|' + n.trackUri;
+  showStandIn();
+  load(n.contextUri);
+  return true;
+}
+
+// Next during the track: on to Autoplay rather than the rest of the album.
+export function takeOverNext() {
+  if (!ctx || !plan || !plan.shown) return false;
+  if (plan.jumping) return true;                       // already on its way
+  if (!isPlanTrack(ctx.now)) return false;
+  endAlbum('Next');
+  return true;
+}
+
 // ---- Called by webamp-spotify.js ----------------------------------------------
 
 export function init(c) {
@@ -333,9 +496,14 @@ export function init(c) {
   showStandIn();
 }
 
-// Jump to track is about to play this one track on its own.
-export function expectSingleTrack(uri) {
-  singleTrackUri = uri;
+// Jump to track is about to play one track, { uri, albumUri, albumTracks },
+// to be followed by Autoplay. Without an album it plays on its own.
+export function expectSingleTrack(p) {
+  endPlan();
+  if (!p.albumUri) { singleTrackUri = p.uri; return; }
+  plan = { uri: p.uri, albumUri: p.albumUri, albumTracks: p.albumTracks || null,
+    shown: false, until: performance.now() + PLAN_WAIT_MS };
+  lastTrack(plan).catch(() => {});                     // ready for when it is needed
 }
 
 export function reset() {
@@ -343,6 +511,7 @@ export function reset() {
   autoplay = false;
   cameFromList = false;
   singleTrackUri = null;
+  endPlan();
   contextList = null;
   clearTimeout(queueTimer);
   document.removeEventListener('dblclick', onDoubleClickCapture, true);
@@ -360,6 +529,7 @@ export function reset() {
 export function sync() {
   if (!ctx) return;
   const n = ctx.now;
+  if (plan && n.where !== 'winify') clearTimeout(plan.timer);
   if (n.where === 'none') {
     if (seenWhere !== 'none') { loadGen++; showStandIn(); }
     seenWhere = n.where;
@@ -374,9 +544,11 @@ export function sync() {
   seenContext = n.contextUri;
   seenTrack = n.trackUri;
 
+  if (plan && followPlan(n, trackChanged)) return;
+
   if (contextChanged) {
     // A new source ends Autoplay, and a single track's moment.
-    cameFromList = mode === 'list' || (autoplay && cameFromList);
+    cameFromList = mode === 'list' || mode === 'single' || (autoplay && cameFromList);
     autoplay = false;
     if (n.contextUri) singleTrackUri = null;
     if (mode === 'standin') writeStandIn();
@@ -483,5 +655,7 @@ export async function playEntry(id) {
 window.WinifyPlaylist = {
   state: () => ({ mode, listContext, listName, count: entries.length, currentIndex,
     current: entries[currentIndex] && entries[currentIndex].name, autoplay,
-    label: entries[0] && entries[0].isLabel ? entries[0].name : null }),
+    label: entries[0] && entries[0].isLabel ? entries[0].name : null,
+    line: mode === 'single' ? entries[1].name : null,
+    plan: plan && { uri: plan.uri, shown: plan.shown, jumping: !!plan.jumping, last: plan.last || null } }),
 };

@@ -4,8 +4,8 @@
  * Two modes, shown in the title:
  *
  *   JUMP TO TRACK  (J, the main window's Play > Jump to track..., the menu
- *                   bar): Enter or double-click plays just that track; when
- *                   it ends, Spotify's Autoplay (if on) carries on.
+ *                   bar): Enter or double-click plays just that track, then
+ *                   Spotify's Autoplay (see webamp-playlist.js: single track).
  *   ADD TO QUEUE   (the playlist window's ADD button): Enter or double-click
  *                   adds it to Spotify's queue without interrupting what is
  *                   playing, and the window stays open for more.
@@ -52,6 +52,7 @@ function trackRow(t) {
     artist: (t.artists || []).map((a) => a.name).join(', '),
     album: t.album ? t.album.name : '',
     albumUri: t.album ? t.album.uri : null,
+    albumTracks: t.album && t.album.total_tracks ? t.album.total_tracks : null,
     artistUri: t.artists && t.artists[0] ? t.artists[0].uri : null,
     artistName: t.artists && t.artists[0] ? t.artists[0].name : '',
     durationMs: t.duration_ms || 0,
@@ -113,11 +114,14 @@ async function start(r, body, what) {
   ctx.refreshSoon();
 }
 
-// Just this track. When it ends, Spotify's Autoplay (if the account has it
-// on) carries on; the playlist window then shows Autoplay's queue.
+// Just this track, then Spotify's Autoplay. A track played on its own stops
+// at its end (Spotify autoplays only after an album or playlist ends), so it
+// plays within its album, and the playlist module ends the album right after
+// it. Without an album it can only be played on its own.
 function play(r) {
-  if (r && r.playable) playlist.expectSingleTrack(r.uri);
-  return start(r, { uris: [r.uri] }, r && (r.artist + ' - ' + r.title));
+  if (r && r.playable) playlist.expectSingleTrack({ uri: r.uri, albumUri: r.albumUri, albumTracks: r.albumTracks });
+  if (!r || !r.albumUri) return start(r, { uris: [r.uri] }, r && (r.artist + ' - ' + r.title));
+  return start(r, { context_uri: r.albumUri, offset: { uri: r.uri } }, r.artist + ' - ' + r.title + ' (then Autoplay)');
 }
 
 // The track's album, from this track.
