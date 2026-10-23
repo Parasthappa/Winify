@@ -1,0 +1,250 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="/__webamp.css"><style>html,body{margin:0;height:100%;background:#08090b}#webamp-root{position:fixed;inset:0}</style></head>
+<body><div id="webamp-root"></div>
+<script>
+// ---- Mock Spotify: one account, devices 'winify-dev' and 'phone' ----
+window.calls = [];
+const rec = (name, ...args) => { calls.push([name, ...args]); };
+const T = (n) => ({ uri: 'spotify:track:' + n, name: 'Song ' + n, artists: [{ name: 'Artist ' + n }], album: { name: 'Album' }, duration_ms: 200000 });
+// Contexts: a 500-track playlist you own (track 1003 appears at rows 3 and 7),
+// an album, a playlist you don't own (403), Liked Songs, an artist, and none.
+const BIG = Array.from({ length: 500 }, (_, i) => 1000 + i); BIG[7] = 1003;
+const ALBUM = Array.from({ length: 12 }, (_, i) => 2000 + i);
+const NOTMINE = Array.from({ length: 30 }, (_, i) => 3000 + i);
+window.PLAYLISTS = Array.from({ length: 137 }, (_, i) => ({ id: 'pl' + i, name: (i === 42 ? 'Road Trip' : i === 77 ? 'Roadhouse Blues' : 'Mix ' + i),
+  uri: 'spotify:playlist:pl' + i, owner: { id: i % 3 === 1 ? 'someone' : 'user1', display_name: i % 3 === 1 ? 'Someone Else' : 'Me' },
+  collaborative: i % 10 === 0, public: i % 2 === 0, items: { href: 'x', total: 10 + i } }));
+PLAYLISTS[5].name = '';   // Spotify allows an unnamed playlist
+window.CONTEXTS = { 'spotify:playlist:big': BIG, 'spotify:album:a1': ALBUM, 'spotify:album:s1': [6012], 'spotify:playlist:notmine': NOTMINE,
+  'spotify:user:user1:collection': Array.from({ length: 1234 }, (_, i) => 4000 + i), 'spotify:artist:ar1': Array.from({ length: 20 }, (_, i) => 5000 + i) };
+// Any playlist not predefined plays a 30-track list of its own.
+window.ctxList = (uri) => CONTEXTS[uri] || (CONTEXTS[uri] = Array.from({ length: 30 }, (_, i) => 8000 + (Math.abs([...uri].reduce((a, c) => a * 31 + c.charCodeAt(0), 7)) % 900) * 10 + i));
+// Autoplay: when a source runs out, Spotify carries on with tracks of its own.
+window.AUTOPLAY = Array.from({ length: 30 }, (_, i) => 9000 + i);
+window.mock = {
+  context: null, idx: 0, autoplayOn: false, apIdx: 0,
+  // keepContext: Spotify may go on reporting the old album as the source.
+  startAutoplay(keepContext) { this.autoplayOn = true; this.apIdx = 0; this.track = AUTOPLAY[0]; if (!keepContext) this.context = null; this.position = 0; this.at = Date.now(); },
+  list() { return this.context ? ctxList(this.context) : null; },
+  setContext(uri, index) { this.context = uri; this.idx = index || 0; if (uri) this.track = ctxList(uri)[this.idx]; this.position = 0; this.at = Date.now(); },
+  active: 'none',            // 'winify' | 'phone' | 'none'
+  resumable: true,           // does transfer find a session to resume?
+  libraryForbidden: false,
+  track: 1, paused: true, position: 0, at: Date.now(),
+  shuffle: false, repeat: 'off', volume: 64, failShuffle: false,
+  pos() { return this.paused ? this.position : Math.min(200000, this.position + (Date.now() - this.at)); },
+  sdkState() {
+    if (this.active !== 'winify') return null;
+    return { paused: this.paused, position: this.pos(), duration: 200000, shuffle: this.shuffle,
+      repeat_mode: ['off', 'context', 'track'].indexOf(this.repeat), track_window: { current_track: T(this.track) },
+      context: { uri: this.context || '', metadata: {} } };
+  },
+  setPaused(p) { this.position = this.pos(); this.at = Date.now(); this.paused = p; },
+  lone: false,               // a track played on its own (uris): it stops at its end
+  queue: [],                 // Spotify's queue: plays before the context, survives PUT play
+  // What Spotify does when a track plays to its end (as seen on a real account).
+  trackEnded() {
+    rec('mock:trackEnded', this.track);
+    const l = this.list();
+    if (this.repeat === 'track') { this.position = 0; this.at = Date.now(); return; }
+    if (this.queue.length) { this.track = this.queue.shift(); this.position = 0; this.at = Date.now(); return; }
+    if (this.autoplayOn) { this.track = AUTOPLAY[++this.apIdx]; this.position = 0; this.at = Date.now(); return; }
+    if (!l) { this.setPaused(true); this.position = 0; return; }
+    if (this.idx < l.length - 1) { this.track = l[++this.idx]; this.position = 0; this.at = Date.now(); return; }
+    if (this.repeat === 'context') { this.setContext(this.context, 0); return; }
+    this.startAutoplay(true);   // the album ran out; Spotify still reports it as the source
+  },
+};
+setInterval(() => { if (mock.active === 'winify' && !mock.paused && mock.pos() >= 200000) mock.trackEnded(); }, 50);
+// Mock LRCLIB (as reached through the main process).
+window.LRC = {
+  fail: new Set(),           // track names whose lookups fail (network)
+  delay: 150,
+  get(q) {
+    const n = q.track_name;
+    if (n === 'Song 2000') return { id: 1, trackName: n, artistName: q.artist_name, albumName: q.album_name, duration: +q.duration, instrumental: false,
+      plainLyrics: Array.from({ length: 60 }, (_, i) => 'Line ' + (i + 1) + ' of song two thousand').join('\n'), syncedLyrics: '[00:01.00] Line 1 of song two thousand\n[00:04.00] Line 2 of song two thousand' };
+    if (n === 'Song 2001') return { id: 2, trackName: n, artistName: q.artist_name, duration: +q.duration, instrumental: true, plainLyrics: null, syncedLyrics: null };
+    if (n === 'Song 2004') return { id: 4, trackName: n, artistName: q.artist_name, duration: +q.duration, instrumental: false, plainLyrics: 'Back after a retry', syncedLyrics: null };
+    return null;
+  },
+  search(q) {
+    if (q.track_name === 'Song 2002') return [
+      { id: 21, trackName: 'Song 2002', artistName: 'Someone Else', duration: 200, plainLyrics: 'WRONG ARTIST' },
+      { id: 22, trackName: 'Song 2002', artistName: 'Artist 2002', duration: 260, plainLyrics: 'WRONG LENGTH' },
+      { id: 23, trackName: 'Song 2002', artistName: 'Artist 2002', duration: 201, plainLyrics: 'Obscure lyrics, found by search', syncedLyrics: null },
+    ];
+    return [];
+  },
+};
+window.spotify = {
+  lrclib: async (path, q) => {
+    rec('lrclib', path, q.track_name);
+    await new Promise((r) => setTimeout(r, LRC.delay));
+    if (LRC.fail.has(q.track_name)) throw new Error("Error invoking remote method 'lrclib': TypeError: fetch failed");
+    if (LRC.busy && path === '/api/search') return { status: 503, body: null };
+    if (path === '/api/get') { const r = LRC.get(q); return r ? { status: 200, body: r } : { status: 404, body: null }; }
+    return { status: 200, body: LRC.search(q) };
+  },
+  getToken: async () => 'mock-token',
+  nowPlaying: (text) => rec('nowPlaying', text),
+  windowCommand: (c) => rec('windowCommand', c),
+  onVisibility: (fn) => { visibilityListeners.push(fn); },
+  setVisibleForTest: (v) => { WinifyAudio.setVisible(v); visibilityListeners.forEach((fn) => fn(v)); },
+  transferPlayback: async (id, play) => {
+    rec('transferPlayback', id, play);
+    if (mock.resumable) { mock.active = 'winify'; mock.setPaused(!play); }
+    else { mock.active = 'winify-empty'; }
+    return { ok: true };
+  },
+};
+window.WinifyPlayer = {
+  getDeviceId: () => 'winify-dev',
+  getState: async () => mock.sdkState(),
+  play: async () => { rec('play'); mock.setPaused(false); return true; },
+  pause: async () => { rec('pause'); mock.setPaused(true); return true; },
+  nextTrack: async () => { rec('nextTrack'); const l = mock.list();
+    if (mock.queue.length) { mock.track = mock.queue.shift(); mock.position = 0; mock.at = Date.now(); return true; }
+    if (mock.lone && !mock.autoplayOn) { mock.setPaused(true); mock.position = 0; return true; }   // nothing after it: it stops
+    if (l && !mock.autoplayOn && mock.idx === l.length - 1 && mock.repeat !== 'context') { mock.startAutoplay(true); return true; }
+    if (mock.autoplayOn) mock.track = AUTOPLAY[++mock.apIdx]; else if (l) mock.track = l[++mock.idx]; else mock.track++; mock.position = 0; mock.at = Date.now(); return true; },
+  previousTrack: async () => { rec('previousTrack'); const l = mock.list(); if (l) mock.track = l[--mock.idx]; else mock.track--; mock.position = 0; mock.at = Date.now(); return true; },
+  seek: async (ms) => { rec('seek', ms); mock.position = ms; mock.at = Date.now(); return true; },
+  setVolume: async (f) => { rec('setVolume', f); mock.volume = Math.round(f * 100); return true; },
+  getVolume: async () => (mock.active === 'winify' ? mock.volume / 100 : null),
+  onStateChange: (fn) => { mock.stateListeners = (mock.stateListeners || []).concat(fn); return () => {}; },
+  transferPlaybackHere: (play) => window.spotify.transferPlayback('winify-dev', play).then((r) => r.ok),
+};
+const realFetch = window.fetch;
+window.fetch = async (url, opts = {}) => {
+  const u = new URL(url); const m = opts.method || 'GET'; const p = u.pathname.replace('/v1', '');
+  const json = (status, body) => new Response(body == null ? null : JSON.stringify(body), { status });
+  if (u.host !== 'api.spotify.com') return realFetch(url, opts);
+  // Rate limit (as on the real account): the player endpoints answer 429 with Retry-After.
+  if (p.startsWith('/me/player')) rec('net:player', m, p);
+  if (mock.limitPlayer && p.startsWith('/me/player') && Date.now() < mock.limitPlayer.until) {
+    return new Response(JSON.stringify({ error: { status: 429, message: 'Too many requests', reason: 'QUOTA_EXCEEDED' } }),
+      { status: 429, headers: { 'Retry-After': String(mock.limitPlayer.retryAfter) } });
+  }
+  if (m === 'GET' && p === '/me') return json(200, { id: 'user1' });
+  if (m === 'GET' && p === '/me/player') {
+    if (mock.active === 'none' || mock.active === 'winify-empty') return json(204);
+    const dev = mock.active === 'winify' ? { id: 'winify-dev', name: 'Winify', volume_percent: mock.volume } : { id: 'phone', name: 'Test Phone', volume_percent: 90 };
+    return json(200, { device: dev, context: mock.context ? { uri: mock.context } : null, item: T(mock.track), progress_ms: mock.pos(), is_playing: !mock.paused, shuffle_state: mock.shuffle, repeat_state: mock.repeat });
+  }
+  if (m === 'PUT' && p === '/me/player/shuffle') {
+    rec('api:shuffle', u.searchParams.get('state'), u.searchParams.get('device_id'));
+    if (mock.failShuffle) return json(403, { error: { status: 403, message: 'Restriction violated' } });
+    mock.shuffle = u.searchParams.get('state') === 'true'; return json(204);
+  }
+  if (m === 'PUT' && p === '/me/player/repeat') {
+    rec('api:repeat', u.searchParams.get('state'), u.searchParams.get('device_id'));
+    mock.repeat = u.searchParams.get('state'); return json(204);
+  }
+  if (m === 'PUT' && p === '/me/player/play') {
+    rec('api:play', u.searchParams.get('device_id'), opts.body);
+    if (mock.libraryForbidden) return json(403, { error: { status: 403, message: 'Insufficient client scope' } });
+    const b = JSON.parse(opts.body || '{}');
+    mock.active = 'winify'; mock.setPaused(false); mock.autoplayOn = false; mock.lone = false;
+    if (b.context_uri) {
+      const l = ctxList(b.context_uri);
+      const i = b.offset ? (b.offset.position != null ? b.offset.position : l.indexOf(+b.offset.uri.split(':').pop())) : 0;
+      mock.setContext(b.context_uri, i);
+      if (b.position_ms) { mock.position = b.position_ms; mock.at = Date.now(); }
+    } else if (b.uris) { mock.context = null; mock.track = +b.uris[0].split(':').pop(); mock.lone = b.uris.length === 1; }
+    else { mock.context = null; mock.track = 100; }
+    return json(204);
+  }
+  const page = (list, mapper) => { const lim = +u.searchParams.get('limit') || 20, off = +u.searchParams.get('offset') || 0;
+    return json(200, { items: list.slice(off, off + lim).map(mapper), total: list.length, limit: lim, offset: off, next: off + lim < list.length ? 'x' : null }); };
+  let mm;
+  if (m === 'GET' && p === '/me/player/queue') {
+    rec('api:queue');
+    const l = mock.list(); const next = mock.autoplayOn ? AUTOPLAY.slice(mock.apIdx + 1, mock.apIdx + 11) : mock.lone ? Array(10).fill(mock.track) : l ? l.slice(mock.idx + 1, mock.idx + 11) : [mock.track + 1, mock.track + 2, mock.track + 3];
+    return json(200, { currently_playing: mock.active === 'winify' || mock.active === 'phone' ? T(mock.track) : null, queue: mock.queue.concat(next).slice(0, 20).map(T) });
+  }
+  if (m === 'GET' && p === '/search') {
+    const q = u.searchParams.get('q'), off = +u.searchParams.get('offset'), lim = +u.searchParams.get('limit');
+    rec('api:search', q, off, lim);
+    if (/fail/.test(q)) throw new TypeError('Failed to fetch');
+    // 34 matches, on album a1 (tracks 2000..2011) and two others.
+    const all = /zzz/.test(q) ? [] : Array.from({ length: 34 }, (_, i) => ({ uri: 'spotify:track:' + (i < 12 ? 2000 + i : 6000 + i), name: q + ' song ' + i,
+      artists: [{ name: 'Artist ' + i, uri: 'spotify:artist:sa' + i }], album: { name: i === 3 || i === 15 ? 'Insomniac (Deluxe Edition) - 25th Anniversary Remaster' : i < 12 ? 'Album a1' : i === 12 ? 'A Single' : 'Other ' + i, uri: i < 12 ? 'spotify:album:a1' : i === 12 ? 'spotify:album:s1' : 'spotify:album:x' + i, total_tracks: i < 12 ? 12 : i === 12 ? 1 : 30 }, duration_ms: 180000 + i * 1000, is_playable: i !== 5 }));
+    return json(200, { tracks: { items: all.slice(off, off + lim), total: all.length, limit: lim, offset: off } });
+  }
+  if (m === 'POST' && p === '/me/player/queue') {
+    rec('api:addToQueue', u.searchParams.get('uri'), u.searchParams.get('device_id'));
+    if (mock.active === 'none') return json(404, { error: { status: 404, message: 'Player command failed: No active device found', reason: 'NO_ACTIVE_DEVICE' } });
+    mock.queue.push(+u.searchParams.get('uri').split(':').pop());
+    return json(204);
+  }
+  if (m === 'GET' && p === '/me/playlists') { rec('api:myPlaylists', u.searchParams.get('offset'), u.searchParams.get('limit')); return page(PLAYLISTS, (x) => x); }
+  if (m === 'GET' && (mm = p.match(/^\/playlists\/([^/]+)$/))) { rec('api:playlistMeta', mm[1]);
+    const names = { short: 'Disco House//Progressive', long: 'Deep Late-Night Minimal Techno, Dub & Hypnotic Grooves For Very Long Drives Home' };
+    return json(200, { name: names[mm[1]] || 'Playlist ' + mm[1] }); }
+  if (m === 'GET' && (mm = p.match(/^\/playlists\/([^/]+)\/items$/))) {
+    rec('api:playlistItems', mm[1], u.searchParams.get('offset'), u.searchParams.get('limit'));
+    const pl = PLAYLISTS.find((x) => x.id === mm[1]);
+    if (mm[1] === 'notmine' || (pl && pl.owner.id !== 'user1' && !pl.collaborative)) return json(403, { error: { status: 403, message: 'Forbidden' } });
+    // New shape: the track lives under `item`; `track` is now just a boolean.
+    return page(ctxList('spotify:playlist:' + mm[1]), (n) => ({ added_at: null, is_local: false, track: true, item: T(n) }));
+  }
+  if (m === 'GET' && p === '/me/tracks') {
+    rec('api:savedTracks', u.searchParams.get('offset'));
+    if (mock.noLibraryScope) return json(403, { error: { status: 403, message: 'Insufficient client scope' } });
+    return page(CONTEXTS['spotify:user:user1:collection'], (n) => ({ added_at: '2026-01-01T00:00:00Z', track: T(n) }));
+  }
+  if (m === 'GET' && (mm = p.match(/^\/tracks\/([^/]+)$/))) { rec('api:track', mm[1]); return json(200, T(+mm[1])); }
+  if (m === 'GET' && (mm = p.match(/^\/artists\/([^/]+)$/))) { rec('api:artist', mm[1]); return json(200, { name: 'Artist ' + mm[1].replace(/^sa/, '') }); }
+  if (m === 'GET' && (mm = p.match(/^\/albums\/([^/]+)$/))) { rec('api:album', mm[1]); return json(200, { name: 'Album ' + mm[1] }); }
+  if (m === 'GET' && (mm = p.match(/^\/albums\/([^/]+)\/tracks$/))) {
+    rec('api:albumTracks', mm[1], u.searchParams.get('offset'));
+    return page(CONTEXTS['spotify:album:' + mm[1]], (n) => { const t = T(n); delete t.album; return t; });
+  }
+  rec('api:UNEXPECTED', m, p); return json(404, { error: { message: 'mock: unexpected' } });
+};
+// ---- Mock of audio-source.js: same API, a real AudioContext per capture session,
+// an oscillator standing in for system audio, and the shared analyser.
+window.connections = [];
+const realConnect = AudioNode.prototype.connect;
+AudioNode.prototype.connect = function (target, ...rest) { connections.push({ from: this.constructor.name, toDestination: target instanceof AudioDestinationNode, to: target && target.constructor.name }); return realConnect.call(this, target, ...rest); };
+window.audioMock = { available: true, freq: 440 };
+window.WinifyAudio = (() => {
+  let ctx = null, source = null, osc = null, shared = null, listeners = [], visible = true;
+  const emit = (e, d) => listeners.forEach((fn) => { try { fn(e, d); } catch (x) {} });
+  return {
+    start: async () => {
+      if (ctx) return true;
+      if (!audioMock.available) { console.log('[winify/audio] *** NO LOOPBACK DEVICE - REFUSING TO CAPTURE ***'); emit('error', { message: 'no loopback device' }); return false; }
+      ctx = new AudioContext(); if (ctx.state === 'suspended') await ctx.resume();
+      osc = ctx.createOscillator(); osc.type = 'sawtooth'; osc.frequency.value = audioMock.freq;
+      source = ctx.createGain(); osc.connect(source); osc.start();
+      // Sweep the pitch so the spectrum changes over time, like music.
+      const lfo = ctx.createOscillator(); lfo.frequency.value = 3; const depth = ctx.createGain(); depth.gain.value = 350; lfo.connect(depth); depth.connect(osc.frequency); lfo.start();
+      shared = ctx.createAnalyser(); shared.fftSize = 2048; source.connect(shared);
+      rec('audio:start'); emit('started', { sampleRate: ctx.sampleRate }); return true;
+    },
+    stop: () => { if (!ctx) return; osc.stop(); ctx.close(); ctx = null; source = null; shared = null; rec('audio:stop'); emit('stopped', {}); },
+    isActive: () => !!ctx,
+    getAudioContext: () => ctx, getSourceNode: () => source, getAnalyser: () => shared,
+    setVisible: (v) => { visible = !!v; }, isVisible: () => visible,
+    onEvent: (fn) => { listeners.push(fn); return () => { listeners = listeners.filter((l) => l !== fn); }; },
+    subscribe: () => () => {},
+  };
+})();
+window.visibilityListeners = [];
+window.loud = [];
+window.alert = (m) => loud.push(['alert', String(m)]);
+HTMLAnchorElement.prototype.click = function () { loud.push([this.hasAttribute('download') ? 'download' : 'link', this.download || this.href]); };
+HTMLInputElement.prototype.click = function () { loud.push(['filePrompt', this.accept || '(any file)']); };
+window.errors = [];
+window.__hdr = () => { const s = WinifyWebamp.getInstance().store.getState(); const t = s.tracks[s.playlist.trackOrder[0]] || {};
+  const n = t.defaultName || ''; return /^\u2014 /.test(n) && !/AUTOPLAY|ARTIST|Autoplay starts|Repeating/.test(n) && !t.artist ? 1 : 0; };
+window.addEventListener('error', (e) => errors.push(String(e.message)));
+window.addEventListener('unhandledrejection', (e) => errors.push('unhandled: ' + String(e.reason && e.reason.message || e.reason)));
+const ce = console.error; console.error = (...a) => { errors.push(a.join(' ')); ce(...a); };
+</script>
+<script type="module">
+import './webamp-ui.js';
+window.mounted = await window.WinifyWebamp.mount('webamp-root');
+</script>
+</body></html>

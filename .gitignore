@@ -4,3 +4,7 @@ node_modules/
 
 # The template must stay tracked; only real credentials are ignored.
 !.env.example
+
+# Test runs: settings folders and logs/screenshots.
+test/.profiles/
+test/.output/

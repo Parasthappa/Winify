@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "test": "node test/run.js",
+    "smoke": "electron test/smoke/smoke.js"
   },
   "devDependencies": {
     "electron": "github:castlabs/electron-releases#v44.1.0+wvcus"
