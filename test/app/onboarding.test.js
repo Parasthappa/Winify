@@ -45,7 +45,14 @@ app.whenReady().then(async () => {
       input: !!q('#sa-client-id'), live: !!q('#login-screen .sa-live'), remember: !!q('#login-screen .sa-checkwrap'),
       links: [...document.querySelectorAll('#login-screen .sa-link')].map((b) => b.textContent.trim()) }; })()`).catch(() => ({}));
   const until = async (fn, ms = 8000, every = 60) => { const t0 = Date.now(); let v; while (Date.now() - t0 < ms) { v = await S(); if (fn(v)) return v; await wait(every); } return v; };
-  const shot = async (name) => fs.writeFileSync(path.join(SHOTS, name + '.png'), (await win.webContents.capturePage()).toPNG());
+  // Screenshots are for looking at, not checks: under load the compositor can
+  // fail one (UnknownVizError), so retry once, then note it and carry on.
+  const shot = async (name) => {
+    for (let i = 0; i < 2; i++) {
+      try { fs.writeFileSync(path.join(SHOTS, name + '.png'), (await win.webContents.capturePage()).toPNG()); return; }
+      catch (e) { if (i) console.log('  (screenshot ' + name + ' not saved: ' + e.message + ')'); else await wait(500); }
+    }
+  };
   const enter = async (value) => {
     await js(`(() => { const i = document.getElementById('sa-client-id'); i.focus(); i.value = ''; })()`);
     for (const ch of value) { win.webContents.sendInputEvent({ type: 'char', keyCode: ch }); await wait(6); }
