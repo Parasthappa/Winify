@@ -1040,6 +1040,10 @@ async function initWidevine() {
 }
 
 app.whenReady().then(async () => {
+  // Winify's own icon in the Dock and app switcher, not Electron's.
+  if (process.platform === 'darwin' && app.dock) {
+    app.dock.setIcon(nativeImage.createFromPath(path.join(__dirname, 'assets', 'icon.png')));
+  }
   // Say so immediately rather than letting the first sign-in attempt fail
   // with a misleading connection error.
   if (!CLIENT_ID) reportMissingClientId();
