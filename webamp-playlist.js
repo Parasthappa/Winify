@@ -11,6 +11,13 @@
  *   anything else                  now playing + Spotify's Up Next queue
  *     (followed or Spotify-made playlists, artist, radio, a single track)
  *
+ * When an album or playlist runs out and Spotify's Autoplay carries on, the
+ * playing track is no longer in the list (Spotify may still report the old
+ * album as the source). The list is then replaced by now playing + the queue,
+ * under an "Autoplay" label row, and refreshed on every track change. The
+ * same happens after a single track started from Jump to track ends. A queue
+ * started from an artist is labelled with the artist's name.
+ *
  * The list is swapped in only when completely loaded, so it never shows half
  * a playlist; until then the single stand-in entry shows the current track.
  * Webamp's title, total time and seek bar read from whichever entry is
@@ -34,7 +41,11 @@ let entries = [];                   // [{ id, uri, linkedUri, name, durationMs, 
 let listContext = null;             // context URI the list belongs to
 let listName = null;
 let currentIndex = -1;
-let standInRow = false;             // stand-in shown above a list it is missing from
+let autoplay = false;               // the source ran out and Spotify's Autoplay took over
+let cameFromList = false;           // the previous source was a full list
+let singleTrackUri = null;          // a single track Winify started (Jump to track)
+let contextList = null;             // the last full list loaded: { uri, list, name }
+const artistNames = {};             // artist URI -> name, for the label row
 let seenContext;                    // undefined = never synced
 let seenTrack;
 let seenWhere;
@@ -78,18 +89,19 @@ export function showStandIn() {
   entries = [];
   listContext = null;
   currentIndex = -1;
-  standInRow = false;
 }
 
-function installList(list, newMode, contextUri, name) {
+// `label`, for a queue view, is a first row naming the source ("Autoplay",
+// "Artist: ..."). It is not a track: nothing plays it and nothing matches it.
+function installList(list, newMode, contextUri, name, label) {
   ctx.dispatch({ type: 'REMOVE_ALL_TRACKS' });
-  entries = list.map((t, i) => Object.assign({ id: nextId++, position: i }, t));
+  const rows = label ? [{ uri: null, name: '\u2014 ' + label + ' \u2014', durationMs: 0, playable: false, isLabel: true }].concat(list) : list;
+  entries = rows.map((t, i) => Object.assign({ id: nextId++, position: label ? i - 1 : i }, t));
   entries.forEach((e, i) => addRow(e.id, e.uri || 'winify:unavailable', e.name, e.durationMs, i));
   mode = newMode;
   listContext = contextUri;
   listName = name;
   currentIndex = -1;
-  standInRow = false;
   ctx.dispatch({ type: 'SET_PLAYLIST_SCROLL_POSITION', position: 0 });
   highlight(true);
 }
@@ -124,10 +136,6 @@ function highlight(trackChanged) {
     showMissing();
     return;
   }
-  if (standInRow) {
-    ctx.dispatch({ type: 'REMOVE_TRACKS', ids: [STANDIN_ID] });
-    standInRow = false;
-  }
   // A playlist can hold the same track twice: prefer the copy at or after
   // the previous position, which is what playing on from there reaches.
   const index = hits.find((i) => i >= currentIndex) ?? hits[0];
@@ -138,23 +146,30 @@ function highlight(trackChanged) {
   }
 }
 
-// The playing track is not in the list: perhaps it was just added, so reload
-// once. Meanwhile, and if it is still missing, show it in a row of its own at
-// the top so the title, time and seek bar keep working.
+// The playing track is not in the list. The old list is cleared at once (the
+// current track alone shows meanwhile, so the title, time and seek bar keep
+// working), then:
+//   a full list: perhaps the track was just added, so reload it once; if it
+//                is still missing, the list has run out and Spotify's
+//                Autoplay is playing -> its queue, labelled "Autoplay".
+//   a queue:     the queue has moved on -> re-read it.
 function showMissing() {
   const n = ctx.now;
-  if (!standInRow) {
-    addRow(STANDIN_ID, STANDIN_URL, IDLE_NAME, 0, 0);
-    standInRow = true;
-  }
-  writeStandIn();
-  makeCurrent(STANDIN_ID);
-  currentIndex = -1;
-  const key = listContext + '|' + n.trackUri;
-  if (mode === 'list' && n.trackUri && retriedMissing !== key) {
+  const wasMode = mode;
+  const context = listContext;
+  showStandIn();
+  if (!n.trackUri) return;
+  const key = context + '|' + n.trackUri;
+  if (wasMode === 'list' && retriedMissing !== key) {
     retriedMissing = key;
-    ctx.log('playing track is not in the loaded list - reloading', listName || listContext);
+    ctx.log('playing track is not in the loaded list - reloading', listName || context);
     load(n.contextUri);
+  } else if (wasMode === 'list') {
+    autoplay = true;
+    ctx.log('the list has run out - Spotify\'s Autoplay is playing; showing its queue');
+    refreshQueue(++loadGen, n.contextUri);
+  } else if (wasMode === 'queue') {
+    refreshQueue(++loadGen, n.contextUri);
   }
 }
 
@@ -253,6 +268,11 @@ async function load(contextUri) {
   const k = kind(contextUri);
   // A different context: show the current track alone until its list is in.
   if (mode !== 'standin' && listContext !== contextUri) showStandIn();
+  // Starting the album that ran out again: it is already loaded.
+  if (contextList && contextList.uri === contextUri && contextList.list.some(matches)) {
+    installList(contextList.list, 'list', contextUri, contextList.name);
+    return;
+  }
 
   const loaders = { album: loadAlbum, playlist: loadPlaylist, collection: (uri, g) => loadLikedSongs(g) };
   if (loaders[k]) {
@@ -260,6 +280,7 @@ async function load(contextUri) {
       const got = await loaders[k](contextUri, gen);
       if (gen !== loadGen) return;
       installList(got.list, 'list', contextUri, got.name);
+      contextList = { uri: contextUri, list: got.list, name: got.name };
       ctx.log('playlist window:', k, '"' + got.name + '" -', got.list.length, 'tracks');
       ctx.say(got.name ? got.name + ' - ' + got.list.length + ' tracks' : got.list.length + ' tracks');
       return;
@@ -273,12 +294,30 @@ async function load(contextUri) {
   await refreshQueue(gen, contextUri);
 }
 
+// The label row for a queue view, or null for none.
+async function queueLabel(contextUri) {
+  const k = kind(contextUri);
+  const n = ctx.now;
+  if (autoplay) return 'Autoplay';
+  if (k === 'none') {
+    if (singleTrackUri && n.trackUri === singleTrackUri) return null;   // the track itself
+    return singleTrackUri || cameFromList ? 'Autoplay' : null;
+  }
+  if (k === 'artist') {
+    if (!(contextUri in artistNames)) {
+      try { artistNames[contextUri] = (await ctx.api('GET', '/artists/' + idOf(contextUri))).name; } catch (e) { artistNames[contextUri] = null; }
+    }
+    return 'Artist' + (artistNames[contextUri] ? ': ' + artistNames[contextUri] : '');
+  }
+  return null;
+}
+
 async function refreshQueue(gen, contextUri) {
   try {
-    const list = await loadQueue();
+    const [list, label] = await Promise.all([loadQueue(), queueLabel(contextUri)]);
     if (gen !== loadGen) return;
     if (!list.length) { showStandIn(); return; }
-    installList(list, 'queue', contextUri, null);
+    installList(list, 'queue', contextUri, null, label);
   } catch (err) {
     if (gen !== loadGen) return;
     ctx.warn('could not read the queue -', err.message);
@@ -294,8 +333,17 @@ export function init(c) {
   showStandIn();
 }
 
+// Jump to track is about to play this one track on its own.
+export function expectSingleTrack(uri) {
+  singleTrackUri = uri;
+}
+
 export function reset() {
   loadGen++;
+  autoplay = false;
+  cameFromList = false;
+  singleTrackUri = null;
+  contextList = null;
   clearTimeout(queueTimer);
   document.removeEventListener('dblclick', onDoubleClickCapture, true);
   ctx = null;
@@ -327,11 +375,22 @@ export function sync() {
   seenTrack = n.trackUri;
 
   if (contextChanged) {
+    // A new source ends Autoplay, and a single track's moment.
+    cameFromList = mode === 'list' || (autoplay && cameFromList);
+    autoplay = false;
+    if (n.contextUri) singleTrackUri = null;
     if (mode === 'standin') writeStandIn();
     load(n.contextUri);
     return;
   }
   if (!trackChanged) return;
+
+  // Autoplay, then the album that ran out is played again: back to its list.
+  if (autoplay && contextList && contextList.uri === n.contextUri && contextList.list.some(matches)) {
+    autoplay = false;
+    installList(contextList.list, 'list', n.contextUri, contextList.name);
+    return;
+  }
 
   if (mode === 'queue') {
     // Up Next moves on with every track; show the new current at once if it
@@ -376,7 +435,7 @@ export async function playEntry(id) {
   if (!ctx) return;
   const index = entries.findIndex((e) => e.id === id);
   const e = entries[index];
-  if (!e) return;                                    // the stand-in: nothing to choose
+  if (!e || e.isLabel) return;                       // the stand-in or a label: nothing to choose
   if (!e.playable || !e.uri) {
     ctx.say('Cannot play that track');
     ctx.log('double-click: not playable -', e.name);
@@ -400,12 +459,13 @@ export async function playEntry(id) {
     } else if (contextUri) {
       // Artist, radio and similar contexts take no offset; skipping forward
       // through Up Next keeps the context.
-      if (index === 0) {
+      // Positions count from the playing track (a label row comes before it).
+      if (e.position === 0) {
         await window.WinifyPlayer.seek(0);
       } else {
-        for (let i = 0; i < index; i++) await window.WinifyPlayer.nextTrack();
+        for (let i = 0; i < e.position; i++) await window.WinifyPlayer.nextTrack();
       }
-      ctx.log('double-click: skipped', index, 'ahead to', e.name);
+      ctx.log('double-click: skipped', e.position, 'ahead to', e.name);
     } else {
       // No context at all: play from this row on.
       await ctx.api('PUT', '/me/player/play?device_id=' + encodeURIComponent(deviceId),
@@ -422,5 +482,6 @@ export async function playEntry(id) {
 // For inspection from DevTools and tests.
 window.WinifyPlaylist = {
   state: () => ({ mode, listContext, listName, count: entries.length, currentIndex,
-    current: entries[currentIndex] && entries[currentIndex].name, standInRow }),
+    current: entries[currentIndex] && entries[currentIndex].name, autoplay,
+    label: entries[0] && entries[0].isLabel ? entries[0].name : null }),
 };

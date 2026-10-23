@@ -137,7 +137,9 @@ The playlist window lists the album or playlist being played, with the
 current track highlighted; double-click a track to play it. Spotify only lets
 apps read the contents of playlists you own or collaborate on, so for any
 other playlist, and for Liked Songs, artists and radio, it shows the current
-track and Spotify's Up Next queue instead.
+track and Spotify's Up Next queue instead. When an album or playlist runs out
+and Spotify's Autoplay carries on, the list switches to Autoplay's queue,
+labelled "Autoplay".
 
 To switch playlists, press **Eject** (in the main window or the playlist
 window), or choose **LIST OPTS > load list**. Pick Liked Songs or any of your
@@ -145,8 +147,10 @@ playlists; type to filter. It plays from track 1. Escape closes it.
 
 To find any track, press **J** (or right-click the main window, **Play >
 Jump to track...**, or use the menu bar). Type to search Spotify. **Enter** or
-double-click plays the track within its album; **Shift+Enter** or right-click
-**Add to queue** queues it without interrupting what is playing. Right-click a
+double-click plays just that track (Spotify's Autoplay, if on, carries on
+after it); **Shift+Enter** or right-click **Add to queue** queues it without
+interrupting what is playing. Right-click also offers **Play album** (from
+that track) and **Play artist**. Right-click a
 track in the playlist window to queue it too. Winify never changes your
 playlists.
 

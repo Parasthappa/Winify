@@ -4,14 +4,15 @@
  * Two modes, shown in the title:
  *
  *   JUMP TO TRACK  (J, the main window's Play > Jump to track..., the menu
- *                   bar): Enter or double-click plays the track within its
- *                   album, so the album continues.
+ *                   bar): Enter or double-click plays just that track; when
+ *                   it ends, Spotify's Autoplay (if on) carries on.
  *   ADD TO QUEUE   (the playlist window's ADD button): Enter or double-click
  *                   adds it to Spotify's queue without interrupting what is
  *                   playing, and the window stays open for more.
  *
- * Shift+Enter does the other action, and right-click offers both. Playlist
- * window rows get the same right-click menu.
+ * Shift+Enter does the other action. Right-click offers both, plus Play
+ * album (from that track) and Play artist. Playlist window rows get a
+ * Play / Add to queue menu.
  *
  * Read-only towards your library: nothing is added to any playlist.
  * Drawn with the active skin's own playlist bitmaps, like the playlist picker.
@@ -51,6 +52,8 @@ function trackRow(t) {
     artist: (t.artists || []).map((a) => a.name).join(', '),
     album: t.album ? t.album.name : '',
     albumUri: t.album ? t.album.uri : null,
+    artistUri: t.artists && t.artists[0] ? t.artists[0].uri : null,
+    artistName: t.artists && t.artists[0] ? t.artists[0].name : '',
     durationMs: t.duration_ms || 0,
     playable: t.is_playable !== false,
   };
@@ -93,22 +96,41 @@ async function search(query) {
   render();
 }
 
-async function play(r) {
+// Start playback on Winify and close the window. `what` names it for the log.
+async function start(r, body, what) {
   if (!r) return;
   if (!r.playable) { flash('NOT PLAYABLE'); return; }
   const deviceId = ctx.deviceId();
   if (!deviceId) { flash('NOT READY'); ctx.say('Winify device not ready'); return; }
   close();
   try {
-    // Within its album, so the album carries on afterwards.
-    const body = r.albumUri ? { context_uri: r.albumUri, offset: { uri: r.uri } } : { uris: [r.uri] };
     await ctx.api('PUT', '/me/player/play?device_id=' + encodeURIComponent(deviceId), body);
-    ctx.log('jump to track: playing', r.artist + ' - ' + r.title, 'in', r.album || 'no album');
+    ctx.log('jump to track: playing', what);
   } catch (err) {
     ctx.warn('jump to track: could not play -', err.message);
-    ctx.say('Could not play that track');
+    ctx.say('Could not play that');
   }
   ctx.refreshSoon();
+}
+
+// Just this track. When it ends, Spotify's Autoplay (if the account has it
+// on) carries on; the playlist window then shows Autoplay's queue.
+function play(r) {
+  if (r && r.playable) playlist.expectSingleTrack(r.uri);
+  return start(r, { uris: [r.uri] }, r && (r.artist + ' - ' + r.title));
+}
+
+// The track's album, from this track.
+function playAlbum(r) {
+  if (!r || !r.albumUri) return play(r);
+  return start(r, { context_uri: r.albumUri, offset: { uri: r.uri } }, 'album ' + r.album + ' from ' + r.title);
+}
+
+// The track's (first) artist as the source. Spotify takes no starting track
+// for an artist, so it begins wherever Spotify chooses.
+function playArtist(r) {
+  if (!r || !r.artistUri) return play(r);
+  return start(r, { context_uri: r.artistUri }, 'artist ' + r.artistName);
 }
 
 // Queued to the active session: Winify's if it is playing, otherwise wherever
@@ -142,7 +164,10 @@ const primary = (r) => (mode === 'queue' ? queueRow(r) : play(r));
 const secondary = (r) => (mode === 'queue' ? play(r) : queueRow(r));
 
 const TITLES = { play: 'Jump to track', queue: 'Add to queue' };
-const HINTS = { play: 'enter: play   shift+enter: queue', queue: 'enter: queue   shift+enter: play' };
+const HINTS = {
+  play: 'enter: play   shift+enter: queue   right-click: more',
+  queue: 'enter: queue   shift+enter: play   right-click: more',
+};
 
 // ---- Drawing ------------------------------------------------------------------
 
@@ -360,8 +385,10 @@ function build(spot) {
     select(i);
     const r = results[i];
     showMenu(e.clientX, e.clientY, [
-      { label: 'Play', hotkey: mode === 'play' ? 'Enter' : 'Shift+Enter', action: () => play(r), disabled: !r.playable },
+      { label: 'Play track', hotkey: mode === 'play' ? 'Enter' : 'Shift+Enter', action: () => play(r), disabled: !r.playable },
       { label: 'Add to queue', hotkey: mode === 'queue' ? 'Enter' : 'Shift+Enter', action: () => queueRow(r), disabled: !r.playable },
+      { label: 'Play album', action: () => playAlbum(r), disabled: !r.playable || !r.albumUri },
+      { label: 'Play artist', action: () => playArtist(r), disabled: !r.playable || !r.artistUri },
     ]);
   });
   list.addEventListener('wheel', (e) => {
