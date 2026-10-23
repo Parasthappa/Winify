@@ -239,14 +239,26 @@ function setStatus(text) {
   send('status', text);
 }
 
+// Winify is one see-through window over the main display's usable area (below
+// the menu bar, beside the Dock): only the chassis, the Webamp windows and
+// Winify's own windows are drawn in it. Clicks on the empty parts pass through
+// to whatever is behind (the page switches that, window-passthrough.js).
+// One window cannot span displays, so Winify lives on the main display.
+function homeArea() {
+  return screen.getPrimaryDisplay().workArea;
+}
+
 function createWindow() {
   win = new BrowserWindow({
-    // Opens at the sign-in chassis's size (winify.js: 1252x983 design px at
-    // 0.356); the page then fits the window to whatever it shows.
-    width: 446,
-    height: 350,
-    useContentSize: true,
-    backgroundColor: '#08090b',
+    ...homeArea(),
+    frame: false,
+    transparent: true,
+    hasShadow: false,
+    resizable: false,
+    // macOS's own full screen is not for see-through windows (and toggling it
+    // under simple full screen crashes AppKit); see enter-html-full-screen.
+    fullscreenable: false,
+    backgroundColor: '#00000000',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -279,6 +291,21 @@ function createWindow() {
     hideWindow();
   });
   watchVisibility();
+  watchHomeArea();
+  // Until the page says otherwise (on the first mouse move), clicks pass through.
+  win.setIgnoreMouseEvents(true, { forward: true });
+  // Full screen (Milkdrop): a see-through window cannot use macOS's own full
+  // screen, so it covers the whole display in simple full screen instead,
+  // and goes back to the usable area after.
+  win.webContents.on('enter-html-full-screen', () => win.setSimpleFullScreen(true));
+  win.webContents.on('leave-html-full-screen', () => {
+    // After Electron has finished its own leaving.
+    setTimeout(() => {
+      if (!win || win.isDestroyed()) return;
+      win.setSimpleFullScreen(false);
+      win.setBounds(homeArea());
+    }, 0);
+  });
 
   // Links that ask for a new window (Webamp's logo, its "Webamp..." menu item)
   // open in the default browser instead of a bare in-app window. Only web
@@ -513,6 +540,18 @@ function hideWindow() {
   win.hide();
   windowShown = false;
   reportVisibility();
+}
+
+// Displays added, removed or rearranged, the Dock moved: back to the main
+// display's usable area. The page keeps its windows inside it.
+function watchHomeArea() {
+  const refit = () => {
+    if (!win || win.isDestroyed() || win.isSimpleFullScreen()) return;
+    win.setBounds(homeArea());
+  };
+  screen.on('display-metrics-changed', refit);
+  screen.on('display-added', refit);
+  screen.on('display-removed', refit);
 }
 
 function watchVisibility() {
@@ -1121,27 +1160,13 @@ ipcMain.on('ready', () => {
   send('window:visibility', isOnScreen());
   restoreSession();
 });
-// The page sizes the window to what it shows: the sign-in chassis, or the
-// player's windows. center re-centres it (switching screens); otherwise it
-// keeps its place and stays within the display.
-ipcMain.on('window:fit', (_event, size) => {
-  if (!win || win.isDestroyed() || !size) return;
-  const area = screen.getDisplayMatching(win.getBounds()).workArea;
-  const frame = win.getBounds().height - win.getContentBounds().height;   // title bar
-  const width = Math.max(100, Math.min(Math.round(size.width), area.width));
-  const height = Math.max(100, Math.min(Math.round(size.height), area.height - frame));
-  win.setContentSize(width, height);
-  const b = win.getBounds();
-  if (size.center) {
-    // Exactly centred: macOS's own centring sits the window off-centre.
-    win.setPosition(
-      Math.round(area.x + (area.width - b.width) / 2),
-      Math.round(area.y + (area.height - b.height) / 2));
-    return;
-  }
-  win.setPosition(
-    Math.min(Math.max(b.x, area.x), area.x + area.width - b.width),
-    Math.min(Math.max(b.y, area.y), area.y + area.height - b.height));
+// Click-through: the page says whether the pointer is over something of
+// Winify's (the chassis, a Webamp window, one of Winify's own) or over
+// nothing. Over nothing, clicks go to whatever is behind; mouse moves keep
+// coming (forward) so the page can tell when the pointer is back.
+ipcMain.on('window:pass-through', (_event, on) => {
+  if (!win || win.isDestroyed()) return;
+  win.setIgnoreMouseEvents(on === true, { forward: true });
 });
 
 // Webamp's close (x) and minimize (_) buttons, and its Exit menu item.

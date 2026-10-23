@@ -77,6 +77,9 @@ const SAVE_DELAY_MS = 400;
 // Webamp snaps a dragged window to the container's edges within 15px, so a
 // margin would not survive the first drag.
 const PLAYER_MARGIN = 0;
+// In the app, Winify is one see-through window over the screen (preload.js):
+// window positions are screen positions, and the window never resizes.
+const SCREEN_WINDOW = !!(window.spotify && window.spotify.screenWindow);
 const REFIT_DELAY_MS = 150;
 
 function log(...args) {
@@ -114,6 +117,9 @@ function currentLayout() {
   // Taken down while Winify is out of sight, Milkdrop is still open.
   if (milkdrop.isSuspended()) open.milkdrop = true;
   return {
+    // Screen positions (Winify's one see-through window), not positions
+    // within a window fitted around the player.
+    screen: SCREEN_WINDOW,
     doubled: state.display.doubled,
     positions,
     playlistSize: state.windows.genWindows.playlist.size,
@@ -255,7 +261,17 @@ async function applyDefaultLayout(container) {
 // reset); otherwise it grows or shrinks in place.
 async function placeLayout(container, layout, { center = false } = {}) {
   if (!(window.spotify && window.spotify.fitWindow)) {
-    webamp.store.dispatch({ type: 'UPDATE_WINDOW_POSITIONS', positions: layout.positions, absolute: true });
+    let positions = layout.positions;
+    // Screen window: a layout from a fitted window (or the default) opens
+    // where that window used to, centred on the screen.
+    if (SCREEN_WINDOW && center) {
+      const box = layoutBox(layout);
+      const dx = Math.round((container.clientWidth - (box.r - box.l)) / 2 - box.l);
+      const dy = Math.round((container.clientHeight - (box.b - box.t)) / 2 - box.t);
+      positions = {};
+      for (const id of LAYOUT_WINDOWS) positions[id] = { x: layout.positions[id].x + dx, y: layout.positions[id].y + dy };
+    }
+    webamp.store.dispatch({ type: 'UPDATE_WINDOW_POSITIONS', positions, absolute: true });
     await keepOnScreen(container);
     return;
   }
@@ -322,7 +338,8 @@ function placeOpenedEqualizer() {
 // Opening Milkdrop puts it where it was last left, docked to the player; if
 // the player has moved since, or the spot is off the display or on another
 // window, it docks to the right of the player, top-aligned with the main
-// window. Winify's window then grows to take it in.
+// window (or to its left, if the right has no room). Winify's window then
+// grows to take it in.
 function placeOpenedMilkdrop() {
   const layout = currentLayout();
   const problem = layoutProblem(layout);
@@ -331,9 +348,12 @@ function placeOpenedMilkdrop() {
     const p = layout.positions;
     const others = shownWindows(layout).filter((id) => id !== 'milkdrop');
     const right = Math.max(...others.map((id) => p[id].x + sizes[id].w));
+    const left = Math.min(...others.map((id) => p[id].x));
+    const room = SCREEN_WINDOW ? window.innerWidth : Infinity;   // a fitted window grows instead
+    const x = right + sizes.milkdrop.w <= room ? right : Math.max(0, left - sizes.milkdrop.w);
     webamp.store.dispatch({
       type: 'UPDATE_WINDOW_POSITIONS',
-      positions: { milkdrop: { x: right, y: p.main.y } },
+      positions: { milkdrop: { x, y: p.main.y } },
       absolute: true,
     });
     log('milkdrop docked to the right of the player', '(' + (problem || 'was not docked to the player') + ')');
@@ -395,8 +415,12 @@ async function restoreLayout(container) {
   }
   const layout = currentLayout();
   layout.positions = saved.positions;
-  await placeLayout(container, layout, { center: true });
-  log('layout restored');
+  // Already screen positions: exactly where they were left.
+  await placeLayout(container, layout, { center: !(SCREEN_WINDOW && saved.screen) });
+  if (SCREEN_WINDOW && !saved.screen) {
+    try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(currentLayout())); } catch (e) { /* storage unavailable */ }
+  }
+  log('layout restored', SCREEN_WINDOW && !saved.screen ? '(from the old fitted window: centred on the screen)' : '');
 }
 
 // Menu bar > Reset window layout: forget the saved layout and go back to the
@@ -439,12 +463,15 @@ function watchLayout(container) {
   let mdOpen = currentLayout().open.milkdrop;
   unsubscribeLayout = webamp.store.subscribe(() => {
     if (!webamp) return;
+    // Noted before placing: placing dispatches, which comes back here.
     const isOpen = !!webamp.store.getState().windows.genWindows.equalizer.open;
-    if (isOpen && !eqOpen) placeOpenedEqualizer();
+    const eqOpened = isOpen && !eqOpen;
     eqOpen = isOpen;
+    if (eqOpened) placeOpenedEqualizer();
     const isMdOpen = currentLayout().open.milkdrop;
-    if (isMdOpen && !mdOpen) placeOpenedMilkdrop();
+    const mdOpened = isMdOpen && !mdOpen;
     mdOpen = isMdOpen;
+    if (mdOpened) placeOpenedMilkdrop();
     const nowShape = layoutShape();
     if (nowShape !== shape) {
       shape = nowShape;

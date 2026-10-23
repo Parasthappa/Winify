@@ -46,5 +46,7 @@ contextBridge.exposeInMainWorld('spotify', {
   // What is playing, for the menu-bar item (so main need not ask Spotify).
   nowPlaying: (text) => ipcRenderer.send('now-playing', text),
   // Winify's window follows what it shows: the sign-in chassis, or the player.
-  fitWindow: (size) => ipcRenderer.send('window:fit', size),
+  // One see-through window over the screen: clicks pass through where nothing is.
+  screenWindow: true,
+  setPassThrough: (on) => ipcRenderer.send('window:pass-through', on === true),
 });

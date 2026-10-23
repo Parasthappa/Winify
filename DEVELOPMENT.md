@@ -116,6 +116,30 @@ forbids, so it runs in a worker served with a policy of its own (`main.js`,
 If a new scope is added, a stored session without it is discarded at launch
 and the sign-in screen asks to sign in again.
 
+## The window
+
+Winify is one frameless, transparent window over the main display's usable
+area (`main.js`, `homeArea`): no frame, no shadow, not resizable. Only the
+chassis, the Webamp windows and Winify's own windows are drawn in it.
+
+- **Click-through.** The window starts out ignoring the mouse
+  (`setIgnoreMouseEvents(true, { forward: true })`); `window-passthrough.js`
+  gets the forwarded mouse moves, and switches it off while the pointer is
+  over an element (the full-window layers take no pointer events) or a button
+  is held, and on again otherwise. Search and the picker have full-window
+  backdrops, so while they are open a click outside closes them instead.
+- **One display.** A window cannot span displays: Winify uses the main
+  display (the one with the menu bar) and refits when displays change.
+- **Full screen** (Milkdrop): a transparent window cannot use macOS's own
+  full screen (it is `fullscreenable: false`; toggling it under simple full
+  screen crashes AppKit). On `enter-html-full-screen` the window goes into
+  simple full screen, covering the whole display, and back after.
+- **Positions** are screen positions (the layout's `screen` flag); a layout
+  saved by the old fitted window opens centred, where that window used to.
+- The yellow and red lights on the chassis, and Webamp's minimize and close
+  buttons, send `minimize` and `hide` (`window-command`); minimized and
+  hidden both count as off screen for the visualizers.
+
 ## Project layout
 
 | File | Purpose |
@@ -123,7 +147,8 @@ and the sign-in screen asks to sign in again.
 | `main.js` | Main process: sign-in, Client ID, tokens, menu bar, local server, LRCLIB lookups |
 | `preload.js` | The bridge between the main process and the page |
 | `index.html` | The sign-in screen and the player view |
-| `winify.js` | The sign-in screen's state and rendering |
+| `winify.js` | The chassis: sign-in state, rendering, its place on screen |
+| `window-passthrough.js` | Click-through for the see-through window |
 | `player.js` | Web Playback SDK wiring (`window.WinifyPlayer`) |
 | `audio-source.js` | System-audio capture for the visualizers |
 | `renderer.js` | Player view wiring |
@@ -134,7 +159,7 @@ and the sign-in screen asks to sign in again.
 | `webamp-search.js` | Jump to track |
 | `webamp-lyrics.js` | The lyrics window and the LYRIC button |
 | `webamp-dialog.js` | Placement, dragging and tooltips for Winify's own windows |
-| `webamp-room.js` | Grows the app window while one of them is open |
+| `webamp-room.js` | Grew a fitted app window for those; nothing to do in the see-through window |
 | `webamp-inert.js` | Keeps Webamp controls with no Spotify meaning quiet |
 | `webamp-vis.js` | Feeds Webamp's visualizer from the audio capture |
 | `webamp-milkdrop.js` | Webamp's Milkdrop window, drawn by Butterchurn from the audio capture; its menu, keys and the VIZ button |

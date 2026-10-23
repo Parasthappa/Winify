@@ -124,6 +124,15 @@ global.fetch = (u, o) => {
 
 require(path.join(__dirname, '..', '..', 'main.js'));
 setTimeout(() => stop('TIMED OUT after ' + TIME_LIMIT_MS / 1000 + ' s', 3), TIME_LIMIT_MS);
+// Everything the run prints is also kept in test/.output/smoke-last.log, so
+// the request list can be read afterwards without running it again.
+const LAST_LOG = path.join(__dirname, '..', '.output', 'smoke-last.log');
+fs.mkdirSync(path.dirname(LAST_LOG), { recursive: true });
+fs.writeFileSync(LAST_LOG, '');
+for (const level of ['log', 'warn', 'error']) {
+  const original = console[level];
+  console[level] = (...args) => { try { fs.appendFileSync(LAST_LOG, args.join(' ') + '\n'); } catch (e) { /* keep going */ } original(...args); };
+}
 // One line per run, for the runs-per-day limit (CLAUDE.md).
 fs.mkdirSync(path.join(__dirname, '..', '.output'), { recursive: true });
 fs.appendFileSync(path.join(__dirname, '..', '.output', 'smoke-runs.log'), new Date().toLocaleString('sv-SE') + '\n');
@@ -239,7 +248,7 @@ app.whenReady().then(async () => {
   if (spotifyWas.repeat && spotifyWas.repeat !== 'off') await js(`window.spotify.api('PUT', '/me/player/repeat?state=${spotifyWas.repeat}')`).catch(() => {});
   await js(`WinifyPlayer.pause()`); await wait(800);   // after Winify's own last saves
   const restored = await restoreState();
-  console.log('Your own settings put back: ' + (restored == null ? 'nothing was set aside' : restored + ' of 3 (the others were Winify\'s defaults already)'));
+  console.log('Your own settings put back: ' + (restored == null ? 'nothing was set aside' : restored + ' of 4 (the others were Winify\'s defaults already)'));
   guard();
   report();
   console.log(stamp().trim() + ' in all.\n' + (fails ? 'SMOKE: ' + fails + ' FAILED' : 'SMOKE: ALL PASSED'));

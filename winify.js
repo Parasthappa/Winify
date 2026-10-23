@@ -7,7 +7,6 @@
   var DEMO = false;
   try { var q = new URLSearchParams(location.search).get('outcome'); if (q) { PROPS.outcome = q; DEMO = true; } } catch (e) {}
   var IPC = (typeof window !== 'undefined' && window.spotify) ? window.spotify : null;
-  var W = 1280, H = 1070;
   // The chassis within the design (its outline spans 42..1238 x 55..982),
   // plus a margin for its glow and drop shadow. The window shows only this.
   var CHASSIS = { x: 14, y: 27, w: 1252, h: 983 };
@@ -286,16 +285,21 @@
 
       isAsleep: asleep,
       isOff: !powered,
-      sleepLabel: asleep ? 'Wake the display' : 'Put the display to sleep',
-      powerLabel: powered ? 'Power off' : 'Power on',
+      // In Winify's one window the yellow light minimizes everything to the
+      // Dock and the red one closes everything (Winify stays in the menu bar,
+      // music keeps playing). Without the app (the design preview) they still
+      // sleep and power the display.
+      sleepLabel: IPC ? 'Minimize Winify' : (asleep ? 'Wake the display' : 'Put the display to sleep'),
+      powerLabel: IPC ? 'Close Winify' : (powered ? 'Power off' : 'Power on'),
 
       onSleep: function () {
+        if (IPC) { IPC.windowCommand('minimize'); return; }
         if (!powered) { return; }
         self.setState({ asleep: !asleep });
       },
       onPower: function () {
+        if (IPC) { IPC.windowCommand('hide'); return; }
         if (self.timer) { clearInterval(self.timer); self.timer = null; }
-        if (IPC) { IPC.cancelLogin(); }
         self.setState({ powered: !powered, asleep: false, status: 'idle', step: 0 });
       },
       onRemember: function () {
@@ -432,22 +436,52 @@
     for (var i = 0; i < bindings.length; i++) bindings[i]();
   }
 
-  // Scale the design so the chassis fills the window, and centre the chassis
-  // (not the whole design, which has more room below than above it).
-  function fit(stage) {
-    var s = Math.min(window.innerWidth / CHASSIS.w, window.innerHeight / CHASSIS.h, 1);
-    var dx = (W / 2 - (CHASSIS.x + CHASSIS.w / 2)) * s;
-    var dy = (H / 2 - (CHASSIS.y + CHASSIS.h / 2)) * s;
-    stage.style.transform = 'translate(' + dx + 'px, ' + dy + 'px) scale(' + s + ')';
+  // The chassis box: the drawn chassis at the sign-in scale, the design
+  // shifted so the chassis sits at the box's corner.
+  function fit(box, stage) {
+    var s = SIGN_IN_SCALE;
+    box.style.width = Math.round(CHASSIS.w * s) + 'px';
+    box.style.height = Math.round(CHASSIS.h * s) + 'px';
+    stage.style.transform = 'translate(' + (-CHASSIS.x * s) + 'px, ' + (-CHASSIS.y * s) + 'px) scale(' + s + ')';
   }
 
-  // Size Winify's window to the chassis at the sign-in scale, centred.
-  function fitWindowToSignIn() {
-    if (!IPC || !IPC.fitWindow) return;
-    IPC.fitWindow({
-      width: Math.round(CHASSIS.w * SIGN_IN_SCALE),
-      height: Math.round(CHASSIS.h * SIGN_IN_SCALE),
-      center: true,
+  // ---- Where the chassis sits ------------------------------------------------
+  // In Winify's see-through window it stays on screen, signed in or not:
+  // bottom-right by default, wherever it was dragged to after that.
+  var PLACE_KEY = 'winify.chassis.v1';
+  var MARGIN = 16;
+
+  function place(box, spot) {
+    var w = box.offsetWidth, h = box.offsetHeight;
+    var x = spot ? spot.x : window.innerWidth - w - MARGIN;
+    var y = spot ? spot.y : window.innerHeight - h - MARGIN;
+    x = Math.max(0, Math.min(x, window.innerWidth - w));
+    y = Math.max(0, Math.min(y, window.innerHeight - h));
+    box.style.left = Math.round(x) + 'px';
+    box.style.top = Math.round(y) + 'px';
+  }
+
+  function savedSpot() {
+    try { var s = JSON.parse(localStorage.getItem(PLACE_KEY)); return s && isFinite(s.x) && isFinite(s.y) ? s : null; } catch (e) { return null; }
+  }
+
+  // Dragged by its body; its buttons, lamp and field keep their clicks.
+  function draggable(box) {
+    box.addEventListener('pointerdown', function (e) {
+      if (e.button !== 0 || e.target.closest('button, input, a, label, textarea, select, [role=button], [role=checkbox]')) return;
+      e.preventDefault();
+      box.setPointerCapture(e.pointerId);
+      var sx = e.clientX, sy = e.clientY, ox = box.offsetLeft, oy = box.offsetTop;
+      function move(ev) { place(box, { x: ox + ev.clientX - sx, y: oy + ev.clientY - sy }); }
+      function up() {
+        box.removeEventListener('pointermove', move);
+        box.removeEventListener('pointerup', up);
+        box.removeEventListener('pointercancel', up);
+        try { localStorage.setItem(PLACE_KEY, JSON.stringify({ x: box.offsetLeft, y: box.offsetTop })); } catch (err) { /* storage unavailable */ }
+      }
+      box.addEventListener('pointermove', move);
+      box.addEventListener('pointerup', up);
+      box.addEventListener('pointercancel', up);
     });
   }
 
@@ -462,13 +496,18 @@
     walk(holder, null);
     update();
     while (holder.firstChild) stage.appendChild(holder.firstChild);
-    fit(stage);
-    window.addEventListener('resize', function () { fit(stage); });
+    var loginScreen = document.getElementById('login-screen');
+    var appScreen = document.getElementById('app-screen');
+    fit(loginScreen, stage);
+    place(loginScreen, savedSpot());
+    draggable(loginScreen);
+    // The display changed size: keep it on screen (where it was, if it fits).
+    window.addEventListener('resize', function () { place(loginScreen, { x: loginScreen.offsetLeft, y: loginScreen.offsetTop }); });
 
     if (!IPC) { return; }
 
-    var loginScreen = document.getElementById('login-screen');
-    var appScreen = document.getElementById('app-screen');
+    // The chassis stays; the player's windows come and go. is-active on the
+    // chassis says it is in its signed-out state.
     function showApp(on) {
       loginScreen.classList.toggle('is-active', !on);
       appScreen.classList.toggle('is-active', on);
@@ -487,13 +526,14 @@
       comp.setState(next);
     });
 
-    // Hold CONNECTED long enough to read, then hand over to the app view.
+    // CONNECTED, with Disconnect, stays on the chassis; the player's windows
+    // come up beside it a moment later.
     IPC.onAuthConnected(function () {
       comp.setState({ status: 'connected', step: 0, failKind: null });
       setTimeout(function () { showApp(true); }, 1100);
     });
 
-    // Stored token found at launch: never show this screen at all.
+    // Stored token found at launch: straight to CONNECTED and the player.
     IPC.onAuthRestored(function () {
       comp.setState({ status: 'connected', step: 0, remember: true, failKind: null });
       showApp(true);
@@ -505,7 +545,6 @@
       comp.setState({ setup: true, setupWelcome: !!(info && info.firstRun), setupFirstRun: !!(info && info.firstRun), setupBusy: false, setupError: (info && info.error) || null,
         setupCurrent: (info && info.current) || null, setupSaved: false, status: 'idle', step: 0, failKind: null });
       showApp(false);
-      fitWindowToSignIn();
       setTimeout(function () {
         var field = document.getElementById('sa-client-id');
         if (field) { field.value = ''; field.focus(); }
@@ -515,10 +554,8 @@
     IPC.onSignedOut(function () {
       comp.setState({ status: 'idle', step: 0, failKind: null });
       showApp(false);
-      fitWindowToSignIn();
     });
 
-    fitWindowToSignIn();
     IPC.ready();
   });
 })();

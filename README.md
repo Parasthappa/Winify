@@ -160,11 +160,23 @@ the playlist window's **LYRIC** button. The lyrics window follows the music.
 Lyrics come from [LRCLIB](https://lrclib.net), a free community lyrics
 library; not every song has them.
 
+### Winify on your screen
+
+Winify has no window frame of its own: its windows sit straight on your
+desktop, and you can drag each one anywhere on your main screen. Clicks
+between them reach whatever is behind.
+
+The Winify panel (the one you signed in on) stays at the bottom-right of
+the screen; drag it wherever you like. Its **yellow** light minimizes
+everything to the Dock (click Winify's Dock icon to bring it back), and its
+**red** light closes everything. The main Winamp window's own **_** and
+**x** buttons do the same. Either way, music keeps playing.
+
 ### Menu-bar icon
 
 Winify's icon in the macOS menu bar lets you show or hide Winify, open
-Milkdrop, change your Client ID, disconnect, or quit. Closing Winify's window hides it; use **Quit
-Winify** to close it completely.
+Milkdrop, change your Client ID, disconnect, or quit. Closing Winify hides
+it; use **Quit Winify** (or **Cmd+Q**) to close it completely.
 
 ## Optional: the visualizer
 

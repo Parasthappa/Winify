@@ -54,19 +54,23 @@
   .sa-spin { animation: sa-spin .9s linear infinite; }
 </style>
 <style>
-  html, body { height: 100%; }
-  body { margin: 0; background: #08090b; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-  #sa-stage { width: 1280px; height: 1070px; flex: none; transform-origin: center center; }
+  /* One see-through window over the screen: nothing of its own is drawn, so
+     only the chassis and the windows show. Clicks on the empty parts pass
+     through to whatever is behind (window-passthrough.js). */
+  html, body { height: 100%; background: transparent; }
+  body { margin: 0; overflow: hidden; }
   sc-if, sc-for { display: contents; }
-  /* Screen switching only — no visual changes to the design above.
-     .is-active reproduces the centring the stage had as a flex child of body. */
-  .sa-screen { display: none; }
-  .sa-screen.is-active { display: flex; width: 100%; height: 100%; align-items: center; justify-content: center; }
-  /* Webamp owns the whole post-login view. It positions its windows
-     absolutely and hit-tests real pointer events against them, so nothing may
-     sit over it or nest it inside another stacking context. */
-  #app-screen.is-active { display: block; width: 100%; height: 100%; }
-  #webamp-root { position: fixed; left: 0; top: 0; right: 0; bottom: 0; }
+  /* The chassis: Winify's home base, always shown, signed in or not. A box
+     the size of the drawn chassis (winify.js places and scales the design in
+     it); is-active only says which state it is in (signed out). */
+  #login-screen { position: fixed; z-index: 0; }
+  #sa-stage { width: 1280px; height: 1070px; transform-origin: 0 0; position: absolute; left: 0; top: 0; }
+  /* The player: Webamp positions its windows absolutely over the whole
+     window. Its layer takes no clicks itself, so the chassis under it and the
+     empty parts stay reachable; the windows in it take them as usual. */
+  #app-screen { display: none; }
+  #app-screen.is-active { display: block; }
+  #webamp-root { position: fixed; left: 0; top: 0; right: 0; bottom: 0; z-index: 1; pointer-events: none; }
   /* Spotify's audio is DRM-protected, so its bitrate and sample rate cannot
      be read; Webamp shows 0 for a missing value. Blank, not invented. */
   #webamp #kbps, #webamp #khz { visibility: hidden !important; }
@@ -373,6 +377,7 @@
 <script src="visualizer-test.js"></script>
 <script src="https://sdk.scdn.co/spotify-player.js"></script>
 <script src="renderer.js"></script>
+<script src="window-passthrough.js"></script>
 <script type="module" src="webamp-ui.js"></script>
 </body>
 </html>
