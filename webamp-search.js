@@ -1,18 +1,13 @@
 /* Jump to track: search Spotify and play or queue a track, styled like
  * classic Winamp's "Jump to file".
  *
- * Two modes, shown in the title:
- *
- *   JUMP TO TRACK  (J, the main window's Play > Jump to track..., the menu
- *                   bar): Enter or double-click plays just that track, then
- *                   Spotify's Autoplay (see webamp-playlist.js: single track).
- *   ADD TO QUEUE   (the playlist window's ADD button): Enter or double-click
- *                   adds it to Spotify's queue without interrupting what is
- *                   playing, and the window stays open for more.
- *
- * Shift+Enter does the other action. Right-click offers both, plus Play
- * album (from that track) and Play artist. Playlist window rows get a
- * Play / Add to queue menu.
+ * Opened by J, the main window's Play > Jump to track..., the menu bar, and
+ * the playlist window's ADD button, all alike: Enter or double-click plays
+ * just that track, then Spotify's Autoplay (see webamp-playlist.js: Play
+ * track); Shift+Enter adds it to Spotify's queue without interrupting what
+ * is playing, and the window stays open for more. Right-click offers both,
+ * plus Play album (from that track) and Play artist. Playlist window rows
+ * get a Play / Add to queue menu.
  *
  * Read-only towards your library: nothing is added to any playlist.
  * Drawn with the active skin's own playlist bitmaps, like the playlist picker.
@@ -41,7 +36,6 @@ let searchSeq = 0;
 let debounceTimer = null;
 let flashTimer = null;
 let drawnKey = null;
-let mode = 'play';                  // 'play' (Jump to track) | 'queue' (Add to queue)
 
 // ---- Spotify ------------------------------------------------------------------
 
@@ -164,14 +158,11 @@ function queueRow(r) {
 }
 
 // What Enter and double-click do, and what Shift+Enter does instead.
-const primary = (r) => (mode === 'queue' ? queueRow(r) : play(r));
-const secondary = (r) => (mode === 'queue' ? play(r) : queueRow(r));
+const primary = play;
+const secondary = queueRow;
 
-const TITLES = { play: 'Jump to track', queue: 'Add to queue' };
-const HINTS = {
-  play: 'enter: play   shift+enter: queue   right-click: more',
-  queue: 'enter: queue   shift+enter: play   right-click: more',
-};
+const TITLE = 'Jump to track';
+const HINT = 'enter: play   shift+enter: queue   right-click: more';
 
 // ---- Drawing ------------------------------------------------------------------
 
@@ -298,7 +289,7 @@ function drawBottom(message) {
   const bar = el.querySelector('.ws-bottom .playlist-bottom');
   bar.textContent = '';
   bar.appendChild(skinText(message || (results.length && !status ? results.length + ' tracks' : '')));
-  bar.appendChild(skinText(HINTS[mode]));
+  bar.appendChild(skinText(HINT));
 }
 
 // A short confirmation in the dialog's bottom bar.
@@ -322,14 +313,12 @@ function rowAt(target) {
   return row && row.dataset.index ? Number(row.dataset.index) : null;
 }
 
-// The title says which mode the window is in.
 function drawTitle(d) {
   const title = d.querySelector('.ws-title');
   title.textContent = '';
-  const plate = skinText(TITLES[mode]);
+  const plate = skinText(TITLE);
   plate.style.background = skinStyle().normalbg;
   title.appendChild(plate);
-  d.setAttribute('aria-label', TITLES[mode]);
 }
 
 function build(spot) {
@@ -341,7 +330,7 @@ function build(spot) {
   const d = document.createElement('div');
   d.className = 'winify-search';
   d.setAttribute('role', 'dialog');
-  d.setAttribute('aria-label', TITLES[mode]);
+  d.setAttribute('aria-label', TITLE);
   d.innerHTML = `
     <div class="ws-top selected">
       <div class="playlist-top-left"></div>
@@ -389,8 +378,8 @@ function build(spot) {
     select(i);
     const r = results[i];
     showMenu(e.clientX, e.clientY, [
-      { label: 'Play track', hotkey: mode === 'play' ? 'Enter' : 'Shift+Enter', action: () => play(r), disabled: !r.playable },
-      { label: 'Add to queue', hotkey: mode === 'queue' ? 'Enter' : 'Shift+Enter', action: () => queueRow(r), disabled: !r.playable },
+      { label: 'Play track', hotkey: 'Enter', action: () => play(r), disabled: !r.playable },
+      { label: 'Add to queue', hotkey: 'Shift+Enter', action: () => queueRow(r), disabled: !r.playable },
       { label: 'Play album', action: () => playAlbum(r), disabled: !r.playable || !r.albumUri },
       { label: 'Play artist', action: () => playArtist(r), disabled: !r.playable || !r.artistUri },
     ]);
@@ -429,13 +418,10 @@ function onKey(e) {
 
 // ---- Open / close -------------------------------------------------------------
 
-export async function open(newMode = 'play') {
+export async function open() {
   if (!ctx || opening) return;
-  mode = newMode === 'queue' ? 'queue' : 'play';
   if (el) {
-    // Already open: switch mode, keep the search.
-    drawTitle(el);
-    if (!flashTimer) drawBottom();
+    // Already open: keep the search.
     el.querySelector('.ws-query').focus();
     return;
   }
@@ -542,13 +528,13 @@ function onKeyDown(e) {
   open();
 }
 
-// The playlist window's ADD button: Add to queue, in place of Webamp's
+// The playlist window's ADD button opens it too, in place of Webamp's
 // URL / DIR / FILE menu (all inert: Spotify has no local files to add).
 function onClickCapture(e) {
   if (!ctx || !(e.target instanceof Element) || !e.target.closest('#webamp #playlist-add-menu')) return;
   e.preventDefault();
   e.stopPropagation();
-  open('queue');
+  open();
 }
 
 // Right-click a playlist window row: Play / Add to queue. A right-button
@@ -617,4 +603,4 @@ export function reset() {
 }
 
 // For the menu bar, DevTools and tests.
-window.WinifySearch = { open, close, isOpen, state: () => ({ open: !!el, mode, results: results.length, selected, status }) };
+window.WinifySearch = { open, close, isOpen, state: () => ({ open: !!el, title: TITLE, results: results.length, selected, status }) };

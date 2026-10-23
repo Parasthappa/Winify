@@ -1,9 +1,10 @@
 /* The playlist picker: switch Spotify playlists from inside Winify.
  *
- * Opened by Eject (main window and the playlist window's mini transport),
- * right-click > Play > File..., and LIST OPTS > load list. Lists Liked Songs
- * and every playlist in your library; picking one plays it on Winify from
- * track 1, and the playlist window follows on its own.
+ * Opened by L (as in classic Winamp), Eject (main window and the playlist
+ * window's mini transport), right-click > Play > File..., and LIST OPTS >
+ * load list. Lists Liked Songs and every playlist in your library; picking
+ * one plays it on Winify from track 1, and the playlist window follows on
+ * its own.
  *
  * It is drawn with the active skin's own playlist-window bitmaps and colours
  * (its frame, text colours and the marquee font), so it matches whatever
@@ -395,14 +396,27 @@ function onClickCapture(e) {
   }
 }
 
+// L, as classic Winamp's "load", unless typing somewhere. Webamp's own L
+// file prompt is suppressed by the media-file guard.
+function onKeyDown(e) {
+  if (!ctx || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key !== 'l' && e.key !== 'L') return;
+  const t = e.target;
+  if (t && (t.isContentEditable || /^(input|textarea|select)$/i.test(t.tagName))) return;
+  e.preventDefault();
+  open();
+}
+
 export function init(c) {
   ctx = c;
   document.addEventListener('click', onClickCapture, true);
+  document.addEventListener('keydown', onKeyDown);
 }
 
 export function reset() {
   close();
   document.removeEventListener('click', onClickCapture, true);
+  document.removeEventListener('keydown', onKeyDown);
   ctx = null;
   cache = null;
   me = null;
