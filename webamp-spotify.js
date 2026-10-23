@@ -543,7 +543,7 @@ export const middleware = (store) => (next) => (action) => {
   }
   if (action.type === 'STOP' && stopIgnored) return undefined;
   // Winify's own running order: rows can be dragged, and removing them skips them.
-  if (action.type === 'DRAG_SELECTED' && playlist.canEdit()) {
+  if (action.type === 'DRAG_SELECTED' && playlist.canDrag()) {
     const result = next(action);
     playlist.reordered();
     return result;

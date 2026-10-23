@@ -33,6 +33,13 @@
  * or restored (REM, Delete; Cmd+Z undoes), and tracks queued play next.
  * Shuffle shuffles that order, visibly, instead of Spotify's.
  *
+ * Every list starts with a header row naming its source ("— ALBUM · name —",
+ * a playlist's name, "— LIKED SONGS —", "— ARTIST · name —", "— AUTOPLAY ·
+ * FROM SPOTIFY —", "— UP NEXT —"). It is a label, not a track: unnumbered
+ * (the first track is 1), never matched, played, dragged, skipped or queued;
+ * double-clicking it plays the list from its first track. A pinned copy of it
+ * stays at the top of the list while it scrolls (see "The header").
+ *
  * The list is swapped in only when completely loaded, so it never shows half
  * a playlist; until then the single stand-in entry shows the current track.
  * Webamp's title, total time and seek bar read from whichever entry is
@@ -73,7 +80,8 @@ let cameFromList = false;           // the previous source was a full list
 let singleTrackUri = null;          // a single track Winify started on its own (no album)
 let plan = null;                    // Play track, then Autoplay: { uri, albumUri, albumTracks, shown, line, ... }
 let contextList = null;             // the last full list loaded: { uri, list, name }
-const artistNames = {};             // artist URI -> name, for the label row
+const artistNames = {};             // artist URI -> name, for the header
+const contextNames = {};            // playlist URI -> name, also for ones whose items cannot be read
 let seenContext;                    // undefined = never synced
 let seenTrack;
 let seenWhere;
@@ -94,6 +102,9 @@ let orderTimer = null;
 let skipUndo = [];                  // skips and restores ({ entries, skip }), for Cmd+Z
 let shuffleTakenAt = 0;
 let skipStyle = null;               // <style> dimming the skipped rows on screen
+let headerEl = null;                // the pinned header, over the list's top row
+let numberObserver = null;          // renumbers rows as Webamp redraws them
+let observedTitles = null;
 let noDragStyle = null;
 let unsubscribe = null;
 let paintFrame = 0;
@@ -134,12 +145,24 @@ export function showStandIn() {
   currentIndex = -1;
 }
 
-// `label`, for a queue view, is a first row naming the source ("Autoplay",
-// "Artist: ..."). It is not a track: nothing plays it and nothing matches it.
+// The header for a list: { prefix, name }, shown as "— prefix name —".
+function headerFor(newMode, contextUri, name, label) {
+  if (label) return label.prefix != null ? label : { prefix: '', name: label };
+  const k = kind(contextUri);
+  if (k === 'album') return { prefix: 'ALBUM \u00b7 ', name: name || '' };
+  if (k === 'collection') return { prefix: '', name: 'LIKED SONGS' };
+  if (k === 'playlist' && (name || contextNames[contextUri])) return { prefix: '', name: name || contextNames[contextUri] };
+  return { prefix: '', name: 'UP NEXT' };
+}
+
+// The first row: the header (a label, not a track). `label` is a queue view's
+// header from queueLabel (Autoplay, an artist), else it follows the source.
 function installList(list, newMode, contextUri, name, label) {
   ctx.dispatch({ type: 'REMOVE_ALL_TRACKS' });
-  const rows = label ? [{ uri: null, name: '\u2014 ' + label + ' \u2014', durationMs: 0, playable: false, isLabel: true }].concat(list) : list;
-  entries = rows.map((t, i) => Object.assign({ id: nextId++, position: label ? i - 1 : i }, t));
+  const h = headerFor(newMode, contextUri, name, label);
+  const header = { uri: null, name: '\u2014 ' + h.prefix + h.name + ' \u2014', headerPrefix: h.prefix, headerName: h.name,
+    durationMs: 0, playable: false, isLabel: true, isHeader: true };
+  entries = [header].concat(list).map((t, i) => Object.assign({ id: nextId++, position: i - 1 }, t));
   entries.forEach((e, i) => addRow(e.id, e.uri || 'winify:unavailable', e.name, e.durationMs, i));
   mode = newMode;
   listContext = contextUri;
@@ -149,7 +172,7 @@ function installList(list, newMode, contextUri, name, label) {
   if (newMode === 'list') startOrder();
   highlight(true);
   if (newMode === 'list' && shuffleOn && currentIndex >= 0) applyShuffle();
-  if (newMode === 'queue' && shuffleOn && label !== AUTOPLAY_LABEL && ctx.now.where === 'winify') handShuffleBack();
+  if (newMode === 'queue' && shuffleOn && h.name !== AUTOPLAY_LABEL && ctx.now.where === 'winify') handShuffleBack();
   paintSkips();
 }
 
@@ -157,13 +180,23 @@ function installList(list, newMode, contextUri, name, label) {
 // never fights someone scrolling the list.
 function scrollTo(index) {
   const state = ctx.webamp.store.getState();
-  const visible = document.querySelectorAll('#webamp .playlist-track-titles .track-cell').length;
+  const visible = visibleCapacity(state);
   const overflow = state.playlist.trackOrder.length - visible;
   if (overflow <= 0 || visible === 0) return;
   const offset = Math.round((state.display.playlistScrollPosition / 100) * overflow);
-  if (index >= offset && index < offset + visible) return;
+  // The top slot is the (pinned) header's, so a row there is covered.
+  const top = hasHeader() ? offset + 1 : offset;
+  if (index >= top && index < offset + visible) return;
   const target = Math.max(0, Math.min(overflow, index - Math.floor(visible / 3)));
   ctx.dispatch({ type: 'SET_PLAYLIST_SCROLL_POSITION', position: (target / overflow) * 100 });
+}
+
+// How many rows the playlist window shows (Webamp's own formula), whether or
+// not it has redrawn yet: a list just installed is counted before it is drawn.
+function visibleCapacity(state) {
+  const pl = state.windows && state.windows.genWindows && state.windows.genWindows.playlist;
+  if (!pl || !pl.size) return document.querySelectorAll('#webamp .playlist-track-titles .track-cell').length;
+  return Math.floor((58 + 29 * pl.size[1]) / 13);
 }
 
 // ---- Matching the playing track to a row --------------------------------------
@@ -282,6 +315,7 @@ async function loadAlbum(uri, gen) {
 async function loadPlaylist(uri, gen) {
   const id = idOf(uri);
   const meta = await ctx.api('GET', '/playlists/' + id + '?fields=name');
+  if (meta && meta.name) contextNames[uri] = meta.name;
   const items = await allPages('/playlists/' + id + '/items?market=from_token&additional_types=track,episode', gen);
   return { name: meta && meta.name, list: items.map((entry) => row(entry && entry.item)) };
 }
@@ -361,7 +395,7 @@ async function queueLabel(contextUri) {
     if (!(contextUri in artistNames)) {
       try { artistNames[contextUri] = (await ctx.api('GET', '/artists/' + idOf(contextUri))).name; } catch (e) { artistNames[contextUri] = null; }
     }
-    return 'Artist' + (artistNames[contextUri] ? ': ' + artistNames[contextUri] : '');
+    return artistNames[contextUri] ? { prefix: 'ARTIST \u00b7 ', name: artistNames[contextUri] } : 'ARTIST';
   }
   return null;
 }
@@ -782,12 +816,25 @@ export async function noteQueued(uri) {
 
 export const canEdit = () => !!ctx && mode === 'list';
 
-// Rows were dragged (Webamp has already moved them): the order follows.
+// Rows can be dragged in an order, but never the header.
+export function canDrag() {
+  if (!canEdit()) return false;
+  const header = entries[0] && entries[0].isHeader ? entries[0].id : null;
+  return !ctx.webamp.store.getState().playlist.selectedTracks.includes(header);
+}
+
+// Rows were dragged (Webamp has already moved them): the order follows. A
+// track dragged above the header puts the header back on top.
 export function reordered() {
   const byId = new Map(entries.map((e) => [e.id, e]));
   const cur = entries[currentIndex];
-  const list = ctx.webamp.store.getState().playlist.trackOrder.map((id) => byId.get(id)).filter(Boolean);
+  let list = ctx.webamp.store.getState().playlist.trackOrder.map((id) => byId.get(id)).filter(Boolean);
   if (list.length !== entries.length) return;
+  const header = list.find((e) => e.isHeader);
+  if (header && list[0] !== header) {
+    list = [header].concat(list.filter((e) => e !== header));
+    ctx.dispatch({ type: 'SET_TRACK_ORDER', trackOrder: list.map((e) => e.id) });
+  }
   entries = list;
   currentIndex = entries.indexOf(cur);
   paintSkips();
@@ -875,30 +922,131 @@ function onPointerUp() {
   document.documentElement.classList.remove('winify-no-drag');
 }
 
-// Skipped rows are dimmed and struck through. Webamp draws only the visible
-// rows, numbered from the top of the list, so the rule is rewritten for
-// whatever is on screen after each redraw.
+// Webamp draws only the visible rows; the first one shown is this row of the
+// list (Webamp's own offset arithmetic).
+function visibleOffset(cells) {
+  const state = ctx.webamp.store.getState();
+  const overflow = Math.max(0, state.playlist.trackOrder.length - cells.length);
+  return Math.round((state.display.playlistScrollPosition / 100) * overflow);
+}
+
+// Skipped rows are dimmed and struck through, rewritten for whatever is on
+// screen after each redraw; the pinned header is kept in place.
 function paintSkips() {
   if (paintFrame) return;
   paintFrame = requestAnimationFrame(() => {
     paintFrame = 0;
     if (!skipStyle) return;
+    watchNumbers();
+    drawHeader();
     const rules = [];
     if (mode === 'list') {
       const cells = document.querySelectorAll('#webamp .playlist-track-titles .track-cell');
-      const first = cells[0] && parseInt(cells[0].textContent.replace(/ /g, ''), 10);
-      if (first > 0) {
-        for (let i = 0; i < cells.length; i++) {
-          if (entries[first - 1 + i] && entries[first - 1 + i].skipped) {
-            rules.push(`#webamp .playlist-track-titles .track-cell:nth-child(${i + 1})`,
-              `#webamp .playlist-track-durations .track-cell:nth-child(${i + 1})`);
-          }
+      const first = visibleOffset(cells);
+      for (let i = 0; i < cells.length; i++) {
+        if (entries[first + i] && entries[first + i].skipped) {
+          rules.push(`#webamp .playlist-track-titles .track-cell:nth-child(${i + 1})`,
+            `#webamp .playlist-track-durations .track-cell:nth-child(${i + 1})`);
         }
       }
     }
     const css = rules.length ? rules.join(',\n') + ' { opacity: 0.45; text-decoration: line-through; }' : '';
     if (skipStyle.textContent !== css) skipStyle.textContent = css;
   });
+}
+
+// ---- The header ---------------------------------------------------------------------
+// Webamp numbers every row; with a header first, the header gets no number and
+// the tracks count from 1 under it. Webamp writes each row's number as its own
+// text node ("12", ". ", title), so only those are rewritten, as soon as Webamp
+// redraws them (a MutationObserver runs before the screen is painted).
+
+const hasHeader = () => !!entries[0] && !!entries[0].isHeader;
+
+function renumber() {
+  if (!ctx || !hasHeader()) return;
+  const cells = document.querySelectorAll('#webamp .playlist-track-titles .track-cell');
+  const offset = visibleOffset(cells);
+  const width = String(Math.max(1, entries.length - 1)).length;
+  cells.forEach((cell, i) => {
+    const nodes = cell.firstElementChild ? cell.firstElementChild.childNodes : [];
+    if (nodes.length < 3 || nodes[0].nodeType !== Node.TEXT_NODE || nodes[1].nodeType !== Node.TEXT_NODE) return;
+    const index = offset + i;
+    const number = index === 0 ? '' : String(index).padStart(width, '\u00a0');
+    const dot = index === 0 ? '' : '. ';
+    if (nodes[0].nodeValue !== number) nodes[0].nodeValue = number;
+    if (nodes[1].nodeValue !== dot) nodes[1].nodeValue = dot;
+  });
+}
+
+function watchNumbers() {
+  const titles = document.querySelector('#webamp .playlist-track-titles');
+  if (titles === observedTitles) { renumber(); return; }
+  if (numberObserver) numberObserver.disconnect();
+  observedTitles = titles;
+  if (!titles) return;
+  numberObserver = numberObserver || new MutationObserver(renumber);
+  numberObserver.observe(titles, { subtree: true, childList: true, characterData: true });
+  renumber();
+}
+
+// The pinned header: drawn over the list's top row, where the header row
+// itself sits at the top of the list. Scrolled, the tracks pass under it.
+// Long names end in "…", with the full name as a tooltip.
+function drawHeader() {
+  const tracks = document.querySelector('#webamp .playlist-tracks');
+  if (!hasHeader() || !tracks) {
+    if (headerEl) { headerEl.remove(); headerEl = null; }
+    return;
+  }
+  if (!headerEl || headerEl.parentElement !== tracks) {
+    if (headerEl) headerEl.remove();
+    headerEl = document.createElement('div');
+    headerEl.className = 'winify-list-header';
+    headerEl.innerHTML = '<span class="wh-lead"></span><span class="wh-name"></span><span class="wh-tail"> \u2014</span>';
+    headerEl.addEventListener('dblclick', (e) => { e.preventDefault(); e.stopPropagation(); playFromTop(); });
+    for (const type of ['mousedown', 'click', 'contextmenu']) {
+      headerEl.addEventListener(type, (e) => { e.preventDefault(); e.stopPropagation(); });
+    }
+    tracks.appendChild(headerEl);
+  }
+  const h = entries[0];
+  const st = ctx.webamp.store.getState().display.skinPlaylistStyle || {};
+  const cell = document.querySelector('#webamp .playlist-track-titles .track-cell');
+  const cs = cell ? getComputedStyle(cell) : null;
+  Object.assign(headerEl.style, {
+    color: st.normal || '#00FF00', background: st.normalbg || '#000000',
+    fontFamily: cs ? cs.fontFamily : (st.font || 'Arial'), fontSize: cs ? cs.fontSize : '9px',
+  });
+  const lead = '\u2014 ' + h.headerPrefix;
+  if (headerEl.firstChild.textContent !== lead) headerEl.firstChild.textContent = lead;
+  if (headerEl.children[1].textContent !== h.headerName) headerEl.children[1].textContent = h.headerName;
+  const full = h.headerPrefix + h.headerName;
+  if (headerEl.title !== full) headerEl.title = full;
+}
+
+// Double-click on the header: the list from its first track.
+async function playFromTop() {
+  if (!ctx) return;
+  try {
+    if (mode === 'list') {
+      const k = nextIndex(0);
+      if (k < 0) return;
+      await startEntry(k);
+      ctx.log('header: playing', listName || listContext, 'from', entries[k].name);
+    } else if (mode === 'queue' && kind(listContext) === 'artist') {
+      // An artist plays as Spotify chooses; starting it again is "from the top".
+      await ctx.api('PUT', '/me/player/play?device_id=' + encodeURIComponent(ctx.deviceId()), { context_uri: listContext });
+      ctx.log('header: playing', entries[0].headerName, 'again');
+    } else if (mode === 'queue') {
+      // Up Next and Autoplay start with the playing track.
+      await window.WinifyPlayer.seek(0);
+    }
+  } catch (err) {
+    ctx.warn('header: could not play the list -', err.message);
+    ctx.say('Could not play that');
+  }
+  ctx.refreshSoon();
 }
 
 // ---- Shuffle ------------------------------------------------------------------------
@@ -928,11 +1076,12 @@ function applyShuffle() {
   const played = extra.filter((e) => entries.indexOf(e) < currentIndex);
   const toCome = extra.filter((e) => entries.indexOf(e) > currentIndex);
   let list;
+  const header = origOrder.filter((e) => e.isHeader);
   if (shuffleOn) {
-    list = played.concat([cur], toCome, shuffle(origOrder.filter((e) => e !== cur && !e.isLabel)));
+    list = header.concat(played, [cur], toCome, shuffle(origOrder.filter((e) => e !== cur && !e.isLabel)));
   } else {
     list = origOrder.slice();
-    if (!list.includes(cur)) list.unshift(cur);
+    if (!list.includes(cur)) list.splice(header.length, 0, cur);         // a queued track: under the header
     list.splice(list.indexOf(cur), 0, ...played);
     list.splice(list.indexOf(cur) + 1, 0, ...toCome);
   }
@@ -1001,7 +1150,15 @@ export function init(c) {
   skipStyle.id = 'winify-skipped';
   document.head.appendChild(skipStyle);
   noDragStyle = document.createElement('style');
-  noDragStyle.textContent = '.winify-no-drag, .winify-no-drag * { cursor: not-allowed !important; }';
+  noDragStyle.textContent = '.winify-no-drag, .winify-no-drag * { cursor: not-allowed !important; }' +
+    ' #webamp .playlist-tracks { position: relative; }' +
+    // Each playlist menu button carries its pop-up's bar, invisible while the
+    // menu is shut but reaching up over the list's last rows: a click there
+    // would press REM or MISC. Let it reach the row underneath instead.
+    ' #webamp .playlist-menu:not(.selected) .bar { pointer-events: none; }' +
+    ' #webamp .winify-list-header { position: absolute; left: 0; right: 0; top: 0; height: 13px; line-height: 13px; display: flex; white-space: nowrap; overflow: hidden; z-index: 1; cursor: default; user-select: none; }' +
+    ' #webamp .winify-list-header .wh-name { overflow: hidden; text-overflow: ellipsis; min-width: 0; }' +
+    ' #webamp .winify-list-header .wh-lead, #webamp .winify-list-header .wh-tail { flex: none; white-space: pre; }';
   document.head.appendChild(noDragStyle);
   unsubscribe = ctx.webamp.store.subscribe(paintSkips);
   showStandIn();
@@ -1034,6 +1191,11 @@ export function reset() {
   skipStyle = null;
   if (noDragStyle) noDragStyle.remove();
   noDragStyle = null;
+  if (numberObserver) numberObserver.disconnect();
+  numberObserver = null;
+  observedTitles = null;
+  if (headerEl) headerEl.remove();
+  headerEl = null;
   document.removeEventListener('click', onRemClick, true);
   document.removeEventListener('pointerdown', onPointerDown, true);
   document.removeEventListener('pointermove', onPointerMove, true);
@@ -1140,6 +1302,7 @@ export async function playEntry(id) {
   if (!ctx) return;
   const index = entries.findIndex((e) => e.id === id);
   const e = entries[index];
+  if (e && e.isHeader) { playFromTop(); return; }
   if (!e || e.isLabel) return;                       // the stand-in or a label: nothing to choose
   if (!e.playable || !e.uri) {
     ctx.say('Cannot play that track');
@@ -1191,6 +1354,7 @@ window.WinifyPlaylist = {
   state: () => ({ mode, listContext, listName, count: entries.length, currentIndex,
     current: entries[currentIndex] && entries[currentIndex].name, autoplay,
     label: entries[0] && entries[0].isLabel ? entries[0].name : null,
+    header: hasHeader() ? entries[0].name : null,
     line: mode === 'single' ? entries[1].name : null,
     plan: plan && { uri: plan.uri, shown: plan.shown, jumping: !!plan.jumping, last: plan.last || null },
     order: mode === 'list' ? { shuffle: shuffleOn, pending: pending.slice(), ending,
