@@ -91,6 +91,12 @@
       .catch(function (e) { report('volume_failed', String(e && e.message || e)); return false; });
   }
 
+  // fraction 0 to 1, or null when not ready. Local: no request to Spotify.
+  function getVolume() {
+    if (!player) return Promise.resolve(null);
+    return player.getVolume().catch(function () { return null; });
+  }
+
   function seek(positionMs) {
     if (!requireReady('seek')) return Promise.resolve(false);
     return player.seek(Math.max(0, Math.round(Number(positionMs))))
@@ -271,6 +277,7 @@
     nextTrack: nextTrack,
     previousTrack: previousTrack,
     setVolume: setVolume,
+    getVolume: getVolume,
     seek: seek,
     // state + lifecycle
     getState: getState,

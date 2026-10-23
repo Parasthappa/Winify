@@ -56,7 +56,10 @@ const SCOPES = [
   'playlist-read-collaborative', // ...and collaborative ones
   'user-library-read', // list Liked Songs
 ];
-const POLL_MS = 5000;
+// The window reports what is playing (ipc 'now-playing'); this poll is only
+// a fallback for when it has not, so it rarely reaches Spotify at all.
+const POLL_MS = 60000;
+let lastNowPlayingReport = 0;
 const REQUEST_TIMEOUT_MS = 10000;
 // How long we'll wait for you to finish in the browser before giving up.
 const AUTH_TIMEOUT_MS = 180000;
@@ -841,6 +844,7 @@ let pollPausedUntil = 0; // set by a 429 from Spotify
 async function pollCurrentSong() {
   if (!tokens) return;
   if (Date.now() < pollPausedUntil) return;
+  if (Date.now() - lastNowPlayingReport < POLL_MS) return;   // the window keeps it current
 
   if (Date.now() > tokens.expiresAt - 30000) {
     try {
@@ -979,6 +983,11 @@ ipcMain.on('window:fit', (_event, size) => {
 });
 
 // Webamp's close (x) and minimize (_) buttons, and its Exit menu item.
+ipcMain.on('now-playing', (_event, text) => {
+  lastNowPlayingReport = Date.now();
+  if (tokens) setStatus(String(text).slice(0, 200));
+});
+
 ipcMain.on('window-command', (_event, command) => {
   if (command === 'hide') hideWindow();
   if (command === 'minimize' && win && !win.isDestroyed()) win.minimize();
