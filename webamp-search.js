@@ -326,6 +326,9 @@ function drawTitle(d) {
   title.textContent = '';
   const plate = skinText(TITLE);
   plate.style.background = skinStyle().normalbg;
+  // The whole title cell, not only the lettering: nothing else is drawn
+  // there, and Winify's window is see-through.
+  title.style.background = skinStyle().normalbg;
   title.appendChild(plate);
 }
 

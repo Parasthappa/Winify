@@ -350,6 +350,9 @@ function build(spot) {
   const title = p.querySelector('.wp-title');
   const plate = skinText('Spotify playlists');
   plate.style.background = st.normalbg;
+  // The whole title cell, not only the lettering: nothing else is drawn
+  // there, and Winify's window is see-through.
+  title.style.background = st.normalbg;
   title.appendChild(plate);
   const body = p.querySelector('.wp-body');
   body.style.background = st.normalbg;

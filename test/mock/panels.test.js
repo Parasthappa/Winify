@@ -44,6 +44,8 @@ h.open().then(async ({ win, js }) => {
   check('one that would run off the right edge starts a second row under the playlist, left-aligned with it', p.lyrics.x === pl.x && p.lyrics.y === pl.b && p.search.r + 300 > (await W()), JSON.stringify({ lyrics: p.lyrics, pl }));
   check('...and the stack goes on to the right of it', touching(p.lyrics, p.milkdrop), JSON.stringify([p.lyrics, p.milkdrop]));
   fs.writeFileSync(path.join(__dirname, '..', '.output', 'panels-stack.png'), (await win.webContents.capturePage()).toPNG());
+  const titles = await js(`['.winify-picker .wp-title', '.winify-search .ws-title', '.winify-lyrics .wl-title'].map((sel) => { const t = document.querySelector('#webamp ' + sel); const plate = t.firstElementChild; return [getComputedStyle(t).backgroundColor, getComputedStyle(plate).backgroundColor]; })`);
+  check('panel titles: the whole title cell has the plate\'s colour (nothing see-through around the lettering)', titles.every(([cell, plate]) => cell === plate && !/rgba\(0, 0, 0, 0\)|transparent/.test(cell)), JSON.stringify(titles));
 
   console.log('2. Closing a middle one fills the gap');
   await close('search');

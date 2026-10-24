@@ -199,6 +199,9 @@ function build(spot) {
     <div class="wl-bottom"><div class="playlist-bottom"></div></div>`;
   const plate = skinText(TITLE);
   plate.style.background = st.normalbg;
+  // The whole title cell, not only the lettering: nothing else is drawn
+  // there, and Winify's window is see-through.
+  d.querySelector('.wl-title').style.background = st.normalbg;
   d.querySelector('.wl-title').appendChild(plate);
   d.querySelector('.wl-bottom .playlist-bottom').appendChild(skinText(CREDIT));
   const body = d.querySelector('.wl-body');
