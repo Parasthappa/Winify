@@ -158,6 +158,7 @@ function injectStyles() {
     #webamp .winify-lyrics .character { display: inline-block; width: 5px; height: 6px; }
     #webamp .winify-lyrics .wl-middle { display: flex; flex: 1; min-height: 0; }
     #webamp .winify-lyrics .wl-top, #webamp .winify-lyrics .wl-bottom { flex: none; }
+    #webamp .winify-lyrics .wl-bottom, #webamp .winify-lyrics .wl-bottom .playlist-bottom { min-width: 0; overflow: hidden; white-space: nowrap; }   /* clipped when narrow, never wider than the panel */
     ${GRIP_CSS}
     #webamp .winify-lyrics .wl-middle .playlist-middle-left { width: 12px; flex: none; background-repeat: repeat-y; }
     #webamp .winify-lyrics .wl-middle .playlist-middle-right { width: 20px; flex: none; background-repeat: repeat-y; position: relative; }

@@ -77,7 +77,8 @@ h.open().then(async ({ win, js }) => {
   const hover = await js(`(() => { const parent = [...document.querySelectorAll('#webamp-context-menu li.parent')].find(p => [...p.querySelectorAll(':scope > ul > li')].some(l => l.firstChild && l.firstChild.textContent === 'File...')); const b = parent.getBoundingClientRect(); return { x: Math.round(b.left + 20), y: Math.round(b.top + b.height / 2) }; })()`);
   win.webContents.sendInputEvent({ type: 'mouseMove', x: hover.x, y: hover.y }); await h.wait(400);
   await js(`[...document.querySelectorAll('#webamp-context-menu li')].find(l => l.firstChild && l.firstChild.nodeType === 3 && l.firstChild.textContent === 'File...').setAttribute('data-t', 'file')`);
-  await c('#webamp-context-menu li[data-t="file"]'); await h.wait(800); p = await P();
+  await c('#webamp-context-menu li[data-t="file"]');
+  for (let i = 0; i < 30 && !(p = await P()).open; i++) await h.wait(100);   // waited for, not a fixed time (load)
   check('right-click Play > File... opens it', p.open);
 
   console.log('4. Mouse picking and Liked Songs');

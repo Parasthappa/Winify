@@ -8,7 +8,8 @@
  *               15px rules, to Webamp's windows, the other panels and the
  *               window edges), and never past the edges of Winify's window.
  *   resizing    By a grip in the bottom-right corner, like the playlist
- *               window's, down to a minimum size.
+ *               window's, in its steps (25 x 29 px from 275 x 116), so
+ *               edges line up with Webamp's windows.
  *   tooltips    Full text of a truncated cell, shown below its row (or
  *               above), but never over the title bar, which is for dragging.
  *
@@ -80,6 +81,13 @@ function clamped(x, y, width, height) {
 
 // ---- Dragging ------------------------------------------------------------------------
 
+// Where a rectangle dropped at { x, y, w, h } snaps to (Webamp's rules, the
+// other windows and the window edges).
+export function snapRect(r, except) {
+  const s = snapped({ x: r.x, y: r.y, width: r.w, height: r.h }, except);
+  return { x: s.x, y: s.y, w: r.w, h: r.h };
+}
+
 const rectOf = (el) => ({ x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight });
 
 // Drag `el` by `handle`; controls inside the handle (the close button) still
@@ -123,8 +131,17 @@ export function makeDraggable(el, handle, { ignore = '', onMoved } = {}) {
 
 // ---- Resizing ----------------------------------------------------------------------
 
+// Winamp's resize steps (Webamp's playlist and Milkdrop windows): 275 x 116
+// plus whole 25 x 29 px segments.
+export const STEP = { w: 25, h: 29, baseW: 275, baseH: 116 };
+export const stepped = (w, h, round = Math.round) => ({
+  w: STEP.baseW + Math.max(0, round((w - STEP.baseW) / STEP.w)) * STEP.w,
+  h: STEP.baseH + Math.max(0, round((h - STEP.baseH) / STEP.h)) * STEP.h,
+});
+
 // A grip in `el`'s bottom-right corner, drawn from the skin's own playlist
-// corner. onResize() while it moves, onResized(rect) when let go.
+// corner; it resizes in Winamp's steps. onResize() while it moves,
+// onResized(rect) when let go.
 export function makeResizable(el, { minWidth, minHeight, onResize, onResized }) {
   const grip = document.createElement('div');
   grip.className = 'playlist-bottom-right winify-grip';
@@ -140,10 +157,12 @@ export function makeResizable(el, { minWidth, minHeight, onResize, onResized }) 
     const from = rectOf(el);
     const move = (ev) => {
       if (ev.buttons === 0) { up(); return; }   // let go where the release was not seen
-      const w = Math.max(minWidth, Math.min(from.w + ev.clientX - sx, window.innerWidth - from.x));
-      const h = Math.max(minHeight, Math.min(from.h + ev.clientY - sy, window.innerHeight - from.y));
-      el.style.width = Math.round(w) + 'px';
-      el.style.height = Math.round(h) + 'px';
+      const raw = stepped(from.w + ev.clientX - sx, from.h + ev.clientY - sy);
+      const fit = stepped(window.innerWidth - from.x, window.innerHeight - from.y, Math.floor);   // never past the edges
+      const w = Math.max(minWidth, Math.min(raw.w, fit.w));
+      const h = Math.max(minHeight, Math.min(raw.h, fit.h));
+      el.style.width = w + 'px';
+      el.style.height = h + 'px';
       if (onResize) onResize();
     };
     let done = false;

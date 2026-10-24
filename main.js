@@ -301,7 +301,13 @@ function createWindow() {
   // Full screen (Milkdrop): a see-through window cannot use macOS's own full
   // screen, so it covers the whole display in simple full screen instead,
   // and goes back to the usable area after.
-  win.webContents.on('enter-html-full-screen', () => win.setSimpleFullScreen(true));
+  win.webContents.on('enter-html-full-screen', () => {
+    win.setSimpleFullScreen(true);
+    // In front of everything else, or macOS treats it as covered and slows
+    // its drawing.
+    win.moveTop();
+    win.focus();
+  });
   win.webContents.on('leave-html-full-screen', () => {
     // After Electron has finished its own leaving.
     setTimeout(() => {

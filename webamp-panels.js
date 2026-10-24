@@ -27,6 +27,8 @@
  * Webamp's (sized in its 25x29 px steps, see webamp-milkdrop.js).
  */
 
+import { stepped, snapRect } from './webamp-dialog.js';
+
 const log = (...args) => console.log('[winify/panels]', ...args);
 
 const STORE_KEY = 'winify.panels.v1';
@@ -114,7 +116,7 @@ function stack(ids) {
     // Never off the screen: a stacked panel must not push the player (Webamp
     // pulls a window that is off screen back, with its snapped group).
     const px = Math.max(0, Math.min(x, W - w));
-    const fitted = p.fit ? p.fit({ x: px, y, w, h }) : { x: px, y, w, h };
+    const fitted = p.fit ? p.fit({ x: px, y, w, h }) : Object.assign({ x: px, y }, stepped(w, h, Math.floor));
     out[id] = fitted;
     x = px + fitted.w;
     rowH = Math.max(rowH, fitted.h);
@@ -144,7 +146,14 @@ function clampRect(r) {
 export function opening(id) {
   if (!store.open.includes(id)) store.open.push(id);
   save();
-  if (store.placed[id]) return clampRect(store.placed[id]);
+  if (store.placed[id]) {
+    // Sizes kept before resizing went in steps land on the nearest step.
+    // A spot within snapping distance of another window snaps to it, as if
+    // dropped there now.
+    const r = store.placed[id];
+    if (id === 'milkdrop') return clampRect(r);
+    return clampRect(snapRect(Object.assign({}, r, stepped(r.w, r.h))));
+  }
   const ids = stacked().filter((x) => x !== id).concat(id);
   // Keep the order the panels were opened in.
   ids.sort((a, b) => store.open.indexOf(a) - store.open.indexOf(b));

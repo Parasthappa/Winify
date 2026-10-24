@@ -223,6 +223,7 @@ function injectStyles() {
     #webamp .winify-picker .wp-refresh:hover { border-color: currentColor; }
     #webamp .winify-picker .wp-refresh.wp-busy { opacity: .45; cursor: default; }
     #webamp .winify-picker .wp-top, #webamp .winify-picker .wp-bottom { flex: none; }
+    #webamp .winify-picker .wp-bottom, #webamp .winify-picker .wp-bottom .playlist-bottom { min-width: 0; overflow: hidden; white-space: nowrap; }   /* clipped when narrow, never wider than the panel */
     ${GRIP_CSS}
   `;
   document.head.appendChild(style);

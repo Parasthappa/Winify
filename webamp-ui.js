@@ -38,7 +38,7 @@ const OPTIONS = {
   // Private Webamp options; the version is pinned in package.json because
   // of them, and attach() verifies they took effect.
   __customMediaClass: SpotifyMedia,
-  __customMiddlewares: [middleware, milkdrop.middleware],
+  __customMiddlewares: [middleware, milkdrop.middleware, (store) => (next) => (action) => layoutGuard(store, next, action)],
   // Webamp's Milkdrop window, drawn by Butterchurn (webamp-milkdrop.js).
   __butterchurnOptions: milkdrop.butterchurnOptions,
   handleTrackDropEvent,
@@ -408,6 +408,38 @@ async function resetLayout() {
   await applyDefaultLayout(document.getElementById(mountedInto));
   panels.reset();
   log('layout reset to default');
+}
+
+// Webamp, when its container changes size and its windows no longer fit,
+// shrinks every window to its smallest (the playlist to 116 px) and lines
+// them up side by side. Winify keeps its windows on screen itself
+// (keepOnScreen), so that is undone: the sizes are kept, and the positions
+// from just before are put back and slid on screen.
+function layoutGuard(store, next, action) {
+  if (!action || action.type !== 'RESET_WINDOW_SIZES') return next(action);
+  if (!webamp || !mounted) return next(action);
+  const before = currentLayout();
+  log('Webamp tried to re-arrange the windows (its container changed size) - kept as they were');
+  setTimeout(() => {
+    if (!webamp || !mounted) return;
+    const container = document.getElementById(mountedInto);
+    const box = layoutBox(before);
+    const W = container.clientWidth;
+    const H = container.clientHeight;
+    if (box.r - box.l <= W && box.b - box.t <= H) {
+      webamp.store.dispatch({ type: 'UPDATE_WINDOW_POSITIONS', positions: before.positions, absolute: true });
+      keepOnScreen(container);
+      return;
+    }
+    // Too big for the space for now: moved as one, top-left on screen, so it
+    // is all there again when the space is back.
+    const dx = box.l < 0 ? -box.l : Math.min(0, Math.max(-box.l, W - box.r));
+    const dy = box.t < 0 ? -box.t : Math.min(0, Math.max(-box.t, H - box.b));
+    const positions = {};
+    for (const id of Object.keys(before.positions)) positions[id] = { x: before.positions[id].x + dx, y: before.positions[id].y + dy };
+    webamp.store.dispatch({ type: 'UPDATE_WINDOW_POSITIONS', positions, absolute: true });
+  }, 0);
+  return undefined;
 }
 
 let unsubscribeLayout = null;

@@ -230,6 +230,7 @@ function injectStyles() {
     #webamp .winify-search .ws-bottom { display: flex; height: 38px; } /* the skin's playlist bottom is 38 px (Webamp fixes it): inside the box, so the drawn edge is the box's */
     #webamp .winify-search .ws-bottom .playlist-bottom { flex: 1; background-position: left bottom; display: flex; align-items: center; justify-content: space-between; padding: 0 24px 0 8px; }   /* clear of the grip */
     #webamp .winify-search .ws-top, #webamp .winify-search .ws-bottom { flex: none; }
+    #webamp .winify-search .ws-bottom, #webamp .winify-search .ws-bottom .playlist-bottom { min-width: 0; overflow: hidden; white-space: nowrap; }   /* clipped when narrow, never wider than the panel */
     ${GRIP_CSS}
   `;
   document.head.appendChild(style);
