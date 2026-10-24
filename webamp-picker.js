@@ -20,7 +20,8 @@
  * straight away).
  */
 
-import { makeDraggable, makeResizable, attachTooltips, hideTooltip, GRIP_CSS } from './webamp-dialog.js';
+import { makeDraggable, makeResizable, attachTooltips, hideTooltip } from './webamp-dialog.js';
+import { makeFrame, FRAME_CSS } from './webamp-frame.js';
 import * as panels from './webamp-panels.js';
 
 const PAGE = 50;                    // the /me/playlists maximum
@@ -197,34 +198,23 @@ function injectStyles() {
   const style = document.createElement('style');
   style.id = 'winify-picker-style';
   style.textContent = `
-    #webamp .winify-picker { position: fixed; z-index: 100001; width: ${WIDTH}px; display: flex; flex-direction: column; image-rendering: pixelated; }
-    #webamp .winify-picker .wp-top { display: flex; height: 20px; }
-    #webamp .winify-picker .wp-top .playlist-top-left { width: 25px; height: 20px; flex: none; }
-    #webamp .winify-picker .wp-top .playlist-top-left-fill { flex: 1; height: 20px; }
-    #webamp .winify-picker .wp-top .playlist-top-right { width: 25px; height: 20px; flex: none; position: relative; }
-    #webamp .winify-picker .wp-title { flex: none; height: 20px; display: flex; align-items: center; padding: 0 4px; }
-    #webamp .winify-picker .wp-title .winify-picker-chars { padding: 2px 3px; }
-    #webamp .winify-picker .wp-close { position: absolute; right: 3px; top: 3px; width: 9px; height: 9px; cursor: pointer; }
-    #webamp .winify-picker .winify-picker-chars { display: inline-flex; line-height: 0; }
-    #webamp .winify-picker .character { display: inline-block; width: 5px; height: 6px; }
-    #webamp .winify-picker .wp-middle { display: flex; flex: 1; min-height: 0; }
-    #webamp .winify-picker .wp-middle .playlist-middle-left { width: 12px; flex: none; background-repeat: repeat-y; }
-    #webamp .winify-picker .wp-middle .playlist-middle-right { width: 20px; flex: none; background-repeat: repeat-y; position: relative; }
-    #webamp .winify-picker .wp-body { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+    #webamp .winify-picker { z-index: 100001; }
+    #webamp .winify-picker .wp-main { flex: 1; min-height: 0; display: flex; }
+    #webamp .winify-picker .wp-body { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
     #webamp .winify-picker .wp-filter { height: 13px; box-sizing: border-box; border: 0; border-bottom: 1px solid; outline: none; padding: 0 2px; font-size: 9px; width: 100%; }
     #webamp .winify-picker .wp-list { flex: 1; min-height: 0; overflow: hidden; font-size: 9px; }
     #webamp .winify-picker .wp-row { height: ${ROW}px; line-height: ${ROW}px; display: flex; padding: 0 2px; white-space: nowrap; cursor: default; user-select: none; }
     #webamp .winify-picker .wp-row .wp-name { flex: 1; overflow: hidden; text-overflow: ellipsis; }
     #webamp .winify-picker .wp-row .wp-count { flex: none; padding-left: 6px; }
-    #webamp .winify-picker .wp-handle { position: absolute; left: 5px; width: 8px; height: 18px; }
-    #webamp .winify-picker .wp-bottom { display: flex; height: 38px; } /* the skin's playlist bottom is 38 px (Webamp fixes it): inside the box, so the drawn edge is the box's */
-    #webamp .winify-picker .wp-bottom .playlist-bottom { flex: 1; background-position: left bottom; display: flex; align-items: center; justify-content: space-between; padding: 0 24px 0 8px; }   /* clear of the grip */
+    #webamp .winify-picker .wp-scroll { flex: none; width: 8px; position: relative; }
+    #webamp .winify-picker .wp-handle { position: absolute; left: 0; width: 8px; height: 18px; }
+    #webamp .winify-picker .wp-info { flex: none; height: 13px; display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 0 3px; min-width: 0; overflow: hidden; white-space: nowrap; }
+    #webamp .winify-picker .winify-picker-chars { display: inline-flex; line-height: 0; }
+    #webamp .winify-picker .character { display: inline-block; width: 5px; height: 6px; }
     #webamp .winify-picker .wp-refresh { cursor: pointer; padding: 2px 3px; border: 1px solid transparent; }
     #webamp .winify-picker .wp-refresh:hover { border-color: currentColor; }
     #webamp .winify-picker .wp-refresh.wp-busy { opacity: .45; cursor: default; }
-    #webamp .winify-picker .wp-top, #webamp .winify-picker .wp-bottom { flex: none; }
-    #webamp .winify-picker .wp-bottom, #webamp .winify-picker .wp-bottom .playlist-bottom { min-width: 0; overflow: hidden; white-space: nowrap; }   /* clipped when narrow, never wider than the panel */
-    ${GRIP_CSS}
+    ${FRAME_CSS}
   `;
   document.head.appendChild(style);
 }
@@ -278,13 +268,13 @@ function renderList() {
     list.appendChild(row);
   }
   // Scroll handle, in the skin's scrollbar track.
-  const track = el.querySelector('.wp-middle .playlist-middle-right');
+  const track = el.querySelector('.wp-scroll');
   const handle = el.querySelector('.wp-handle');
   const overflow = Math.max(0, shown.length - VISIBLE_ROWS);
   const travel = track.clientHeight - 18;
   handle.style.display = overflow ? '' : 'none';
   handle.style.top = (overflow ? Math.round((scroll / overflow) * travel) : 0) + 'px';
-  const bar = el.querySelector('.wp-bottom .playlist-bottom');
+  const bar = el.querySelector('.wp-info');
   bar.textContent = '';
   const refresh = skinText('refresh');
   refresh.classList.add('wp-refresh');
@@ -323,48 +313,30 @@ function build(spot) {
   injectStyles();
   const st = skinStyle();
   const root = document.querySelector('#webamp');
-  const p = document.createElement('div');
-  p.className = 'winify-picker';
-  p.setAttribute('role', 'dialog');
+  // Webamp's generic window frame, in the skin's lettering (webamp-frame.js).
+  const frame = makeFrame({ title: 'Playlists', cls: 'winify-picker', prefix: 'wp' });
+  const p = frame.root;
   p.setAttribute('aria-label', 'Choose a playlist');
-  // `selected` lights the skin's active title bar, as a focused window.
-  p.innerHTML = `
-    <div class="wp-top selected">
-      <div class="playlist-top-left"></div>
-      <div class="playlist-top-left-fill"></div>
-      <div class="wp-title"></div>
-      <div class="playlist-top-left-fill"></div>
-      <div class="playlist-top-right"><div class="wp-close" role="button" aria-label="Close"></div></div>
-    </div>
-    <div class="wp-middle">
-      <div class="playlist-middle-left"></div>
+  frame.content.innerHTML = `
+    <div class="wp-main">
       <div class="wp-body">
         <input class="wp-filter" type="text" spellcheck="false" placeholder="filter" aria-label="Filter playlists">
         <div class="wp-list" role="listbox"></div>
       </div>
-      <div class="playlist-middle-right"><div class="wp-handle playlist-scrollbar-handle"></div></div>
+      <div class="wp-scroll"><div class="wp-handle playlist-scrollbar-handle"></div></div>
     </div>
-    <div class="wp-bottom"><div class="playlist-bottom"></div></div>`;
-  // Only the plain bottom tile: the corner bitmaps have the playlist
-  // window's own buttons baked into them.
-  const title = p.querySelector('.wp-title');
-  const plate = skinText('Spotify playlists');
-  plate.style.background = st.normalbg;
-  // The whole title cell, not only the lettering: nothing else is drawn
-  // there, and Winify's window is see-through.
-  title.style.background = st.normalbg;
-  title.appendChild(plate);
+    <div class="wp-info"></div>`;
+  for (const part of ['.wp-body', '.wp-scroll', '.wp-info']) frame.content.querySelector(part).style.background = st.normalbg;
   const body = p.querySelector('.wp-body');
-  body.style.background = st.normalbg;
   body.style.fontFamily = st.font;
   const filter = p.querySelector('.wp-filter');
   Object.assign(filter.style, { background: st.normalbg, color: st.normal, borderColor: st.normal, fontFamily: st.font });
 
   place(p, spot);
-  makeDraggable(p, p.querySelector('.wp-top'), { ignore: '.wp-close', onMoved: (rect) => panels.placed('picker', rect) });
-  makeResizable(p, { minWidth: panels.MIN_SIZE.w, minHeight: panels.MIN_SIZE.h, onResize: () => renderList(),
+  makeDraggable(p, frame.top, { ignore: '.wp-close', onMoved: (rect) => panels.placed('picker', rect) });
+  makeResizable(p, { grip: frame.grip, minWidth: panels.MIN_SIZE.w, minHeight: panels.MIN_SIZE.h, onResize: () => renderList(),
     onResized: (rect) => panels.placed('picker', rect) });
-  attachTooltips(p.querySelector('.wp-list'), p, p.querySelector('.wp-top'), '.wp-name', skinStyle);
+  attachTooltips(p.querySelector('.wp-list'), p, frame.top, '.wp-name', skinStyle);
 
   p.querySelector('.wp-close').addEventListener('click', () => close());
   filter.addEventListener('input', applyFilter);
@@ -384,7 +356,7 @@ function build(spot) {
     scroll = Math.max(0, Math.min(overflow, scroll + Math.sign(e.deltaY) * 3));
     renderList();
   }, { passive: false });
-  dragHandle(p.querySelector('.wp-handle'), p.querySelector('.wp-middle .playlist-middle-right'));
+  dragHandle(p.querySelector('.wp-handle'), p.querySelector('.wp-scroll'));
   // Keep clicks inside from reaching Webamp's windows underneath.
   p.addEventListener('pointerdown', (e) => e.stopPropagation());
 

@@ -182,7 +182,7 @@ app.whenReady().then(async () => {
 
   console.log('8. Milkdrop full screen');
   await js('WinifyMilkdrop.toggle()'); for (let i = 0; i < 60 && (await js('WinifyMilkdrop.state().index')) == null; i++) await wait(150);
-  const md = await R('#webamp .gen-window'); const pm = await R('#webamp #main-window'); const pp = await R('#webamp #playlist-window');
+  const md = await R('#webamp .gen-window:not(.winify-frame)'); const pm = await R('#webamp #main-window'); const pp = await R('#webamp #playlist-window');
   check('the player is at the right edge: Milkdrop goes to the second row, under the playlist, on screen; the player does not move',
     md && md.y === pp.b && md.r <= area.width && md.b <= area.height && pm.x === area.width - 275, JSON.stringify({ md, pm, pp }));
   win.show(); win.moveTop(); win.focus(); await wait(300);   // in front, whatever else is in use on the Mac

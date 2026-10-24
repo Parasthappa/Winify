@@ -18,6 +18,7 @@ import * as inert from './webamp-inert.js';
 import * as vis from './webamp-vis.js';
 import * as milkdrop from './webamp-milkdrop.js';
 import * as panels from './webamp-panels.js';
+import * as frame from './webamp-frame.js';
 
 let webamp = null;
 let mounted = false;
@@ -69,7 +70,7 @@ const LAYOUT_KEY = 'winify.layout.v2';
 const STALE_LAYOUT_KEYS = ['winify.layout.v1'];
 const LAYOUT_WINDOWS = ['main', 'equalizer', 'playlist', 'milkdrop'];
 // Milkdrop is Webamp's only generic window, which has no id of its own.
-const WINDOW_SELECTORS = { main: '#main-window', equalizer: '#equalizer-window', playlist: '#playlist-window', milkdrop: '.gen-window' };
+const WINDOW_SELECTORS = { main: '#main-window', equalizer: '#equalizer-window', playlist: '#playlist-window', milkdrop: '.gen-window:not(.winify-frame)' };
 const SAVE_DELAY_MS = 400;
 
 // Winify's window wraps the player: its size follows the layout, edge to
@@ -541,6 +542,7 @@ async function doMount(containerId) {
   inert.attach(webamp);
   vis.attach(webamp);
   milkdrop.attach(webamp);
+  frame.attach(webamp);
   await panels.attach(webamp);
   log('rendered into #' + containerId, 'doubled =', isDoubled());
   return true;
@@ -553,6 +555,7 @@ function unmount() {
   document.removeEventListener('pointerdown', onPointerDown, true);
   document.removeEventListener('pointerup', onPointerUp, true);
   panels.detach();
+  frame.detach();
   milkdrop.detach();
   vis.detach();
   inert.detach();

@@ -3,7 +3,7 @@ let fails = 0; setTimeout(() => { console.log('WATCHDOG'); app.exit(2); }, 24000
 h.open().then(async ({ win, js }) => {
   const check = (l, ok, d) => { if (!ok) fails++; console.log((ok ? '  PASS ' : '  FAIL ') + l + (d ? '   ' + String(d).slice(0, 300) : '')); return ok; };
   const until = async (expr, ms = 5000) => { const end = Date.now() + ms; let v; while (Date.now() < end) { v = await js(expr).catch(() => null); if (v) return v; await h.wait(100); } return v; };
-  const SEL = { picker: '.winify-picker', search: '.winify-search', lyrics: '.winify-lyrics', milkdrop: '.gen-window' };
+  const SEL = { picker: '.winify-picker', search: '.winify-search', lyrics: '.winify-lyrics', milkdrop: '.gen-window:not(.winify-frame)' };
   const R = (sel) => js(`(() => { const e = document.querySelector('#webamp ' + ${JSON.stringify(sel)}); if (!e) return null; const b = e.getBoundingClientRect(); return { x: Math.round(b.left), y: Math.round(b.top), w: Math.round(b.width), h: Math.round(b.height), r: Math.round(b.right), b: Math.round(b.bottom) }; })()`);
   const P = async () => { const o = {}; for (const id of Object.keys(SEL)) o[id] = await R(SEL[id]); return o; };
   const isOpen = { picker: 'WinifyPicker.isOpen()', search: 'WinifySearch.isOpen()', lyrics: 'WinifyLyrics.isOpen()', milkdrop: 'WinifyMilkdrop.isOpen()' };
@@ -44,8 +44,10 @@ h.open().then(async ({ win, js }) => {
   check('one that would run off the right edge starts a second row under the playlist, left-aligned with it', p.lyrics.x === pl.x && p.lyrics.y === pl.b && p.search.r + 300 > (await W()), JSON.stringify({ lyrics: p.lyrics, pl }));
   check('...and the stack goes on to the right of it', touching(p.lyrics, p.milkdrop), JSON.stringify([p.lyrics, p.milkdrop]));
   fs.writeFileSync(path.join(__dirname, '..', '.output', 'panels-stack.png'), (await win.webContents.capturePage()).toPNG());
-  const titles = await js(`['.winify-picker .wp-title', '.winify-search .ws-title', '.winify-lyrics .wl-title'].map((sel) => { const t = document.querySelector('#webamp ' + sel); const plate = t.firstElementChild; return [getComputedStyle(t).backgroundColor, getComputedStyle(plate).backgroundColor]; })`);
-  check('panel titles: the whole title cell has the plate\'s colour (nothing see-through around the lettering)', titles.every(([cell, plate]) => cell === plate && !/rgba\(0, 0, 0, 0\)|transparent/.test(cell)), JSON.stringify(titles));
+  const frames = await js(`['.winify-picker', '.winify-search', '.winify-lyrics'].map((sel) => { const f = document.querySelector('#webamp ' + sel); const letters = [...f.querySelectorAll('.gen-top .gen-text-letter')].map((c) => (c.className.match(/gen-text-([a-z]+)$/) || [0, '?'])[1]).map((x) => x === 'space' ? ' ' : x).join('');
+    const drawn = ['.gen-top-left', '.gen-top-left-fill', '.gen-top-title .gen-text-letter', '.gen-top-right', '.gen-middle-left', '.gen-middle-right', '.gen-bottom'].every((p) => /^url/.test(getComputedStyle(f.querySelector(p)).backgroundImage));
+    return [letters, drawn]; })`);
+  check('panel frames: Webamp\'s generic window (as Milkdrop\'s), titled in the skin\'s lettering: PLAYLISTS, JUMP TO TRACK, LYRICS', JSON.stringify(frames) === JSON.stringify([['playlists', true], ['jump to track', true], ['lyrics', true]]), JSON.stringify(frames));
 
   console.log('2. Closing a middle one fills the gap');
   await close('search');
@@ -86,7 +88,7 @@ h.open().then(async ({ win, js }) => {
   check('lyrics focused: Escape closes lyrics only', !(await js(isOpen.lyrics)) && (await js(isOpen.picker)) && (await js(isOpen.search)) && (await js(isOpen.milkdrop)));
   await h.click(win, js, '#webamp .winify-picker .wp-filter'); await key('Escape');
   check('picker focused: Escape closes the picker only', !(await js(isOpen.picker)) && (await js(isOpen.search)) && (await js(isOpen.milkdrop)));
-  await h.click(win, js, '#webamp .gen-window', 0.5, 0.03); await key('Escape');
+  await h.click(win, js, '#webamp .gen-window:not(.winify-frame)', 0.5, 0.03); await key('Escape');
   check('Milkdrop focused: Escape closes Milkdrop only', !(await js(isOpen.milkdrop)) && (await js(isOpen.search)));
   await h.click(win, js, '#webamp #main-window', 0.9, 0.05); await key('Escape');
   check('nothing focused (the main window clicked): Escape closes nothing', await js(isOpen.search));
@@ -112,9 +114,9 @@ h.open().then(async ({ win, js }) => {
   check('a sensible minimum size (275 x 116)', tiny.w === 275 && tiny.h === 116, JSON.stringify(tiny));
   await drag((await R('.winify-search .winify-grip')).x + 10, (await R('.winify-search .winify-grip')).y + 7, placedRect.w - 275, placedRect.h - 116);
   const listH = await js(`document.querySelector('#webamp .winify-search .ws-list').clientHeight`);
-  check('the list fills whatever height it has (title 20, query line 13 and the 38 px bottom bar aside)', listH === placedRect.h - 71, listH + ' px of list in ' + placedRect.h + ' px');
-  const bar = await R('.winify-search .ws-bottom .playlist-bottom'); const box2 = await R(SEL.search);
-  check('the bottom bar ends at the panel\'s edge (drawn inside it)', bar.b === box2.b, JSON.stringify({ bar, box2 }));
+  check('the list fills whatever height it has (frame 20 + 14, query and status lines 13 each aside)', listH === placedRect.h - 60, listH + ' px of list in ' + placedRect.h + ' px');
+  const bar = await R('.winify-search .ws-info'); const box2 = await R(SEL.search);
+  check('the status line sits on the frame\'s bottom edge, inside its borders', bar.b === box2.b - 14 && bar.x === box2.x + 11 && bar.r === box2.r - 8, JSON.stringify({ bar, box2 }));
   await open('picker');
   p = await P();
   check('a panel opened later stacks as if the placed one were not there', touching(p.lyrics, p.picker), JSON.stringify([p.lyrics, p.picker]));
@@ -144,7 +146,7 @@ h.open().then(async ({ win, js }) => {
   const st3 = await R(SEL.search);
   check('a resize lands on whole steps (25 px wide, 29 px high)', (st3.w - 275) % 25 === 0 && (st3.h - 116) % 29 === 0 && st3.w === sb.w + 25 && st3.h === sb.h + 29, JSON.stringify([sb, st3]));
   const sg2 = await R('.winify-search .winify-grip'); await drag(sg2.x + 10, sg2.y + 7, -900, -900);
-  const small = await R(SEL.search); const sbar = await R('.winify-search .ws-bottom .playlist-bottom'); const grip3 = await R('.winify-search .winify-grip');
+  const small = await R(SEL.search); const sbar = await R('.winify-search .ws-info'); const grip3 = await R('.winify-search .winify-grip');
   check('down to 275 x 116: the bottom bar is clipped, never wider than the panel; the grip stays in the corner', small.w === 275 && small.h === 116 && sbar.r <= small.r && grip3.r === small.r && grip3.b === small.b, JSON.stringify({ small, sbar, grip3 }));
   const plw = await R('#playlist-window'); const stop = await R('.winify-search .ws-top');
   await drag(stop.x + 60, stop.y + 8, plw.x - small.x + 8, plw.b - small.y + 6);   // 8 px right, 6 px below the playlist's bottom-left corner

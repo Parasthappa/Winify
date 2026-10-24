@@ -9,7 +9,7 @@ h.open().then(async ({ win, js }) => {
   const key = async (k, code) => { win.webContents.sendInputEvent({ type: 'keyDown', keyCode: k }); if (k.length === 1) win.webContents.sendInputEvent({ type: 'char', keyCode: k }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: k }); await h.wait(150); };
   const rendersIn = async (ms) => { const a = (await S()).renders; await h.wait(ms); return (await S()).renders - a; };
   // Lit pixels on the Milkdrop canvas (Butterchurn copies each frame onto it).
-  const lit = () => js(`(() => { const c = document.querySelector('#webamp .gen-window canvas'); if (!c || !c.width) return -1; const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 0; i < d.length; i += 16) if (d[i] + d[i + 1] + d[i + 2] > 60) n++; return n; })()`);
+  const lit = () => js(`(() => { const c = document.querySelector('#webamp .gen-window:not(.winify-frame) canvas'); if (!c || !c.width) return -1; const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 0; i < d.length; i += 16) if (d[i] + d[i + 1] + d[i + 2] > 60) n++; return n; })()`);
   const loaded = () => js(`performance.getEntriesByType('resource').map((e) => e.name).filter((n) => /butterchurn/.test(n)).length`);
   const take = async () => JSON.parse(await js('JSON.stringify(calls.splice(0))')).filter((c) => /^api:/.test(c[0]) && c[0] !== 'api:queue');
   await h.wait(1500);
@@ -19,7 +19,7 @@ h.open().then(async ({ win, js }) => {
 
   console.log('1. Closed by default, nothing loaded');
   let s = await S();
-  check('the Milkdrop window is closed', !s.open && !(await R('#webamp .gen-window')), JSON.stringify(s));
+  check('the Milkdrop window is closed', !s.open && !(await R('#webamp .gen-window:not(.winify-frame)')), JSON.stringify(s));
   check('Butterchurn and the presets are not loaded until it opens', (await loaded()) === 0 && !s.loaded && s.presets === 0, (await loaded()) + ' files');
   check('V button: not lit, tooltip "Milkdrop visualizer"', !(await js(`document.querySelector('#webamp #button-v').classList.contains('selected')`)) && (await js(`document.querySelector('#webamp #button-v').title`)) === 'Milkdrop visualizer');
 
@@ -29,7 +29,7 @@ h.open().then(async ({ win, js }) => {
   s = await until(`(() => { const s = WinifyMilkdrop.state(); return s.open && s.loaded && s.presets > 0 && s.index != null ? s : null; })()`, 15000);
   check('opens, loads Butterchurn and the presets (293), a preset chosen', !!s && s.presets === 293, JSON.stringify(s));
   const startIndexes = [s && s.index];
-  const m = await R('#webamp #main-window'); let w = await R('#webamp .gen-window');
+  const m = await R('#webamp #main-window'); let w = await R('#webamp .gen-window:not(.winify-frame)');
   check('docked to the right of the main window, top-aligned; 400 x 377 (the main + playlist column\'s height)', !!w && w.x === m.r && w.y === m.y && w.w === 400 && w.h === 377, JSON.stringify({ m, w }));
   check('V button lit', await js(`document.querySelector('#webamp #button-v').classList.contains('selected')`));
   let ns = await until(`(() => { const e = document.querySelector('#webamp .winify-md-nosound'); return e && !e.hidden ? e.textContent : null; })()`, 3000);
@@ -59,7 +59,7 @@ h.open().then(async ({ win, js }) => {
   let nm = await nameEl(); s = await S();
   check('the preset\'s name is in the window (shown when it came up; it fades after 3 s)', !!nm && nm.text === s.name, JSON.stringify([nm, s.name]));
   check('Webamp\'s own randomize and 15 s cycling are off (Winify cycles)', s.randomize === false && s.cycling === false, JSON.stringify(s));
-  await h.click(win, js, '#webamp .gen-window', 0.5, 0.03);   // its title bar: focus
+  await h.click(win, js, '#webamp .gen-window:not(.winify-frame)', 0.5, 0.03);   // its title bar: focus
   const i0 = (await S()).index;
   await key('Space');
   let i1 = (await S()).index;
@@ -84,10 +84,10 @@ h.open().then(async ({ win, js }) => {
   check('Desktop Mode is refused (it would draw behind Winify\'s window)', (await store('s.milkdrop.display')) === 'WINDOW');
 
   console.log('5. Drawing stops when it is not seen');
-  const placeBefore = await R('#webamp .gen-window');
+  const placeBefore = await R('#webamp .gen-window:not(.winify-frame)');
   await js('spotify.setVisibleForTest(false)'); await h.wait(300);
   s = await S();
-  check('Winify hidden or minimized: the window is taken down, its visualizer released, no frames drawn', !(await R('#webamp .gen-window')) && s.stages === 0 && (await rendersIn(1200)) === 0, JSON.stringify(s));
+  check('Winify hidden or minimized: the window is taken down, its visualizer released, no frames drawn', !(await R('#webamp .gen-window:not(.winify-frame)')) && s.stages === 0 && (await rendersIn(1200)) === 0, JSON.stringify(s));
   check('...still open as far as the layout, the V button and the menu are concerned', s.open && (await js(`document.querySelector('#webamp #button-v').classList.contains('selected')`)));
   const hiddenShown = (await S()).shownFor; await h.wait(2200);
   check('...and the 30 s clock does not run', (await S()).shownFor === hiddenShown);
@@ -96,9 +96,9 @@ h.open().then(async ({ win, js }) => {
   await js('WinifyMilkdrop.toggle()'); await h.wait(700);
   check('closed from the menu while hidden: closed, and saved so', !(await S()).open && (await js(`JSON.parse(localStorage.getItem('winify.layout.v2')).open.milkdrop`)) === false);
   await js('WinifyMilkdrop.toggle()'); await h.wait(700);
-  check('opened again while hidden: open, but not drawn until Winify is shown', (await S()).open && !(await R('#webamp .gen-window')) && (await S()).stages === 0);
+  check('opened again while hidden: open, but not drawn until Winify is shown', (await S()).open && !(await R('#webamp .gen-window:not(.winify-frame)')) && (await S()).stages === 0);
   await js('spotify.setVisibleForTest(true)');
-  check('shown again: back in the same place, same preset, drawing', (await rendersIn(1500)) > 20 && JSON.stringify(await R('#webamp .gen-window')) === JSON.stringify(placeBefore) && (await S()).index === presetHidden, JSON.stringify([placeBefore, await R('#webamp .gen-window')]));
+  check('shown again: back in the same place, same preset, drawing', (await rendersIn(1500)) > 20 && JSON.stringify(await R('#webamp .gen-window:not(.winify-frame)')) === JSON.stringify(placeBefore) && (await S()).index === presetHidden, JSON.stringify([placeBefore, await R('#webamp .gen-window:not(.winify-frame)')]));
   await js('mock.setPaused(true)'); await until(`WinifyWebamp.getInstance().store.getState().media.status !== 'PLAYING'`, 5000); await h.wait(300);
   check('music paused: no frames drawn', (await rendersIn(1200)) === 0);
   await js('mock.setPaused(false)'); await until(`WinifyWebamp.getInstance().store.getState().media.status === 'PLAYING'`, 5000);
@@ -113,15 +113,15 @@ h.open().then(async ({ win, js }) => {
 
   console.log('7. Resize, full screen');
   // By its own resize grip (a user's resize: it is then placed by hand).
-  const gr = await R('#webamp .gen-window #gen-resize-target');
+  const gr = await R('#webamp .gen-window:not(.winify-frame) #gen-resize-target');
   { const x0 = gr.x + 10, y0 = gr.y + 10;
     win.webContents.sendInputEvent({ type: 'mouseMove', x: x0, y: y0 }); win.webContents.sendInputEvent({ type: 'mouseDown', x: x0, y: y0, button: 'left', clickCount: 1 }); await h.wait(60);
     for (let k = 1; k <= 10; k++) { win.webContents.sendInputEvent({ type: 'mouseMove', x: x0 + k * 10, y: y0, modifiers: ['leftButtonDown'] }); await h.wait(30); }
     win.webContents.sendInputEvent({ type: 'mouseUp', x: x0 + 100, y: y0, button: 'left', clickCount: 1 }); await h.wait(600); }
-  w = await R('#webamp .gen-window');
-  const cv = await js(`(() => { const c = document.querySelector('#webamp .gen-window canvas'); return [c.width, c.height]; })()`);
+  w = await R('#webamp .gen-window:not(.winify-frame)');
+  const cv = await js(`(() => { const c = document.querySelector('#webamp .gen-window:not(.winify-frame) canvas'); return [c.width, c.height]; })()`);
   check('resizable: 500 x 377, the picture follows', w.w === 500 && w.h === 377 && cv[0] > 400, JSON.stringify({ w, cv }));
-  const md = await R('#webamp .gen-window canvas');
+  const md = await R('#webamp .gen-window:not(.winify-frame) canvas');
   win.webContents.sendInputEvent({ type: 'mouseDown', x: md.x + 50, y: md.y + 50, button: 'left', clickCount: 1 });
   win.webContents.sendInputEvent({ type: 'mouseUp', x: md.x + 50, y: md.y + 50, button: 'left', clickCount: 1 });
   win.webContents.sendInputEvent({ type: 'mouseDown', x: md.x + 50, y: md.y + 50, button: 'left', clickCount: 2 });
@@ -141,12 +141,12 @@ h.open().then(async ({ win, js }) => {
   await h.wait(800);
   const saved = await js(`JSON.parse(localStorage.getItem('winify.layout.v2'))`);
   check('saved with the layout: open, size and position', saved && saved.open.milkdrop === true && JSON.stringify(saved.milkdropSize) === '[9,9]' && !!saved.positions.milkdrop, JSON.stringify(saved && { open: saved.open, size: saved.milkdropSize, pos: saved.positions.milkdrop }));
-  const posBefore = await R('#webamp .gen-window');
+  const posBefore = await R('#webamp .gen-window:not(.winify-frame)');
   await js('location.reload()'); await h.wait(500);
   while (!(await js('window.mounted === true').catch(() => false))) await h.wait(100);
   await js('(mock.active = "winify", mock.setContext("spotify:album:a1", 0), mock.setPaused(false))');
   s = await until(`WinifyMilkdrop.state().open && WinifyMilkdrop.state().index != null && WinifyMilkdrop.state()`, 15000);
-  w = await R('#webamp .gen-window');
+  w = await R('#webamp .gen-window:not(.winify-frame)');
   check('after a relaunch: open again, same size and spot', !!s && w && w.w === 500 && w.h === 377 && w.x === posBefore.x && w.y === posBefore.y, JSON.stringify({ posBefore, w }));
   startIndexes.push(s && s.index);
   check('...starting on a random preset each time', startIndexes.every((i) => i != null) && !startIndexes.every((i) => i === 0), JSON.stringify(startIndexes));
@@ -155,7 +155,7 @@ h.open().then(async ({ win, js }) => {
   await js('WinifyAudio.start()'); await until(`WinifyMilkdrop.state().drawing`, 5000);
   await h.click(win, js, '#webamp #button-v'); await h.wait(500);
   s = await S();
-  check('V again closes it: window gone, visualizer released, nothing drawn', !s.open && !(await R('#webamp .gen-window')) && s.stages === 0 && (await rendersIn(800)) === 0, JSON.stringify(s));
+  check('V again closes it: window gone, visualizer released, nothing drawn', !s.open && !(await R('#webamp .gen-window:not(.winify-frame)')) && s.stages === 0 && (await rendersIn(800)) === 0, JSON.stringify(s));
   check('V no longer lit', !(await js(`document.querySelector('#webamp #button-v').classList.contains('selected')`)));
   await h.wait(800);
   check('saved as closed', (await js(`JSON.parse(localStorage.getItem('winify.layout.v2')).open.milkdrop`)) === false);
@@ -178,7 +178,7 @@ h.open().then(async ({ win, js }) => {
   await until(`WinifyMilkdrop.state().index != null`, 8000);
 
   console.log('11. Right-click menu');
-  const rightClick = async () => { const r = await R('#webamp .gen-window canvas'); const x = r.x + 60, y = r.y + 60;
+  const rightClick = async () => { const r = await R('#webamp .gen-window:not(.winify-frame) canvas'); const x = r.x + 60, y = r.y + 60;
     win.webContents.sendInputEvent({ type: 'mouseDown', x, y, button: 'right', clickCount: 1 }); win.webContents.sendInputEvent({ type: 'mouseUp', x, y, button: 'right', clickCount: 1 }); await h.wait(300); };
   const menu = () => js(`[...document.querySelectorAll('#webamp-context-menu ul.context-menu > li')].filter((li) => getComputedStyle(li).display !== 'none').map((li) => li.classList.contains('hr') ? '---' : (li.classList.contains('checked') ? '[x] ' : '') + li.firstChild.textContent + ' | ' + (li.querySelector('.hotkey') || {}).textContent)`);
   const pick = async (label) => { const r = await js(`(() => { const li = [...document.querySelectorAll('#webamp-context-menu li')].find((l) => l.firstChild && l.firstChild.textContent === ${JSON.stringify('X')}.replace('X', ${JSON.stringify(label)})); if (!li) return null; const b = li.getBoundingClientRect(); return { x: Math.round(b.left + 20), y: Math.round(b.top + b.height / 2) }; })()`);
@@ -190,7 +190,7 @@ h.open().then(async ({ win, js }) => {
   let before2 = (await S()).index;
   await pick('Random preset');
   check('Random preset', (await S()).index !== before2 && !(await js(`!!document.getElementById('webamp-context-menu')`)));
-  await h.click(win, js, '#webamp .gen-window', 0.5, 0.03);
+  await h.click(win, js, '#webamp .gen-window:not(.winify-frame)', 0.5, 0.03);
   // Each step waited for (the preset changes), not read after a fixed time: under load a key can take longer.
   const nextIndex = async (from) => { for (let i = 0; i < 20; i++) { const n = (await S()).index; if (n !== from) return n; await h.wait(100); } return (await S()).index; };
   const a0 = (await S()).index; await key('Space'); const a1 = await nextIndex(a0); await key('Space'); const a2 = await nextIndex(a1); await key('R'); const a3 = await nextIndex(a2);
@@ -204,10 +204,10 @@ h.open().then(async ({ win, js }) => {
   await rightClick(); items = await menu();
   check('...and the menu shows it unchecked', items.includes('Auto-cycle | C'), JSON.stringify(items));
   await key('Escape'); await h.wait(200);
-  await h.click(win, js, '#webamp .gen-window', 0.5, 0.03); await key('C');
+  await h.click(win, js, '#webamp .gen-window:not(.winify-frame)', 0.5, 0.03); await key('C');
   check('C turns it back on', (await S()).autoCycle === true);
   await js('WinifyMilkdrop.config.cycleMs = 30000');
-  const spot = await R('#webamp .gen-window'); const positions = await store('JSON.stringify(s.windows.genWindows.milkdrop.position)'); const winSize = await js('[innerWidth, innerHeight]');
+  const spot = await R('#webamp .gen-window:not(.winify-frame)'); const positions = await store('JSON.stringify(s.windows.genWindows.milkdrop.position)'); const winSize = await js('[innerWidth, innerHeight]');
   await rightClick(); await pick('Full screen');
   check('Full screen from the menu', !!(await until(`!!document.fullscreenElement`, 5000)));
   await h.wait(1000); await rightClick(); items = await menu();
@@ -215,7 +215,7 @@ h.open().then(async ({ win, js }) => {
   await pick('Exit full screen');
   await until(`!document.fullscreenElement`, 5000); await h.wait(1500);
   check('...the menu closed cleanly', !(await js(`!!document.getElementById('webamp-context-menu')`)) && !(await js('errors.length')), JSON.stringify(await js('errors')));
-  check('back from full screen: the window\'s previous size and spot', JSON.stringify(await R('#webamp .gen-window')) === JSON.stringify(spot) && (await store('JSON.stringify(s.windows.genWindows.milkdrop.position)')) === positions && JSON.stringify(await js('[innerWidth, innerHeight]')) === JSON.stringify(winSize), JSON.stringify([spot, await R('#webamp .gen-window')]));
+  check('back from full screen: the window\'s previous size and spot', JSON.stringify(await R('#webamp .gen-window:not(.winify-frame)')) === JSON.stringify(spot) && (await store('JSON.stringify(s.windows.genWindows.milkdrop.position)')) === positions && JSON.stringify(await js('[innerWidth, innerHeight]')) === JSON.stringify(winSize), JSON.stringify([spot, await R('#webamp .gen-window:not(.winify-frame)')]));
 
   console.log('12. Loading presets');
   const fx = (n) => ({ name: n, text: fs.readFileSync(path.join(__dirname, '..', 'fixtures', 'milkdrop', n), 'utf8') });
@@ -230,9 +230,9 @@ h.open().then(async ({ win, js }) => {
   const note = await js(`(() => { const e = document.querySelector('#webamp .winify-md-note'); return e && e.classList.contains('shown') ? e.textContent : null; })()`);
   check('...a short note in the window, not a pop-up', /^Loaded 3 presets\. Skipped 3: shader-fails\.milk/.test(note || '') && !(await js('loud.some((l) => l[0] === "alert")')), note);
   check('...drawn, no WebGL errors', (await rendersIn(1000)) > 20 && !(await js('errors.length')));
-  await h.click(win, js, '#webamp .gen-window', 0.5, 0.03);
+  await h.click(win, js, '#webamp .gen-window:not(.winify-frame)', 0.5, 0.03);
   await key('L'); await h.wait(400);
-  const listed = await js(`document.querySelector('#webamp .gen-window').textContent`);
+  const listed = await js(`document.querySelector('#webamp .gen-window:not(.winify-frame)').textContent`);
   check('...listed in Milkdrop\'s preset list (L)', (await store('s.milkdrop.overlay')) === true && listed.includes('equations-only') && listed.includes('with-shader'), listed.slice(0, 200));
   await key('L'); await h.wait(300);
   await key('Space'); check('...the next one comes up with its name', (await S()).name === 'with-shader' && (await js(`document.querySelector('#webamp .winify-md-name').textContent`)) === 'with-shader');

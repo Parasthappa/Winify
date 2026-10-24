@@ -206,7 +206,25 @@ function render() {
   }
 
   playlist.sync();
+  showStreamFormat();
   reportNowPlaying();
+}
+
+// kbps, kHz and the stereo light: Spotify's web player (the Web Playback SDK)
+// streams Premium as 256 kbps AAC at 44.1 kHz, in stereo. Webamp reads them
+// from the playing track's tags, so its track gets those; they show only
+// while something is loaded (index.html: html.winify-loaded).
+const STREAM = { bitrate: 256000, sampleRate: 44100, numberOfChannels: 2 };
+function showStreamFormat() {
+  const loaded = now.where !== 'none' && !!now.trackUri;
+  document.documentElement.classList.toggle('winify-loaded', loaded);
+  if (!loaded) return;
+  const state = webamp.store.getState();
+  const id = state.playlist.currentTrack;
+  const t = id == null ? null : state.tracks[id];
+  if (!t || (t.channels === STREAM.numberOfChannels && String(t.kbps).trim() === '256' && String(t.khz).trim() === '44')) return;
+  // The tags action also sets these; they are passed through unchanged.
+  dispatchRemote(Object.assign({ type: 'SET_MEDIA_TAGS', id, title: t.title, artist: t.artist, album: t.album, albumArtUrl: t.albumArtUrl }, STREAM));
 }
 
 // The menu-bar item shows what is playing; it is told here rather than
@@ -609,6 +627,9 @@ const DISCARD = new Set([
 ]);
 
 export const middleware = (store) => (next) => (action) => {
+  // Webamp reads a track's tags itself, and cannot read Spotify's (protected)
+  // stream: whatever it finds, the stream's figures stand.
+  if (action.type === 'SET_MEDIA_TAGS') return next(Object.assign({}, action, STREAM));
   if (applyingRemote || !attached) return next(action);
   if (action.type === 'PLAY_TRACK' && playlist.takeDoubleClick()) {
     playlist.playEntry(action.id);
@@ -685,8 +706,19 @@ export function handleTrackDropEvent(e) {
 
 // ---- Lifecycle --------------------------------------------------------------
 
+let unsubscribeTrack = null;
 export function attach(instance) {
   webamp = instance;
+  // The playing entry can change on Webamp's side (the playlist window
+  // rebuilding its list): its kbps / kHz / stereo then too.
+  let shownTrack = null;
+  unsubscribeTrack = webamp.store.subscribe(() => {
+    if (!attached || applyingRemote) return;
+    const id = webamp.store.getState().playlist.currentTrack;
+    if (id === shownTrack) return;
+    shownTrack = id;
+    showStreamFormat();
+  });
 
   // These options are private; if a Webamp update stopped honouring them,
   // the buttons would silently do nothing. Say so loudly instead.
@@ -743,6 +775,8 @@ export function attach(instance) {
 
 export function detach() {
   attached = false;
+  if (unsubscribeTrack) { unsubscribeTrack(); unsubscribeTrack = null; }
+  document.documentElement.classList.remove('winify-loaded');
   playlist.reset();
   picker.reset();
   search.reset();

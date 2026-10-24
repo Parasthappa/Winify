@@ -188,7 +188,7 @@ function dropStages() {
 // ---- Overlays: the preset's name, and "no sound" ---------------------------
 
 function windowEl() {
-  return document.querySelector('#webamp .gen-window');
+  return document.querySelector('#webamp .gen-window:not(.winify-frame)');
 }
 
 function overlay(cls) {
@@ -238,7 +238,7 @@ function showName(name) {
 }
 
 const STYLE = `
-  #webamp .gen-window canvas { background: #000; }
+  #webamp .gen-window:not(.winify-frame) canvas { background: #000; }
   #webamp .winify-md-name, #webamp .winify-md-nosound {
     position: absolute; left: 0; right: 0; pointer-events: none;
     font: 11px/1.4 Arial, Helvetica, sans-serif; color: #d6e3ef; text-align: center;
@@ -383,7 +383,7 @@ let menuForMilkdrop = false;
 let menuWatch = null;
 
 function onContextMenu(e) {
-  menuForMilkdrop = !!(webamp && e.target instanceof Element && e.target.closest('#webamp .gen-window'));
+  menuForMilkdrop = !!(webamp && e.target instanceof Element && e.target.closest('#webamp .gen-window:not(.winify-frame)'));
 }
 
 function menuItems() {
@@ -528,11 +528,11 @@ async function readEntry(entry, depth, out) {
 }
 
 function onDragOver(e) {
-  if (e.target instanceof Element && e.target.closest('#webamp .gen-window')) e.preventDefault();
+  if (e.target instanceof Element && e.target.closest('#webamp .gen-window:not(.winify-frame)')) e.preventDefault();
 }
 
 async function onDrop(e) {
-  if (!webamp || !(e.target instanceof Element) || !e.target.closest('#webamp .gen-window')) return;
+  if (!webamp || !(e.target instanceof Element) || !e.target.closest('#webamp .gen-window:not(.winify-frame)')) return;
   e.preventDefault();
   e.stopPropagation();
   const files = [];
@@ -737,7 +737,7 @@ const asPanel = {
 // does not count).
 let gesture = null;
 function onPanelPointerDown(e) {
-  if (!webamp || !(e.target instanceof Element) || !e.target.closest('#webamp .gen-window')) return;
+  if (!webamp || !(e.target instanceof Element) || !e.target.closest('#webamp .gen-window:not(.winify-frame)')) return;
   if (!e.target.closest('#gen-resize-target, .gen-top, .draggable')) return;
   gesture = rect();
 }

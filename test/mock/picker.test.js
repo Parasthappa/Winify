@@ -37,10 +37,10 @@ h.open().then(async ({ win, js }) => {
   check('unnamed playlist shown as "Untitled playlist"', names.some((n) => /^\d+\. Untitled playlist15$/.test(n)), JSON.stringify(names.filter((n) => /Untitled|^\d+\. 15$/.test(n))));
   await js(`(() => { const list = document.querySelector('.winify-picker .wp-list'); for (let i = 0; i < 10; i++) list.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, cancelable: true })); })()`);
   // The count: the last text in the bottom bar (REFRESH is the first).
-  const counter = () => js(`(() => { try { return [...[...document.querySelectorAll('.winify-picker .wp-bottom .winify-picker-chars')].pop().querySelectorAll('.character')].map(c => String.fromCharCode(Number((c.className.match(/character-([0-9]+)/) || [0, 63])[1]))).join(''); } catch (e) { return 'ERR ' + e.message; } })()`);
+  const counter = () => js(`(() => { try { return [...[...document.querySelectorAll('.winify-picker .wp-info .winify-picker-chars')].pop().querySelectorAll('.character')].map(c => String.fromCharCode(Number((c.className.match(/character-([0-9]+)/) || [0, 63])[1]))).join(''); } catch (e) { return 'ERR ' + e.message; } })()`);
   check('bottom count reflects the filtered list: 97/97', (await counter()) === '97/97', await counter());
-  const skin = await js(`(() => { const g = (s) => getComputedStyle(document.querySelector('.winify-picker ' + s)).backgroundImage.slice(0, 20); return [g('.playlist-top-left'), g('.playlist-middle-left'), g('.playlist-bottom'), g('.character')]; })()`);
-  check('drawn with the skin\'s own bitmaps (frame + marquee font)', skin.every((x) => /url/.test(x)), JSON.stringify(skin));
+  const skin = await js(`(() => { const g = (s) => getComputedStyle(document.querySelector('.winify-picker ' + s)).backgroundImage.slice(0, 20); return [g('.gen-top-left'), g('.gen-middle-left'), g('.gen-bottom'), g('.gen-text-letter'), g('.character')]; })()`);
+  check('drawn with the skin\'s own bitmaps (generic window frame and lettering, marquee font)', skin.every((x) => /url/.test(x)), JSON.stringify(skin));
   const img = await win.webContents.capturePage(); fs.writeFileSync(path.join(__dirname, '..', '.output', 'picker.png'), img.toPNG());
 
   console.log('2. Filter + keyboard');

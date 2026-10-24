@@ -18,7 +18,8 @@
  * them for later. Results are cached per track for the session.
  */
 
-import { makeDraggable, makeResizable, GRIP_CSS } from './webamp-dialog.js';
+import { makeDraggable, makeResizable } from './webamp-dialog.js';
+import { makeFrame, FRAME_CSS } from './webamp-frame.js';
 import * as panels from './webamp-panels.js';
 
 const TITLE = 'Lyrics';
@@ -146,32 +147,21 @@ function injectStyles() {
   const style = document.createElement('style');
   style.id = 'winify-lyrics-style';
   style.textContent = `
-    #webamp .winify-lyrics { position: fixed; z-index: 99990; width: ${WIDTH}px; display: flex; flex-direction: column; image-rendering: pixelated; }
-    #webamp .winify-lyrics .wl-top { display: flex; height: 20px; }
-    #webamp .winify-lyrics .wl-top .playlist-top-left { width: 25px; height: 20px; flex: none; }
-    #webamp .winify-lyrics .wl-top .playlist-top-left-fill { flex: 1; height: 20px; }
-    #webamp .winify-lyrics .wl-top .playlist-top-right { width: 25px; height: 20px; flex: none; position: relative; }
-    #webamp .winify-lyrics .wl-title { flex: none; height: 20px; display: flex; align-items: center; padding: 0 4px; }
-    #webamp .winify-lyrics .wl-title .wl-chars { padding: 2px 3px; }
-    #webamp .winify-lyrics .wl-close { position: absolute; right: 3px; top: 3px; width: 9px; height: 9px; cursor: pointer; }
+    #webamp .winify-lyrics { z-index: 99990; }
+    #webamp .winify-lyrics .wl-main { flex: 1; min-height: 0; display: flex; }
+    #webamp .winify-lyrics .wl-scroll { flex: none; width: 8px; position: relative; }
+    #webamp .winify-lyrics .wl-info { flex: none; height: 13px; display: flex; align-items: center; padding: 0 3px; min-width: 0; overflow: hidden; white-space: nowrap; }
     #webamp .winify-lyrics .wl-chars { display: inline-flex; line-height: 0; }
     #webamp .winify-lyrics .character { display: inline-block; width: 5px; height: 6px; }
-    #webamp .winify-lyrics .wl-middle { display: flex; flex: 1; min-height: 0; }
-    #webamp .winify-lyrics .wl-top, #webamp .winify-lyrics .wl-bottom { flex: none; }
-    #webamp .winify-lyrics .wl-bottom, #webamp .winify-lyrics .wl-bottom .playlist-bottom { min-width: 0; overflow: hidden; white-space: nowrap; }   /* clipped when narrow, never wider than the panel */
-    ${GRIP_CSS}
-    #webamp .winify-lyrics .wl-middle .playlist-middle-left { width: 12px; flex: none; background-repeat: repeat-y; }
-    #webamp .winify-lyrics .wl-middle .playlist-middle-right { width: 20px; flex: none; background-repeat: repeat-y; position: relative; }
-    #webamp .winify-lyrics .wl-body { flex: 1; overflow-y: scroll; scrollbar-width: none; padding: 3px 4px 8px; font-size: 10px; line-height: 13px; cursor: default; user-select: text; }
+    #webamp .winify-lyrics .wl-body { flex: 1; min-width: 0; overflow-y: scroll; scrollbar-width: none; padding: 3px 4px 8px; font-size: 10px; line-height: 13px; cursor: default; user-select: text; }
     #webamp .winify-lyrics .wl-body::-webkit-scrollbar { display: none; }
     #webamp .winify-lyrics .wl-head { margin-bottom: 8px; }
     #webamp .winify-lyrics .wl-track { font-weight: bold; }
     #webamp .winify-lyrics .wl-text { white-space: pre-wrap; overflow-wrap: anywhere; }
     #webamp .winify-lyrics .wl-note { opacity: .75; white-space: pre-wrap; }
     #webamp .winify-lyrics .wl-retry { cursor: pointer; text-decoration: underline; }
-    #webamp .winify-lyrics .wl-handle { position: absolute; left: 5px; width: 8px; height: 18px; }
-    #webamp .winify-lyrics .wl-bottom { display: flex; height: 38px; } /* the skin's playlist bottom is 38 px (Webamp fixes it): inside the box, so the drawn edge is the box's */
-    #webamp .winify-lyrics .wl-bottom .playlist-bottom { flex: 1; background-position: left bottom; display: flex; align-items: center; padding: 0 24px 0 8px; }   /* clear of the grip */
+    #webamp .winify-lyrics .wl-handle { position: absolute; left: 0; width: 8px; height: 18px; }
+    ${FRAME_CSS}
   `;
   document.head.appendChild(style);
 }
@@ -179,36 +169,22 @@ function injectStyles() {
 function build(spot) {
   injectStyles();
   const st = skinStyle();
-  const d = document.createElement('div');
-  d.className = 'winify-lyrics';
-  d.setAttribute('role', 'dialog');
-  d.setAttribute('aria-label', TITLE);
-  d.innerHTML = `
-    <div class="wl-top selected">
-      <div class="playlist-top-left"></div>
-      <div class="playlist-top-left-fill"></div>
-      <div class="wl-title"></div>
-      <div class="playlist-top-left-fill"></div>
-      <div class="playlist-top-right"><div class="wl-close" role="button" aria-label="Close"></div></div>
-    </div>
-    <div class="wl-middle">
-      <div class="playlist-middle-left"></div>
+  // Webamp's generic window frame, in the skin's lettering (webamp-frame.js).
+  const frame = makeFrame({ title: TITLE, cls: 'winify-lyrics', prefix: 'wl' });
+  const d = frame.root;
+  frame.content.innerHTML = `
+    <div class="wl-main">
       <div class="wl-body" tabindex="-1"></div>
-      <div class="playlist-middle-right"><div class="wl-handle playlist-scrollbar-handle"></div></div>
+      <div class="wl-scroll"><div class="wl-handle playlist-scrollbar-handle"></div></div>
     </div>
-    <div class="wl-bottom"><div class="playlist-bottom"></div></div>`;
-  const plate = skinText(TITLE);
-  plate.style.background = st.normalbg;
-  // The whole title cell, not only the lettering: nothing else is drawn
-  // there, and Winify's window is see-through.
-  d.querySelector('.wl-title').style.background = st.normalbg;
-  d.querySelector('.wl-title').appendChild(plate);
-  d.querySelector('.wl-bottom .playlist-bottom').appendChild(skinText(CREDIT));
+    <div class="wl-info"></div>`;
+  for (const part of ['.wl-scroll', '.wl-info']) frame.content.querySelector(part).style.background = st.normalbg;
+  d.querySelector('.wl-info').appendChild(skinText(CREDIT));
   const body = d.querySelector('.wl-body');
   Object.assign(body.style, { background: st.normalbg, color: st.normal, fontFamily: st.font });
   place(d, spot);
-  makeDraggable(d, d.querySelector('.wl-top'), { ignore: '.wl-close', onMoved: (rect) => panels.placed('lyrics', rect) });
-  makeResizable(d, { minWidth: panels.MIN_SIZE.w, minHeight: panels.MIN_SIZE.h, onResize: placeHandle,
+  makeDraggable(d, frame.top, { ignore: '.wl-close', onMoved: (rect) => panels.placed('lyrics', rect) });
+  makeResizable(d, { grip: frame.grip, minWidth: panels.MIN_SIZE.w, minHeight: panels.MIN_SIZE.h, onResize: placeHandle,
     onResized: (rect) => panels.placed('lyrics', rect) });
   d.querySelector('.wl-close').addEventListener('click', () => close(true));
   body.addEventListener('scroll', placeHandle, { passive: true });
@@ -231,7 +207,7 @@ function placeHandle() {
   if (!el) return;
   const body = el.querySelector('.wl-body');
   const handle = el.querySelector('.wl-handle');
-  const track = el.querySelector('.wl-middle .playlist-middle-right');
+  const track = el.querySelector('.wl-scroll');
   const overflow = body.scrollHeight - body.clientHeight;
   handle.style.display = overflow > 0 ? '' : 'none';
   handle.style.top = (overflow > 0 ? Math.round((body.scrollTop / overflow) * (track.clientHeight - 18)) : 0) + 'px';

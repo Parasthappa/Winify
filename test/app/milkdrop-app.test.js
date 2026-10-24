@@ -95,7 +95,7 @@ app.whenReady().then(async () => {
   await js('WinifyWebamp.getInstance().store.dispatch({ type: "SET_MILKDROP_FULLSCREEN", enabled: true })');
   for (let i = 0; i < 40 && !(await js('!!document.fullscreenElement')); i++) await wait(150);
   await wait(1500);
-  const fsSize = await js(`(() => { const c = document.querySelector('#webamp .gen-window canvas') || document.querySelector('canvas'); return [c.width, c.height, window.devicePixelRatio]; })()`);
+  const fsSize = await js(`(() => { const c = document.querySelector('#webamp .gen-window:not(.winify-frame) canvas') || document.querySelector('canvas'); return [c.width, c.height, window.devicePixelRatio]; })()`);
   const f0 = (await js('WinifyMilkdrop.state()')).renders; const full = await cpu(8000); const f1 = (await js('WinifyMilkdrop.state()')).renders;
   check('full screen: still drawing', !capturing || (f1 - f0) / 8 > 30, Math.round((f1 - f0) / 8) + ' frames/s, canvas ' + fsSize.join(' x '));
   await js('document.exitFullscreen()');

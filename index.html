@@ -79,9 +79,10 @@
   #app-screen { display: none; }
   #app-screen.is-active { display: block; }
   #webamp-root { position: fixed; left: 0; top: 0; right: 0; bottom: 0; z-index: 1; pointer-events: none; }
-  /* Spotify's audio is DRM-protected, so its bitrate and sample rate cannot
-     be read; Webamp shows 0 for a missing value. Blank, not invented. */
-  #webamp #kbps, #webamp #khz { visibility: hidden !important; }
+  /* kbps, kHz and the stereo light: Spotify's stream (256 kbps, 44.1 kHz,
+     stereo; webamp-spotify.js), shown only while something is loaded. */
+  html:not(.winify-loaded) #webamp #kbps, html:not(.winify-loaded) #webamp #khz,
+  html:not(.winify-loaded) #webamp .mono-stereo { visibility: hidden !important; }
 </style>
 </head>
 <body>

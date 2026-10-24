@@ -13,7 +13,8 @@
  * Drawn with the active skin's own playlist bitmaps, like the playlist picker.
  */
 
-import { makeDraggable, makeResizable, attachTooltips, hideTooltip, GRIP_CSS } from './webamp-dialog.js';
+import { makeDraggable, makeResizable, attachTooltips, hideTooltip } from './webamp-dialog.js';
+import { makeFrame, FRAME_CSS } from './webamp-frame.js';
 import * as panels from './webamp-panels.js';
 
 const RESULTS_PER_REQUEST = 10;     // Spotify's search maximum since February 2026
@@ -203,19 +204,13 @@ function injectStyles() {
   const style = document.createElement('style');
   style.id = 'winify-search-style';
   style.textContent = `
-    #webamp .winify-search { position: fixed; z-index: 100001; width: ${WIDTH}px; display: flex; flex-direction: column; image-rendering: pixelated; }
-    #webamp .winify-search .ws-top { display: flex; height: 20px; }
-    #webamp .winify-search .ws-top .playlist-top-left { width: 25px; height: 20px; flex: none; }
-    #webamp .winify-search .ws-top .playlist-top-left-fill { flex: 1; height: 20px; }
-    #webamp .winify-search .ws-top .playlist-top-right { width: 25px; height: 20px; flex: none; position: relative; }
-    #webamp .winify-search .ws-title { flex: none; height: 20px; display: flex; align-items: center; padding: 0 4px; }
-    #webamp .winify-search .ws-title .winify-search-chars { padding: 2px 3px; }
-    #webamp .winify-search .ws-close { position: absolute; right: 3px; top: 3px; width: 9px; height: 9px; cursor: pointer; }
+    #webamp .winify-search { z-index: 100001; }
+    #webamp .winify-search .ws-main { flex: 1; min-height: 0; display: flex; }
+    #webamp .winify-search .ws-scroll { flex: none; width: 8px; position: relative; }
+    #webamp .winify-search .ws-handle { position: absolute; left: 0; width: 8px; height: 18px; }
+    #webamp .winify-search .ws-info { flex: none; height: 13px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 3px; min-width: 0; overflow: hidden; white-space: nowrap; }
     #webamp .winify-search .winify-search-chars { display: inline-flex; line-height: 0; }
     #webamp .winify-search .character { display: inline-block; width: 5px; height: 6px; }
-    #webamp .winify-search .ws-middle { display: flex; flex: 1; min-height: 0; }
-    #webamp .winify-search .ws-middle .playlist-middle-left { width: 12px; flex: none; background-repeat: repeat-y; }
-    #webamp .winify-search .ws-middle .playlist-middle-right { width: 20px; flex: none; background-repeat: repeat-y; position: relative; }
     #webamp .winify-search .ws-body { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
     #webamp .winify-search .ws-query { height: 13px; box-sizing: border-box; border: 0; border-bottom: 1px solid; outline: none; padding: 0 2px; font-size: 9px; width: 100%; }
     #webamp .winify-search .ws-list { flex: 1; min-height: 0; overflow: hidden; font-size: 9px; }
@@ -226,12 +221,8 @@ function injectStyles() {
     #webamp .winify-search .ws-album-col { flex: 1 1 0; }
     #webamp .winify-search .ws-time-col { flex: none; width: 28px; text-align: right; }
     #webamp .winify-search .ws-row.ws-unplayable { opacity: .5; }
-    #webamp .winify-search .ws-handle { position: absolute; left: 5px; width: 8px; height: 18px; }
-    #webamp .winify-search .ws-bottom { display: flex; height: 38px; } /* the skin's playlist bottom is 38 px (Webamp fixes it): inside the box, so the drawn edge is the box's */
-    #webamp .winify-search .ws-bottom .playlist-bottom { flex: 1; background-position: left bottom; display: flex; align-items: center; justify-content: space-between; padding: 0 24px 0 8px; }   /* clear of the grip */
-    #webamp .winify-search .ws-top, #webamp .winify-search .ws-bottom { flex: none; }
-    #webamp .winify-search .ws-bottom, #webamp .winify-search .ws-bottom .playlist-bottom { min-width: 0; overflow: hidden; white-space: nowrap; }   /* clipped when narrow, never wider than the panel */
-    ${GRIP_CSS}
+
+    ${FRAME_CSS}
   `;
   document.head.appendChild(style);
 }
@@ -284,7 +275,7 @@ function render() {
       list.appendChild(row);
     });
   }
-  const track = el.querySelector('.ws-middle .playlist-middle-right');
+  const track = el.querySelector('.ws-scroll');
   const handle = el.querySelector('.ws-handle');
   const overflow = Math.max(0, results.length - VISIBLE_ROWS);
   handle.style.display = !status && overflow ? '' : 'none';
@@ -293,7 +284,7 @@ function render() {
 }
 
 function drawBottom(message) {
-  const bar = el.querySelector('.ws-bottom .playlist-bottom');
+  const bar = el.querySelector('.ws-info');
   bar.textContent = '';
   bar.appendChild(skinText(message || (results.length && !status ? results.length + ' tracks' : '')));
   bar.appendChild(skinText(HINT));
@@ -321,43 +312,23 @@ function rowAt(target) {
   return row && row.dataset.index ? Number(row.dataset.index) : null;
 }
 
-function drawTitle(d) {
-  const title = d.querySelector('.ws-title');
-  title.textContent = '';
-  const plate = skinText(TITLE);
-  plate.style.background = skinStyle().normalbg;
-  // The whole title cell, not only the lettering: nothing else is drawn
-  // there, and Winify's window is see-through.
-  title.style.background = skinStyle().normalbg;
-  title.appendChild(plate);
-}
-
 function build(spot) {
   injectStyles();
   const st = skinStyle();
   const root = document.querySelector('#webamp');
-  const d = document.createElement('div');
-  d.className = 'winify-search';
-  d.setAttribute('role', 'dialog');
-  d.setAttribute('aria-label', TITLE);
-  d.innerHTML = `
-    <div class="ws-top selected">
-      <div class="playlist-top-left"></div>
-      <div class="playlist-top-left-fill"></div>
-      <div class="ws-title"></div>
-      <div class="playlist-top-left-fill"></div>
-      <div class="playlist-top-right"><div class="ws-close" role="button" aria-label="Close"></div></div>
-    </div>
-    <div class="ws-middle">
-      <div class="playlist-middle-left"></div>
+  // Webamp's generic window frame, in the skin's lettering (webamp-frame.js).
+  const frame = makeFrame({ title: TITLE, cls: 'winify-search', prefix: 'ws' });
+  const d = frame.root;
+  frame.content.innerHTML = `
+    <div class="ws-main">
       <div class="ws-body">
         <input class="ws-query" type="text" spellcheck="false" placeholder="search Spotify" aria-label="Search Spotify tracks">
         <div class="ws-list" role="listbox"></div>
       </div>
-      <div class="playlist-middle-right"><div class="ws-handle playlist-scrollbar-handle"></div></div>
+      <div class="ws-scroll"><div class="ws-handle playlist-scrollbar-handle"></div></div>
     </div>
-    <div class="ws-bottom"><div class="playlist-bottom"></div></div>`;
-  drawTitle(d);
+    <div class="ws-info"></div>`;
+  for (const part of ['.ws-scroll', '.ws-info']) frame.content.querySelector(part).style.background = st.normalbg;
   const body = d.querySelector('.ws-body');
   body.style.background = st.normalbg;
   body.style.fontFamily = st.font;
@@ -365,10 +336,10 @@ function build(spot) {
   Object.assign(input.style, { background: st.normalbg, color: st.normal, borderColor: st.normal, fontFamily: st.font });
 
   place(d, spot);
-  makeDraggable(d, d.querySelector('.ws-top'), { ignore: '.ws-close', onMoved: (rect) => panels.placed('search', rect) });
-  makeResizable(d, { minWidth: panels.MIN_SIZE.w, minHeight: panels.MIN_SIZE.h, onResize: () => render(),
+  makeDraggable(d, frame.top, { ignore: '.ws-close', onMoved: (rect) => panels.placed('search', rect) });
+  makeResizable(d, { grip: frame.grip, minWidth: panels.MIN_SIZE.w, minHeight: panels.MIN_SIZE.h, onResize: () => render(),
     onResized: (rect) => panels.placed('search', rect) });
-  attachTooltips(d.querySelector('.ws-list'), d, d.querySelector('.ws-top'), '.ws-row > span', skinStyle);
+  attachTooltips(d.querySelector('.ws-list'), d, frame.top, '.ws-row > span', skinStyle);
 
   d.querySelector('.ws-close').addEventListener('click', () => close());
   input.addEventListener('input', () => {

@@ -168,7 +168,7 @@ export function opened(id) {
 
 export function closed(id) {
   store.open = store.open.filter((x) => x !== id);
-  if (focused === id) focused = null;
+  if (focused === id) { focused = null; paintFocus(); }
   save();
   relayout();
 }
@@ -189,11 +189,24 @@ export function reset() {
   log('panel placements forgotten - open panels restacked');
 }
 
-// The panel last clicked or typed in; also brought in front of the others.
+// The panel last clicked or typed in: brought in front of the others, its
+// frame lit (.selected, Webamp's focused look) and the rest dimmed. One of
+// Winify's own panels takes the focus from Webamp's windows too (Milkdrop's
+// frame is Webamp's, lit by Webamp itself).
 export function focus(id) {
   focused = id;
   const p = panels.get(id);
   if (p && p.element) { const el = p.element(); if (el) el.style.zIndex = String(++zTop); }
+  if (webamp && id && id !== 'milkdrop') webamp.store.dispatch({ type: 'SET_FOCUSED_WINDOW', window: null });
+  paintFocus();
+}
+
+function paintFocus() {
+  for (const [id, p] of panels) {
+    if (id === 'milkdrop') continue;
+    const el = p.isOpen() && p.element && p.element();
+    if (el) el.classList.toggle('selected', id === focused);
+  }
 }
 
 // ---- Moving with the main window ----------------------------------------------------
@@ -300,7 +313,7 @@ function onPointerDown(e) {
     if (el && el.contains(e.target)) { focus(id); return; }
   }
   // Anywhere else in Winify (a Webamp window): no panel is focused.
-  if (e.target.closest('#webamp, #login-screen')) focused = null;
+  if (e.target.closest('#webamp, #login-screen')) { focused = null; paintFocus(); }
 }
 
 function onKeyDown(e) {

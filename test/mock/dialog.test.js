@@ -58,7 +58,7 @@ h.open().then(async ({ win, js }) => {
     check('long album name: full text in a tooltip below its row', !!tip && tip.y >= cell.b && (await js(`document.querySelector('.winify-tooltip').textContent`)) === 'Insomniac (Deluxe Edition) - 25th Anniversary Remaster', JSON.stringify({ cell, tip }));
     // 16 rows high again (it is resizable), then to the bottom: no room below its last row.
     const sz = await R('.winify-search'); const grip = await R('.winify-search .winify-grip');
-    await drag(grip.x + 10, grip.y + 7, 0, 20 + 13 + 16 * 13 + 38 - sz.h);
+    await drag(grip.x + 10, grip.y + 7, 0, 290 - sz.h);   // 6 steps: room for 17 rows
     g = await grab('.winify-search .ws-top'); await drag(g.x, g.y, 0, 2000);
     const last = await R('.winify-search .ws-row:nth-child(16) .ws-album-col');
     win.webContents.sendInputEvent({ type: 'mouseMove', x: last.x + 20, y: last.y + 5 });

@@ -24,10 +24,10 @@ h.open().then(async ({ win, js }) => {
   check('found by /api/get; synced lyrics kept for later', s.entry && s.entry.source === 'get' && /\[00:01\.00\]/.test(s.entry.synced || ''), JSON.stringify(s.entry && { source: s.entry.source, synced: !!s.entry.synced }));
   let calls = await lrcCalls();
   check('one lookup only (get), no search', calls.length === 1 && calls[0][1] === '/api/get', JSON.stringify(calls));
-  const credit = await js(`[...document.querySelectorAll('.winify-lyrics .wl-bottom .character')].map(c => String.fromCharCode(+(c.className.match(/character-([0-9]+)/) || [0, 63])[1])).join('')`);
+  const credit = await js(`[...document.querySelectorAll('.winify-lyrics .wl-info .character')].map(c => String.fromCharCode(+(c.className.match(/character-([0-9]+)/) || [0, 63])[1])).join('')`);
   check('credit "Lyrics from LRCLIB" in the window', credit === 'lyrics from lrclib', credit);
-  const title = await js(`[...document.querySelectorAll('.winify-lyrics .wl-title .character')].map(c => String.fromCharCode(+(c.className.match(/character-([0-9]+)/) || [0, 63])[1])).join('')`);
-  check('Winamp-styled: skin title plate, frame and font', title === 'lyrics' && await js(`getComputedStyle(document.querySelector('.winify-lyrics .playlist-top-left')).backgroundImage.startsWith('url(')`), title);
+  const title = await js(`[...document.querySelectorAll('.winify-lyrics .wl-top .gen-text-letter')].map(c => (c.className.match(/gen-text-([a-z]+)$/) || [0, '?'])[1]).map(x => x === 'space' ? ' ' : x).join('')`);
+  check('Winamp-styled: the generic window frame (as Milkdrop\'s), LYRICS in the skin\'s lettering', title === 'lyrics' && await js(`getComputedStyle(document.querySelector('.winify-lyrics .gen-top-left')).backgroundImage.startsWith('url(')`), title);
   const lw = await box('.winify-lyrics'); const mw = await box('#webamp #main-window');
   check('opens beside the player, not over the main window', !overlaps(lw, mw), JSON.stringify([lw, mw]));
   const scroll = await js(`(() => { const b = document.querySelector('.winify-lyrics .wl-body'); b.scrollTop = 200; return { over: b.scrollHeight > b.clientHeight, top: b.scrollTop, handle: getComputedStyle(document.querySelector('.winify-lyrics .wl-handle')).display }; })()`);

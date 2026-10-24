@@ -42,7 +42,7 @@ h.open().then(async ({ win, js }) => {
   cs = await take(); let q = cs.find((c) => c[0] === 'api:addToQueue');
   check('Shift+Enter queues track 2 on Winify, nothing else called, dialog stays open', q && q[1] === 'spotify:track:2001' && q[2] === 'winify-dev' && !cs.some((c) => /^(api:play|play|pause|nextTrack)$/.test(c[0])) && (await S()).open, JSON.stringify(cs));
   check('marquee shows "Queued: Artist 1 - jazz song 1"', (await marquee()) === 'Queued: Artist 1 - jazz song 1', await marquee());
-  const flashText = await js(`[...document.querySelectorAll('.winify-search .ws-bottom .character')].map(c => String.fromCharCode(+(c.className.match(/character-([0-9]+)/) || [0, 63])[1])).join('')`);
+  const flashText = await js(`[...document.querySelectorAll('.winify-search .ws-info .character')].map(c => String.fromCharCode(+(c.className.match(/character-([0-9]+)/) || [0, 63])[1])).join('')`);
   check('the dialog confirms it too', /^queued/.test(flashText), flashText);
   let r = await centre('.winify-search .ws-row', 4); press(r.x, r.y, 'right'); await h.wait(300);
   const items = await js(`[...document.querySelectorAll('#webamp-context-menu li')].map(l => l.textContent)`);
@@ -89,8 +89,8 @@ h.open().then(async ({ win, js }) => {
   await key('Escape');
 
   console.log('7. The playlist window\'s ADD button opens the same Jump to track');
-  const titleOf = () => js(`[...document.querySelectorAll('.winify-search .ws-title .character')].map(c => String.fromCharCode(+(c.className.match(/character-([0-9]+)/) || [0, 63])[1])).join('')`);
-  const hintOf = () => js(`[...document.querySelectorAll('.winify-search .ws-bottom .character')].map(c => String.fromCharCode(+(c.className.match(/character-([0-9]+)/) || [0, 63])[1])).join('')`);
+  const titleOf = () => js(`[...document.querySelectorAll('.winify-search .ws-top .gen-text-letter')].map(c => (c.className.match(/gen-text-([a-z]+)$/) || [0, '?'])[1]).map(x => x === 'space' ? ' ' : x).join('')`);
+  const hintOf = () => js(`[...document.querySelectorAll('.winify-search .ws-info .character')].map(c => String.fromCharCode(+(c.className.match(/character-([0-9]+)/) || [0, 63])[1])).join('')`);
   await h.click(win, js, '#title-bar', 0.3, 0.5); await h.wait(200); await key('J'); await h.wait(400);
   const viaJ = { title: await titleOf(), hint: await hintOf() };
   await key('Escape');

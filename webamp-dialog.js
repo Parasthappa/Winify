@@ -19,7 +19,7 @@
 
 const SNAP_DISTANCE = 15;           // Webamp's own (snapUtils.ts)
 const TOOLTIP_DELAY_MS = 500;
-const WEBAMP_WINDOWS = ['#main-window', '#equalizer-window', '#playlist-window', '.gen-window',
+const WEBAMP_WINDOWS = ['#main-window', '#equalizer-window', '#playlist-window', '.gen-window:not(.winify-frame)',
   '.winify-picker', '.winify-search', '.winify-lyrics'];
 
 // ---- Geometry -------------------------------------------------------------------
@@ -139,13 +139,9 @@ export const stepped = (w, h, round = Math.round) => ({
   h: STEP.baseH + Math.max(0, round((h - STEP.baseH) / STEP.h)) * STEP.h,
 });
 
-// A grip in `el`'s bottom-right corner, drawn from the skin's own playlist
-// corner; it resizes in Winamp's steps. onResize() while it moves,
-// onResized(rect) when let go.
-export function makeResizable(el, { minWidth, minHeight, onResize, onResized }) {
-  const grip = document.createElement('div');
-  grip.className = 'playlist-bottom-right winify-grip';
-  el.appendChild(grip);
+// Resizing `el` by `grip` (its frame's bottom-right corner, webamp-frame.js),
+// in Winamp's steps. onResize() while it moves, onResized(rect) when let go.
+export function makeResizable(el, { grip, minWidth, minHeight, onResize, onResized }) {
   grip.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
     e.preventDefault();
@@ -184,11 +180,6 @@ export function makeResizable(el, { minWidth, minHeight, onResize, onResized }) 
   return grip;
 }
 
-// The grip: the corner of the skin's playlist bitmap, where its own grip is.
-export const GRIP_CSS = `
-  #webamp .winify-grip.playlist-bottom-right { position: absolute; right: 0; bottom: 0; width: 20px; height: 20px;
-    background-position: right bottom; cursor: nwse-resize; z-index: 2; }
-`;
 
 // ---- Tooltips ------------------------------------------------------------------------
 // The browser's own tooltips appear wherever the system puts them, which can
