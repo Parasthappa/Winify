@@ -258,6 +258,9 @@ function createWindow() {
     // macOS's own full screen is not for see-through windows (and toggling it
     // under simple full screen crashes AppKit); see enter-html-full-screen.
     fullscreenable: false,
+    // A click on a Winify window while another app is in front acts at once
+    // (rather than only bringing Winify forward).
+    acceptFirstMouse: true,
     backgroundColor: '#00000000',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -292,8 +295,9 @@ function createWindow() {
   });
   watchVisibility();
   watchHomeArea();
-  // Until the page says otherwise (on the first mouse move), clicks pass through.
-  win.setIgnoreMouseEvents(true, { forward: true });
+  // Until the page says otherwise, clicks pass through.
+  setPassThrough(true);
+  watchCursor();
   // Full screen (Milkdrop): a see-through window cannot use macOS's own full
   // screen, so it covers the whole display in simple full screen instead,
   // and goes back to the usable area after.
@@ -524,6 +528,7 @@ function reportVisibility() {
 
 function showWindow() {
   if (!win || win.isDestroyed()) return;
+  lastCursor = null;   // look at the pointer afresh once shown
   // Bring it back from whichever way it went: Cmd+H, minimize, or hide.
   if (process.platform === 'darwin') app.show();
   if (win.isMinimized()) win.restore();
@@ -542,12 +547,51 @@ function hideWindow() {
   reportVisibility();
 }
 
+// ---- Click-through -------------------------------------------------------------
+// The page decides whether the pointer is over something of Winify's (it
+// knows the shapes); this tells it where the pointer is. Forwarded mouse
+// moves only arrive while Winify is the active app, so the position is read
+// here as well, a few times a second while Winify is on screen: it keeps
+// working after another app (or the desktop) takes the clicks. Only a
+// changed position is sent; outside the window it passes through directly.
+const CURSOR_POLL_MS = 60;
+let passThrough = null;
+let cursorTimer = null;
+let lastCursor = null;
+
+function setPassThrough(on) {
+  if (!win || win.isDestroyed() || passThrough === on) return;
+  passThrough = on;
+  win.setIgnoreMouseEvents(on, { forward: true });
+}
+
+function checkCursor(force) {
+  if (!win || win.isDestroyed() || !isOnScreen() || win.isSimpleFullScreen()) return;
+  const p = screen.getCursorScreenPoint();
+  const b = win.getBounds();
+  const at = { x: p.x - b.x, y: p.y - b.y };
+  if (!force && lastCursor && lastCursor.x === at.x && lastCursor.y === at.y) return;
+  lastCursor = at;
+  if (at.x < 0 || at.y < 0 || at.x >= b.width || at.y >= b.height) { setPassThrough(true); return; }
+  send('window:cursor', at);
+}
+
+function watchCursor() {
+  clearInterval(cursorTimer);
+  cursorTimer = setInterval(() => checkCursor(false), CURSOR_POLL_MS);
+  // Shown, restored, brought forward, or the other app took over: look again now.
+  for (const event of ['show', 'restore', 'focus', 'blur']) win.on(event, () => setTimeout(() => checkCursor(true), 50));
+  app.on('did-become-active', () => checkCursor(true));
+  app.on('did-resign-active', () => checkCursor(true));
+}
+
 // Displays added, removed or rearranged, the Dock moved: back to the main
 // display's usable area. The page keeps its windows inside it.
 function watchHomeArea() {
   const refit = () => {
     if (!win || win.isDestroyed() || win.isSimpleFullScreen()) return;
     win.setBounds(homeArea());
+    checkCursor(true);
   };
   screen.on('display-metrics-changed', refit);
   screen.on('display-added', refit);
@@ -1164,10 +1208,7 @@ ipcMain.on('ready', () => {
 // Winify's (the chassis, a Webamp window, one of Winify's own) or over
 // nothing. Over nothing, clicks go to whatever is behind; mouse moves keep
 // coming (forward) so the page can tell when the pointer is back.
-ipcMain.on('window:pass-through', (_event, on) => {
-  if (!win || win.isDestroyed()) return;
-  win.setIgnoreMouseEvents(on === true, { forward: true });
-});
+ipcMain.on('window:pass-through', (_event, on) => setPassThrough(on === true));
 
 // Webamp's close (x) and minimize (_) buttons, and its Exit menu item.
 // What is playing, reported by the window: once signed in, main asks

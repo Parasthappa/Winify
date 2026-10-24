@@ -97,6 +97,46 @@ app.whenReady().then(async () => {
   check('search open: its backdrop takes a click outside it (closes it, as before)', passing() === false);
   await js('WinifySearch.close()'); await wait(300); await move(6, 6);
 
+  console.log('3b. Click-through without forwarded mouse moves (another app active, after a restore)');
+  // The main process reads the pointer itself; here that reading is set by the test, and no mouse
+  // event reaches the page - as when Finder or the desktop has the clicks.
+  const realCursor = screen.getCursorScreenPoint.bind(screen);
+  let fake = null;
+  screen.getCursorScreenPoint = () => fake || realCursor();
+  const at = async (x, y) => { fake = { x: area.x + Math.round(x), y: area.y + Math.round(y) }; await wait(250); };
+  win.blur(); await wait(300);
+  check('Winify not focused', !win.isFocused() && !(await js('document.hasFocus()')));
+  await at(5, area.height / 2);
+  check('pointer over an empty part: through', passing() === true);
+  await at(main0.x + 100, main0.y + 50);
+  check('over a Webamp window: Winify takes the click, though it is not the active app (no mouse events needed)', passing() === false);
+  await at(box.x + box.w / 2, box.y + box.h / 2);
+  check('over the chassis: Winify', passing() === false);
+  fake = { x: area.x + area.width + 50, y: area.y + 10 }; await wait(250);
+  check('pointer off the window (another display, the menu bar): through', passing() === true);
+  await at(main0.x + 100, main0.y + 50);
+  check('back over a window: Winify again', passing() === false);
+  win.minimize(); await wait(1000); await at(5, 5); await at(main0.x + 100, main0.y + 50);
+  const callsWhileMin = ignoreCalls.length;
+  app.emit('activate'); await wait(600);
+  check('restored with the pointer already over a window: clickable straight away', !win.isMinimized() && passing() === false, JSON.stringify(ignoreCalls.slice(callsWhileMin)));
+  await at(5, 5);
+  check('...and the empty parts pass through again', passing() === true);
+  // The chassis: only its own shape (design px, scaled 0.356 from its box corner at design 14,27).
+  const dp = (x, y) => ({ x: box.x + Math.round((x - 14) * 0.356), y: box.y + Math.round((y - 27) * 0.356) });
+  const hitAt = async (q) => js(`(() => { const e = document.elementFromPoint(${q.x}, ${q.y}); return e && e !== document.body && e !== document.documentElement; })()`);
+  const outside = [[70, 64], [1214, 64], [30, 380], [50, 200], [200, 965], [1100, 965], [1232, 260]];
+  const inside = [[640, 500], [640, 960], [50, 380], [150, 120], [1200, 800]];
+  const outHits = []; for (const [x, y] of outside) if (await hitAt(dp(x, y))) outHits.push([x, y]);
+  const inMiss = []; for (const [x, y] of inside) if (!(await hitAt(dp(x, y)))) inMiss.push([x, y]);
+  fs.writeFileSync(path.join(__dirname, '..', '.output', 'window-chassis.png'), (await win.webContents.capturePage({ x: box.x - 20, y: box.y - 20, width: box.w + 40, height: box.h + 40 })).toPNG());
+  check('chassis: no dark rectangle behind it', (await js(`getComputedStyle(document.querySelector('#sa-stage > div')).backgroundImage`)) === 'none');
+  check('...clicks around its angled edges pass through; on its shape they are caught', !outHits.length && !inMiss.length, JSON.stringify({ outHits, inMiss }));
+  await at(dp(70, 64).x, dp(70, 64).y);
+  check('...the window passes them through there', passing() === true);
+  fake = null;
+  win.focus(); await wait(300);
+
   console.log('4. Windows anywhere on screen; layouts as screen positions');
   await drag(main0.x + 40, main0.y + 6, area.width - 275 - main0.x, 0);
   const main1 = await R('#webamp #main-window');

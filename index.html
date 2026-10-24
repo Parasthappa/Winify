@@ -65,6 +65,14 @@
      it); is-active only says which state it is in (signed out). */
   #login-screen { position: fixed; z-index: 0; }
   #sa-stage { width: 1280px; height: 1070px; transform-origin: 0 0; position: absolute; left: 0; top: 0; }
+  /* Only the chassis's own shape shows and takes clicks: the design's
+     backdrop (it was the window's background) goes, and the drawing's box
+     passes clicks on, except where the chassis is painted. */
+  #login-screen, #sa-stage, #sa-stage > div { pointer-events: none; }
+  #sa-stage > div { background: none !important; }
+  #sa-stage > div > * { pointer-events: auto; }
+  #sa-stage > div > svg { pointer-events: none; }
+  #sa-stage > div > svg * { pointer-events: visiblePainted; }
   /* The player: Webamp positions its windows absolutely over the whole
      window. Its layer takes no clicks itself, so the chassis under it and the
      empty parts stay reachable; the windows in it take them as usual. */

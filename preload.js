@@ -49,4 +49,5 @@ contextBridge.exposeInMainWorld('spotify', {
   // One see-through window over the screen: clicks pass through where nothing is.
   screenWindow: true,
   setPassThrough: (on) => ipcRenderer.send('window:pass-through', on === true),
+  onCursor: on('window:cursor'),
 });

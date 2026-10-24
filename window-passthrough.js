@@ -4,8 +4,10 @@
  * Webamp windows and Winify's own windows. While the pointer is over one of
  * those (or a menu of theirs), the window takes clicks; anywhere else they
  * pass through to whatever is behind. The main process does the switching
- * (setIgnoreMouseEvents, with mouse moves still forwarded here so this can
- * tell when the pointer comes back).
+ * (setIgnoreMouseEvents). Where the pointer is comes two ways: forwarded
+ * mouse moves, which only arrive while Winify is the active app, and the
+ * main process's own reading of it a few times a second (onCursor), which
+ * keeps working after another app or the desktop has taken the clicks.
  *
  * "Over one of those" is simply: the browser finds an element under the
  * pointer. The full-window layers (body, Webamp's layer) take no pointer
@@ -52,6 +54,16 @@
     requestAnimationFrame(function () { pending = false; decide(); });
   }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] });
   document.addEventListener('fullscreenchange', decide);
+  if (IPC.onCursor) {
+    IPC.onCursor(function (p) {
+      // A button held in another app is no drag of Winify's.
+      if (!document.hasFocus()) buttons = 0;
+      last = { x: p.x, y: p.y };
+      passing = null;            // the main process may have switched by itself
+      decide();
+    });
+  }
+  window.addEventListener('blur', function () { buttons = 0; });
 
   window.WinifyPassThrough = {
     state: function () { return { passing: passing, buttons: buttons, last: last }; },

@@ -124,10 +124,17 @@ chassis, the Webamp windows and Winify's own windows are drawn in it.
 
 - **Click-through.** The window starts out ignoring the mouse
   (`setIgnoreMouseEvents(true, { forward: true })`); `window-passthrough.js`
-  gets the forwarded mouse moves, and switches it off while the pointer is
-  over an element (the full-window layers take no pointer events) or a button
-  is held, and on again otherwise. Search and the picker have full-window
-  backdrops, so while they are open a click outside closes them instead.
+  switches it off while the pointer is over an element (the full-window
+  layers and the chassis's own box take no pointer events; the chassis's SVG
+  outline does, so its angled edges count) or a button is held, and on again
+  otherwise. Where the pointer is comes from forwarded mouse moves and, since
+  those stop arriving once another app or the desktop is active, from the
+  main process reading it every 60 ms while Winify is on screen
+  (`watchCursor`; only changes are sent, and it looks again on show, restore,
+  focus changes and display changes). `acceptFirstMouse` lets a click on a
+  Winify window act even while another app is in front. Search and the
+  picker have full-window backdrops, so while they are open a click outside
+  closes them instead.
 - **One display.** A window cannot span displays: Winify uses the main
   display (the one with the menu bar) and refits when displays change.
 - **Full screen** (Milkdrop): a transparent window cannot use macOS's own
