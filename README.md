@@ -170,8 +170,10 @@ the player, as many at once as you like.
   under the playlist window. Closing one moves the others up to fill the gap.
 - Drag a panel by its title bar, or resize it from its bottom-right corner.
   Winify then remembers where you put it and opens it there next time.
+- Dragging the main Winamp window takes every panel snapped to it along.
 - Each stays open until you close it with its **x** or **Escape** (Escape
-  closes the panel you last clicked or typed in).
+  closes the panel you last clicked or typed in), also after you choose a
+  playlist or play a track from it.
 - The panels you had open come back when you start Winify again.
 - **Reset window layout** (menu-bar icon) lines them all up again.
 

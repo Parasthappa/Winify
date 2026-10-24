@@ -728,6 +728,7 @@ const asPanel = {
   close: () => { if (isOpen()) toggle(); },
   isOpen: () => isOpen(),
   element: () => windowEl(),
+  getRect: () => (webamp ? rect() : null),
   setRect,
 };
 

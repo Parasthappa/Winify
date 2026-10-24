@@ -23,7 +23,7 @@ import * as panels from './webamp-panels.js';
 
 const TITLE = 'Lyrics';
 const CREDIT = 'Lyrics from LRCLIB';
-const WIDTH = 300;
+const WIDTH = 325;                  // as the picker's: a tidier stack
 const WATCH_MS = 500;               // how often the current track is checked
 const DURATION_SLACK_S = 4;         // a search match this close is the same recording
 const BUSY_RETRY_MS = 2000;
@@ -515,6 +515,7 @@ export function init(c) {
     defaultWidth: WIDTH,
     open, close: () => close(true), isOpen,
     element: () => el,
+    getRect: () => (el ? { x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight } : null),
     setRect: (rect) => { if (el) { place(el, rect); placeHandle(); } },
   });
 }

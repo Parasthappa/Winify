@@ -133,6 +133,25 @@ h.open().then(async ({ win, js }) => {
   check('open panels restacked neatly, in their order, all the column\'s height', JSON.stringify(st2.open) === '["lyrics","search","picker"]' && p.lyrics.x === colRight && p.lyrics.y === main.y && touching(p.lyrics, p.search) && p.search.h === HEIGHT &&
     (p.search.r + 325 > (await W()) ? (p.picker.x === pl.x && p.picker.y === pl.b) : touching(p.search, p.picker)), JSON.stringify(p));
   check('...still open', (await js(isOpen.picker)) && (await js(isOpen.search)) && (await js(isOpen.lyrics)));
+
+  console.log('10. Dragging the main window carries every panel snapped to it');
+  await open('milkdrop');
+  const a0 = await P(); const pl0 = await R('#playlist-window'); const m0 = await R('#main-window'); const tb = await R('#title-bar');
+  await drag(tb.x + 60, tb.y + 7, 40, 5);
+  const a1 = await P(); const pl1 = await R('#playlist-window'); const m1 = await R('#main-window');
+  const dx = m1.x - m0.x, dy = m1.y - m0.y;   // as far as it went (Webamp snaps it to edges)
+  const moved = (id) => a1[id].x - a0[id].x === dx && a1[id].y - a0[id].y === dy;
+  check('the main window moved, the playlist with it (Webamp)', dx !== 0 && pl1.x - pl0.x === dx && pl1.y - pl0.y === dy, JSON.stringify({ dx, dy, m1, pl1 }));
+  check('every panel joined to it moved as much: lyrics and Jump to track beside it, the picker and Milkdrop under the playlist', ['lyrics', 'search', 'picker', 'milkdrop'].every(moved),
+    JSON.stringify(Object.fromEntries(Object.keys(SEL).map((id) => [id, [a1[id].x - a0[id].x, a1[id].y - a0[id].y]]))));
+  check('...still in the stack (they moved with their column)', JSON.stringify((await js('WinifyPanels.state()')).placed) === '{}');
+  const sTop = await R('.winify-search .ws-top');
+  await drag(sTop.x + 60, sTop.y + 8, -40, 330);   // away from the group: placed by hand
+  const away = await R(SEL.search); const b0 = await P(); const n0 = await R('#main-window'); const tb2 = await R('#title-bar');
+  await drag(tb2.x + 60, tb2.y + 7, -40, -5);
+  const b1 = await P(); const n1 = await R('#main-window'); const ex = n1.x - n0.x, ey = n1.y - n0.y;
+  check('a panel not snapped to the group stays where it is', JSON.stringify(b1.search) === JSON.stringify(away), JSON.stringify([away, b1.search]));
+  check('...the snapped ones moved back with the main window', ex !== 0 && ['lyrics', 'picker', 'milkdrop'].every((id) => b1[id].x - b0[id].x === ex && b1[id].y - b0[id].y === ey), JSON.stringify({ ex, ey, b0, b1 }));
   await closeAll();
 
   const errs = JSON.parse(await js('JSON.stringify(errors)'));

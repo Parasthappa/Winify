@@ -18,6 +18,10 @@
  * open is remembered too, and they come back at launch. All are screen
  * positions (Winify's one see-through window).
  *
+ * Moving with the player: dragging the main window carries every panel
+ * snapped to it, directly or through other snapped windows (as Webamp does
+ * for its own windows; it does not know Winify's).
+ *
  * Each panel registers how to open, close, read and set its rectangle; the
  * picker, search and lyrics are Winify's own DOM windows, Milkdrop is
  * Webamp's (sized in its 25x29 px steps, see webamp-milkdrop.js).
@@ -183,6 +187,101 @@ export function focus(id) {
   if (p && p.element) { const el = p.element(); if (el) el.style.zIndex = String(++zTop); }
 }
 
+// ---- Moving with the main window ----------------------------------------------------
+// When a drag starts on the main window: every window joined to it by a
+// shared edge, through any chain of windows, moves by as much as it does.
+
+const WEBAMP_WINDOWS = { main: '#main-window', playlist: '#playlist-window', equalizer: '#equalizer-window' };
+const near = (a, b) => Math.abs(a - b) <= 1;
+const overlap = (a0, a1, b0, b1) => Math.min(a1, b1) - Math.max(a0, b0) > 0;
+function touching(a, b) {
+  return ((near(a.r, b.x) || near(b.r, a.x)) && overlap(a.y, a.b, b.y, b.b)) ||
+    ((near(a.b, b.y) || near(b.b, a.y)) && overlap(a.x, a.r, b.x, b.r));
+}
+
+function boxOf(el) {
+  const r = el.getBoundingClientRect();
+  return { x: Math.round(r.left), y: Math.round(r.top), r: Math.round(r.right), b: Math.round(r.bottom) };
+}
+
+let carrying = null;           // { main: {x, y}, panels: [{ id, x, y, w, h }] }
+let unsubscribeCarry = null;
+
+function snappedToMain() {
+  const nodes = [];
+  for (const [id, sel] of Object.entries(WEBAMP_WINDOWS)) {
+    const el = document.querySelector('#webamp ' + sel);
+    if (el && el.offsetWidth) nodes.push({ id, box: boxOf(el), panel: false });
+  }
+  for (const [id, p] of panels) {
+    const el = p.isOpen() && p.element && p.element();
+    if (el) nodes.push({ id, box: boxOf(el), panel: true });
+  }
+  const start = nodes.find((n) => n.id === 'main');
+  if (!start) return [];
+  const joined = new Set([start]);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const n of nodes) {
+      if (joined.has(n)) continue;
+      if ([...joined].some((m) => touching(m.box, n.box))) { joined.add(n); grew = true; }
+    }
+  }
+  return [...joined].filter((n) => n.panel).map((n) => n.id);
+}
+
+function mainPosition() {
+  const m = webamp && webamp.store.getState().windows.genWindows.main;
+  return m ? { x: m.position.x, y: m.position.y } : null;
+}
+
+function carry() {
+  if (!carrying) return;
+  const at = mainPosition();
+  if (!at) return;
+  const dx = at.x - carrying.main.x;
+  const dy = at.y - carrying.main.y;
+  const { w: W, h: H } = area();
+  for (const c of carrying.panels) {
+    const p = panels.get(c.id);
+    if (!p || !p.isOpen()) continue;
+    const want = { x: Math.max(0, Math.min(c.x + dx, W - c.w)), y: Math.max(0, Math.min(c.y + dy, H - c.h)), w: c.w, h: c.h };
+    const now = p.getRect ? p.getRect() : null;
+    if (now && now.x === want.x && now.y === want.y) continue;   // Webamp moved it already (its own windows)
+    p.setRect(want);
+  }
+}
+
+function onMainPointerDown(e) {
+  if (!webamp || e.button !== 0 || !(e.target instanceof Element) || !e.target.closest('#webamp #main-window')) return;
+  const ids = snappedToMain();
+  if (!ids.length) return;
+  carrying = {
+    main: mainPosition(),
+    panels: ids.map((id) => Object.assign({ id }, panels.get(id).getRect())),
+  };
+  let busy = false;
+  unsubscribeCarry = webamp.store.subscribe(() => {
+    if (busy) return;           // its own moves come back here
+    busy = true;
+    try { carry(); } finally { busy = false; }
+  });
+}
+
+function onMainPointerUp() {
+  if (!carrying) return;
+  const moved = carrying.panels.map((c) => c.id);
+  if (unsubscribeCarry) { unsubscribeCarry(); unsubscribeCarry = null; }
+  carrying = null;
+  // Placed by hand: the new spot is the one to remember. Stacked ones moved
+  // with their column, and stay in the stack.
+  for (const id of moved) {
+    const p = panels.get(id);
+    if (store.placed[id] && p && p.isOpen() && p.getRect) store.placed[id] = p.getRect();
+  }
+  save();
+}
+
 // ---- Escape, focus ---------------------------------------------------------------
 
 function onPointerDown(e) {
@@ -215,6 +314,8 @@ export async function attach(instance) {
   store = readStore();
   document.addEventListener('pointerdown', onPointerDown, true);
   document.addEventListener('keydown', onKeyDown, true);
+  document.addEventListener('pointerdown', onMainPointerDown, true);
+  document.addEventListener('pointerup', onMainPointerUp, true);
   const order = store.open.slice();
   for (const id of order) {
     const p = panels.get(id);
@@ -231,6 +332,9 @@ export async function attach(instance) {
 export function detach() {
   document.removeEventListener('pointerdown', onPointerDown, true);
   document.removeEventListener('keydown', onKeyDown, true);
+  document.removeEventListener('pointerdown', onMainPointerDown, true);
+  document.removeEventListener('pointerup', onMainPointerUp, true);
+  onMainPointerUp();
   webamp = null;
   focused = null;
 }

@@ -49,7 +49,8 @@ h.open().then(async ({ win, js }) => {
   check('bottom count follows the filter box: 2/97', (await counter()) === '2/97', await counter());
   await key('Down'); await take(); await key('Return'); await h.wait(900); cs = await take(); p = await P();
   let pl = plays(cs);
-  check('Down + Enter plays the 2nd match from track 1, on Winify, and closes', !p.open && pl.length === 1 && pl[0].context_uri === 'spotify:playlist:pl77' && pl[0].offset.position === 0 && cs.find((x) => x[0] === 'api:play')[1] === 'winify-dev', JSON.stringify(cs));
+  check('Down + Enter plays the 2nd match from track 1, on Winify; the picker stays open', p.open && pl.length === 1 && pl[0].context_uri === 'spotify:playlist:pl77' && pl[0].offset.position === 0 && cs.find((x) => x[0] === 'api:play')[1] === 'winify-dev', JSON.stringify(cs));
+  await js('WinifyPicker.close()'); await h.wait(200);
   const t0 = Date.now(); let pls; do { pls = await js('WinifyPlaylist.state()'); await h.wait(150); } while ((pls.listContext !== 'spotify:playlist:pl77' || pls.count !== 31) && Date.now() - t0 < 6000);
   check('playlist window loads it, track 1 highlighted', pls.listContext === 'spotify:playlist:pl77' && pls.count === 31 && pls.currentIndex === 1 && /PLAYLIST|Playlist pl77/.test(pls.header), JSON.stringify(pls));
 
@@ -84,7 +85,8 @@ h.open().then(async ({ win, js }) => {
   const row = await js(`(() => { const r = document.querySelectorAll('.winify-picker .wp-row')[0].getBoundingClientRect(); return { x: Math.round(r.left + 30), y: Math.round(r.top + 6) }; })()`);
   for (const clickCount of [1, 2]) { win.webContents.sendInputEvent({ type: 'mouseDown', x: row.x, y: row.y, button: 'left', clickCount }); win.webContents.sendInputEvent({ type: 'mouseUp', x: row.x, y: row.y, button: 'left', clickCount }); await h.wait(40); }
   await h.wait(900); cs = await take(); pl = plays(cs); p = await P();
-  check('double-click Liked Songs plays the collection from track 1', !p.open && pl.length === 1 && pl[0].context_uri === 'spotify:user:user1:collection' && pl[0].offset.position === 0, JSON.stringify(pl));
+  check('double-click Liked Songs plays the collection from track 1; the picker stays open', p.open && pl.length === 1 && pl[0].context_uri === 'spotify:user:user1:collection' && pl[0].offset.position === 0, JSON.stringify(pl));
+  await js('WinifyPicker.close()'); await h.wait(200);
   await c('#eject'); await h.wait(800);
   const r2 = await js(`(() => { const r = document.querySelectorAll('.winify-picker .wp-row')[4].getBoundingClientRect(); return { x: Math.round(r.left + 30), y: Math.round(r.top + 6) }; })()`);
   win.webContents.sendInputEvent({ type: 'mouseDown', x: r2.x, y: r2.y, button: 'left', clickCount: 1 }); win.webContents.sendInputEvent({ type: 'mouseUp', x: r2.x, y: r2.y, button: 'left', clickCount: 1 }); await h.wait(200);

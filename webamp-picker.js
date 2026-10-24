@@ -470,9 +470,9 @@ export function close({ keepRecord = false } = {}) {
 
 export const isOpen = () => !!el;
 
+// Plays it; the picker stays open (panels close only with x or Escape).
 async function pick(entry) {
   if (!entry) return;
-  close();
   const deviceId = ctx.deviceId();
   if (!deviceId) { ctx.say('Winify device not ready'); return; }
   try {
@@ -517,6 +517,7 @@ export function init(c) {
     defaultWidth: WIDTH,
     open, close: () => close(), isOpen,
     element: () => el,
+    getRect: () => (el ? { x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight } : null),
     setRect: (rect) => { if (el) { place(el, rect); renderList(); } },
   });
   document.addEventListener('click', onClickCapture, true);

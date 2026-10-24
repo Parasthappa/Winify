@@ -95,13 +95,13 @@ async function search(query) {
   render();
 }
 
-// Start playback on Winify and close the window. `what` names it for the log.
+// Start playback on Winify; the window stays open (panels close only with x
+// or Escape). `what` names it for the log.
 async function start(r, body, what) {
   if (!r) return;
   if (!r.playable) { flash('NOT PLAYABLE'); return; }
   const deviceId = ctx.deviceId();
   if (!deviceId) { flash('NOT READY'); ctx.say('Winify device not ready'); return; }
-  close();
   try {
     await ctx.api('PUT', '/me/player/play?device_id=' + encodeURIComponent(deviceId), body);
     ctx.log('jump to track: playing', what);
@@ -602,6 +602,7 @@ export function init(c, playlistModule) {
     defaultWidth: WIDTH,
     open, close: () => close(), isOpen,
     element: () => el,
+    getRect: () => (el ? { x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight } : null),
     setRect: (rect) => { if (el) { place(el, rect); drawnKey = null; render(); } },
   });
   document.addEventListener('keydown', onKeyDown);

@@ -31,7 +31,8 @@ h.open().then(async ({ win, js }) => {
   console.log('2. Enter plays the track within its album');
   await key('Down'); await key('Down'); await take(); await key('Return'); await h.wait(900);
   cs = await take(); let play = cs.find((c) => c[0] === 'api:play'); let body = play && JSON.parse(play[2]);
-  check('Enter -> play track 3 (within its album, for Autoplay after) on Winify, dialog closes', !(await S()).open && play && play[1] === 'winify-dev' && JSON.stringify(body) === JSON.stringify({ context_uri: 'spotify:album:a1', offset: { uri: 'spotify:track:2002' } }), JSON.stringify(cs));
+  check('Enter -> play track 3 (within its album, for Autoplay after) on Winify, the panel stays open', (await S()).open && play && play[1] === 'winify-dev' && JSON.stringify(body) === JSON.stringify({ context_uri: 'spotify:album:a1', offset: { uri: 'spotify:track:2002' } }), JSON.stringify(cs));
+  await js('WinifySearch.close()'); await h.wait(200);
   const t0 = Date.now(); let pls; do { pls = await js('WinifyPlaylist.state()'); await h.wait(150); } while ((pls.current !== 'Artist 2002 - Song 2002') && Date.now() - t0 < 6000);
   check('playlist window shows that track highlighted', pls.current === 'Artist 2002 - Song 2002' && pls.mode === 'single' && pls.count === 2, JSON.stringify(pls));
 
@@ -113,12 +114,14 @@ h.open().then(async ({ win, js }) => {
   r = await centre('.winify-search .ws-row', 3);
   press(r.x, r.y, 'left', 1); press(r.x, r.y, 'left', 2); await h.wait(900);
   cs = await take(); play = cs.find((c) => c[0] === 'api:play'); body = play && JSON.parse(play[2]);
-  check('from ADD, double-click plays (track 4, then Autoplay) and closes', body && body.offset && body.offset.uri === 'spotify:track:2003' && !cs.some((c) => c[0] === 'api:addToQueue') && !(await S()).open, JSON.stringify(cs));
+  check('from ADD, double-click plays (track 4, then Autoplay) and stays open', body && body.offset && body.offset.uri === 'spotify:track:2003' && !cs.some((c) => c[0] === 'api:addToQueue') && (await S()).open, JSON.stringify(cs));
+  await js('WinifySearch.close()'); await h.wait(200);
   await h.click(win, js, '#playlist-window', 0.5, 0.02); await h.wait(200);
   await h.click(win, js, '#playlist-add-menu'); await h.wait(500); await type('road'); await h.wait(900); await take();
   await key('Return'); await h.wait(900);
   cs = await take(); play = cs.find((c) => c[0] === 'api:play'); body = play && JSON.parse(play[2]);
-  check('from ADD, Enter plays (track 1) and closes', body && body.offset && body.offset.uri === 'spotify:track:2000' && !cs.some((c) => c[0] === 'api:addToQueue') && !(await S()).open, JSON.stringify(cs));
+  check('from ADD, Enter plays (track 1) and stays open', body && body.offset && body.offset.uri === 'spotify:track:2000' && !cs.some((c) => c[0] === 'api:addToQueue') && (await S()).open, JSON.stringify(cs));
+  await js('WinifySearch.close()'); await h.wait(200);
 
   const loud = JSON.parse(await js('JSON.stringify(loud)')); const errs = JSON.parse(await js('JSON.stringify(errors)'));
   check('no alerts, downloads, file prompts or new windows', loud.length === 0, JSON.stringify(loud));

@@ -61,8 +61,9 @@ h.open().then(async ({ win, js }) => {
     await drag(grip.x + 10, grip.y + 7, 0, 20 + 13 + 16 * 13 + 38 - sz.h);
     g = await grab('.winify-search .ws-top'); await drag(g.x, g.y, 0, 2000);
     const last = await R('.winify-search .ws-row:nth-child(16) .ws-album-col');
-    win.webContents.sendInputEvent({ type: 'mouseMove', x: last.x + 20, y: last.y + 5 }); await h.wait(800);
-    tip = await R('.winify-tooltip'); const top2 = await R('.winify-search .ws-top');
+    win.webContents.sendInputEvent({ type: 'mouseMove', x: last.x + 20, y: last.y + 5 });
+    tip = null; for (let i = 0; i < 30 && !tip; i++) { await h.wait(100); tip = await R('.winify-tooltip'); }   // its 0.5 s delay, under load
+    const top2 = await R('.winify-search .ws-top');
     // The panel's own 38 px bottom bar leaves room under its last row: the tooltip goes there, on screen.
     check('at the bottom of the screen: the tooltip stays on screen, clear of the title bar', !!tip && tip.b <= (await js('innerHeight')) && tip.y >= top2.b && (tip.y >= last.b || tip.b <= last.y), JSON.stringify({ last, tip, title: top2 }));
     check('no browser tooltips (title attributes) in the window', (await js(`document.querySelectorAll('.winify-search [title]').length`)) === 0);
