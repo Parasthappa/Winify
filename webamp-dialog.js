@@ -1,61 +1,33 @@
 /* Window behaviour shared by Winify's own windows (the playlist picker, Jump
- * to track, and any later ones).
+ * to track, lyrics).
  *
  * Webamp cannot host them: it renders its four built-in windows from a fixed
  * list and throws on any other. So they get the same behaviour here instead:
  *
- *   placement   Where it was last left, else docked to the right of the
- *               player, top-aligned with the main window. Never over the
- *               main window's controls. Winify's window grows to make room.
  *   dragging    By the title bar, snapping like Webamp's windows do (its
- *               15px rules, to Webamp's windows and to the window edges),
- *               and never past the edges of Winify's window.
- *   memory      The position is remembered per window, across opens and
- *               launches.
+ *               15px rules, to Webamp's windows, the other panels and the
+ *               window edges), and never past the edges of Winify's window.
+ *   resizing    By a grip in the bottom-right corner, like the playlist
+ *               window's, down to a minimum size.
  *   tooltips    Full text of a truncated cell, shown below its row (or
  *               above), but never over the title bar, which is for dragging.
+ *
+ * Where they open, and what is remembered, is the panel manager's
+ * (webamp-panels.js): a finished drag or resize is reported to it.
  */
 
-import { makeRoom } from './webamp-room.js';
-
-const STORE_KEY = 'winify.dialogs.v1';
 const SNAP_DISTANCE = 15;           // Webamp's own (snapUtils.ts)
 const TOOLTIP_DELAY_MS = 500;
-const WEBAMP_WINDOWS = ['#main-window', '#equalizer-window', '#playlist-window'];
-
-// ---- Remembered positions ------------------------------------------------------
-
-function readPositions() {
-  try { return JSON.parse(localStorage.getItem(STORE_KEY)) || {}; } catch (e) { return {}; }
-}
-
-function savePosition(id, x, y) {
-  const all = readPositions();
-  all[id] = { x: Math.round(x), y: Math.round(y) };
-  try { localStorage.setItem(STORE_KEY, JSON.stringify(all)); } catch (e) { /* storage unavailable */ }
-}
+const WEBAMP_WINDOWS = ['#main-window', '#equalizer-window', '#playlist-window', '.gen-window',
+  '.winify-picker', '.winify-search', '.winify-lyrics'];
 
 // ---- Geometry -------------------------------------------------------------------
 
-function webampBoxes() {
+function webampBoxes(except) {
   return WEBAMP_WINDOWS
     .map((sel) => document.querySelector('#webamp ' + sel))
-    .filter(Boolean)
+    .filter((el) => el && el !== except)
     .map((el) => { const r = el.getBoundingClientRect(); return { x: r.left, y: r.top, width: r.width, height: r.height }; });
-}
-
-const overlaps = (a, b) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
-
-// Docked to the right of the player, top-aligned with the main window.
-function defaultSpot() {
-  const boxes = webampBoxes();
-  if (!boxes.length) return { x: 0, y: 0 };
-  const main = document.querySelector('#webamp #main-window');
-  const mr = main ? main.getBoundingClientRect() : null;
-  return {
-    x: Math.max(...boxes.map((b) => b.x + b.width)),
-    y: mr ? mr.top : Math.min(...boxes.map((b) => b.y)),
-  };
 }
 
 // Webamp's snap: edge to edge, or edge aligned, with any box it overlaps
@@ -81,9 +53,9 @@ function snapTo(a, b) {
   return { x, y };
 }
 
-function snapped(box) {
+function snapped(box, except) {
   let { x, y } = box;
-  for (const other of webampBoxes()) {
+  for (const other of webampBoxes(except)) {
     const s = snapTo(box, other);
     if (s.x !== undefined) x = s.x;
     if (s.y !== undefined) y = s.y;
@@ -106,30 +78,13 @@ function clamped(x, y, width, height) {
   };
 }
 
-// ---- Placement ---------------------------------------------------------------------
-
-// Where a window opens, with Winify's window grown to fit it there. Resolves
-// to { x, y, release }; release() gives the room back when it closes.
-export async function placeDialog(id, width, height) {
-  let spot = readPositions()[id];
-  const mainEl = document.querySelector('#webamp #main-window');
-  const r = mainEl && mainEl.getBoundingClientRect();
-  const main = r && { x: r.left, y: r.top, width: r.width, height: r.height };
-  // A remembered spot is used unless it would cover the main window (the
-  // player may have grown under it since, say by doubling).
-  if (!spot || (main && overlaps({ x: spot.x, y: spot.y, width, height }, main))) {
-    spot = defaultSpot();
-  }
-  const release = await makeRoom(spot.x + width, spot.y + height);
-  const at = clamped(spot.x, spot.y, width, height);   // the display may be too small
-  return { x: at.x, y: at.y, release };
-}
-
 // ---- Dragging ------------------------------------------------------------------------
 
+const rectOf = (el) => ({ x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight });
+
 // Drag `el` by `handle`; controls inside the handle (the close button) still
-// click. The final position is remembered under `id`.
-export function makeDraggable(el, handle, id, { ignore = '' } = {}) {
+// click. onMoved(rect) once a drag has actually moved it.
+export function makeDraggable(el, handle, { ignore = '', onMoved } = {}) {
   handle.style.cursor = 'default';
   handle.addEventListener('pointerdown', (e) => {
     if (e.button !== 0 || (ignore && e.target.closest(ignore))) return;
@@ -142,23 +97,79 @@ export function makeDraggable(el, handle, id, { ignore = '' } = {}) {
     const width = el.offsetWidth;
     const height = el.offsetHeight;
     const move = (ev) => {
+      if (ev.buttons === 0) { up(); return; }   // let go where the release was not seen
       const box = { x: from.x + ev.clientX - startX, y: from.y + ev.clientY - startY, width, height };
-      const s = snapped(box);
+      const s = snapped(box, el);
       const c = clamped(s.x, s.y, width, height);
       el.style.left = c.x + 'px';
       el.style.top = c.y + 'px';
     };
+    let done = false;
     const up = () => {
+      if (done) return;
+      done = true;
       handle.removeEventListener('pointermove', move);
       handle.removeEventListener('pointerup', up);
       handle.removeEventListener('pointercancel', up);
-      savePosition(id, el.offsetLeft, el.offsetTop);
+      handle.removeEventListener('lostpointercapture', up);
+      if ((el.offsetLeft !== from.x || el.offsetTop !== from.y) && onMoved) onMoved(rectOf(el));
     };
     handle.addEventListener('pointermove', move);
     handle.addEventListener('pointerup', up);
     handle.addEventListener('pointercancel', up);
+    handle.addEventListener('lostpointercapture', up);
   });
 }
+
+// ---- Resizing ----------------------------------------------------------------------
+
+// A grip in `el`'s bottom-right corner, drawn from the skin's own playlist
+// corner. onResize() while it moves, onResized(rect) when let go.
+export function makeResizable(el, { minWidth, minHeight, onResize, onResized }) {
+  const grip = document.createElement('div');
+  grip.className = 'playlist-bottom-right winify-grip';
+  el.appendChild(grip);
+  grip.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    hideTooltip();
+    grip.setPointerCapture(e.pointerId);
+    const sx = e.clientX;
+    const sy = e.clientY;
+    const from = rectOf(el);
+    const move = (ev) => {
+      if (ev.buttons === 0) { up(); return; }   // let go where the release was not seen
+      const w = Math.max(minWidth, Math.min(from.w + ev.clientX - sx, window.innerWidth - from.x));
+      const h = Math.max(minHeight, Math.min(from.h + ev.clientY - sy, window.innerHeight - from.y));
+      el.style.width = Math.round(w) + 'px';
+      el.style.height = Math.round(h) + 'px';
+      if (onResize) onResize();
+    };
+    let done = false;
+    const up = () => {
+      if (done) return;
+      done = true;
+      grip.removeEventListener('pointermove', move);
+      grip.removeEventListener('pointerup', up);
+      grip.removeEventListener('pointercancel', up);
+      grip.removeEventListener('lostpointercapture', up);
+      const now = rectOf(el);
+      if ((now.w !== from.w || now.h !== from.h) && onResized) onResized(now);
+    };
+    grip.addEventListener('pointermove', move);
+    grip.addEventListener('pointerup', up);
+    grip.addEventListener('pointercancel', up);
+    grip.addEventListener('lostpointercapture', up);
+  });
+  return grip;
+}
+
+// The grip: the corner of the skin's playlist bitmap, where its own grip is.
+export const GRIP_CSS = `
+  #webamp .winify-grip.playlist-bottom-right { position: absolute; right: 0; bottom: 0; width: 20px; height: 20px;
+    background-position: right bottom; cursor: nwse-resize; z-index: 2; }
+`;
 
 // ---- Tooltips ------------------------------------------------------------------------
 // The browser's own tooltips appear wherever the system puts them, which can

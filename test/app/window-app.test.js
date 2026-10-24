@@ -94,7 +94,7 @@ app.whenReady().then(async () => {
   check('...then through again', passing() === true);
   await js('WinifySearch.open()'); await wait(500);
   await move(5, 5);
-  check('search open: its backdrop takes a click outside it (closes it, as before)', passing() === false);
+  check('search open: the empty parts still pass clicks through (no backdrop; panels stay open)', passing() === true && (await js('WinifySearch.isOpen()')));
   await js('WinifySearch.close()'); await wait(300); await move(6, 6);
 
   console.log('3b. Click-through without forwarded mouse moves (another app active, after a restore)');
@@ -180,8 +180,9 @@ app.whenReady().then(async () => {
 
   console.log('8. Milkdrop full screen');
   await js('WinifyMilkdrop.toggle()'); for (let i = 0; i < 60 && (await js('WinifyMilkdrop.state().index')) == null; i++) await wait(150);
-  const md = await R('#webamp .gen-window'); const pm = await R('#webamp #main-window');
-  check('the player is at the right edge: Milkdrop opens docked to its left, on screen', md && md.r === pm.x && md.x >= 0 && md.y === pm.y, JSON.stringify({ md, pm }));
+  const md = await R('#webamp .gen-window'); const pm = await R('#webamp #main-window'); const pp = await R('#webamp #playlist-window');
+  check('the player is at the right edge: Milkdrop goes to the second row, under the playlist, on screen; the player does not move',
+    md && md.y === pp.b && md.r <= area.width && md.b <= area.height && pm.x === area.width - 275, JSON.stringify({ md, pm, pp }));
   await js('WinifyWebamp.getInstance().store.dispatch({ type: "SET_MILKDROP_FULLSCREEN", enabled: true })');
   for (let i = 0; i < 40 && !win.isSimpleFullScreen(); i++) await wait(100);
   await wait(800);

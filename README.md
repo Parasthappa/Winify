@@ -160,6 +160,21 @@ the playlist window's **LYRIC** button. The lyrics window follows the music.
 Lyrics come from [LRCLIB](https://lrclib.net), a free community lyrics
 library; not every song has them.
 
+### The side panels
+
+The playlist picker, Jump to track, Lyrics and Milkdrop open as panels beside
+the player, as many at once as you like.
+
+- They line up to the right of the main and playlist windows, in the order
+  you open them. When the screen runs out of room, they start a second row
+  under the playlist window. Closing one moves the others up to fill the gap.
+- Drag a panel by its title bar, or resize it from its bottom-right corner.
+  Winify then remembers where you put it and opens it there next time.
+- Each stays open until you close it with its **x** or **Escape** (Escape
+  closes the panel you last clicked or typed in).
+- The panels you had open come back when you start Winify again.
+- **Reset window layout** (menu-bar icon) lines them all up again.
+
 ### Winify on your screen
 
 Winify has no window frame of its own: its windows sit straight on your

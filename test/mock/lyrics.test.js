@@ -132,7 +132,7 @@ h.open().then(async ({ win, js }) => {
   win.webContents.sendInputEvent({ type: 'mouseUp', x: sx + 30, y: sy + 36, button: 'left', clickCount: 1 }); await h.wait(300);
   const moved = await box('.winify-lyrics');
   check('dragged by its title bar', Math.abs(moved.x - before.x - 30) <= 16 && Math.abs(moved.y - before.y - 36) <= 16, JSON.stringify([before, moved]));
-  const saved = JSON.parse(await js(`localStorage.getItem('winify.dialogs.v1')`)).lyrics;
+  const saved = JSON.parse(await js(`localStorage.getItem('winify.panels.v1')`)).placed.lyrics;
   check('position remembered', saved && Math.abs(saved.x - moved.x) < 1 && Math.abs(saved.y - moved.y) < 1, JSON.stringify(saved));
   await js('location.reload()'); await h.wait(500);
   while (!(await js('window.mounted === true').catch(() => false))) await h.wait(100);

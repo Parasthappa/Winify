@@ -63,13 +63,14 @@ h.open().then(async ({ win, js }) => {
   check('Escape closes, no change', !p.open && !plays(cs).length && (await ctx()) === before, JSON.stringify(cs.map((x) => x[0])));
   await key('L'); await h.wait(800); p = await P();
   check('L opens it (no alert); LIST OPTS is VIZ now', p.open && !(await js('loud.some(l => l[0] === "alert")')), JSON.stringify(await js('loud')));
-  // Click a playback control that lies outside the picker (the backdrop covers it).
+  // Click a playback control that lies outside the picker: panels no longer close on a click away.
   const target = await js(`(() => { const pk = document.querySelector('.winify-picker').getBoundingClientRect();
     for (const sel of ['#play', '#next', '#previous', '.playlist-play-button', '#position']) { const b = document.querySelector(sel).getBoundingClientRect(); const x = b.left + b.width / 2, y = b.top + b.height / 2;
       if (x < pk.left || x > pk.right || y < pk.top || y > pk.bottom) return sel; } return null; })()`);
   if (!target) throw new Error('every playback control is under the picker');
   await c(target, 0.5, 0.5); await h.wait(500); p = await P(); cs = await take();
-  check('clicking away closes it; the click does not reach the control underneath (' + target + ')', !p.open && !cs.some((x) => /^(play|api:play|transferPlayback)$/.test(x[0])) && (await ctx()) === before, JSON.stringify(cs.map((x) => x[0])));
+  check('clicking away leaves it open; the click reaches the control (' + target + ')', p.open && cs.some((x) => /^(play|pause|nextTrack|previousTrack|seek|api:play|api:pause|transferPlayback)$/.test(x[0])), JSON.stringify(cs.map((x) => x[0])));
+  await js('WinifyPicker.close()'); await h.wait(200);
   await c('#title-bar', 0.3, 0.5); await h.wait(200);
   await c('#title-bar', 0.3, 0.5, 'right'); await h.wait(300);
   const hover = await js(`(() => { const parent = [...document.querySelectorAll('#webamp-context-menu li.parent')].find(p => [...p.querySelectorAll(':scope > ul > li')].some(l => l.firstChild && l.firstChild.textContent === 'File...')); const b = parent.getBoundingClientRect(); return { x: Math.round(b.left + 20), y: Math.round(b.top + b.height / 2) }; })()`);

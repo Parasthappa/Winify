@@ -17,6 +17,7 @@ import { open as openPicker } from './webamp-picker.js';
 import * as inert from './webamp-inert.js';
 import * as vis from './webamp-vis.js';
 import * as milkdrop from './webamp-milkdrop.js';
+import * as panels from './webamp-panels.js';
 
 let webamp = null;
 let mounted = false;
@@ -235,7 +236,8 @@ async function applyDefaultLayout(container) {
   const state = webamp.store.getState();
   for (const id of LAYOUT_WINDOWS) {
     const w = state.windows.genWindows[id];
-    const wantOpen = id !== 'equalizer' && id !== 'milkdrop';
+    // Milkdrop is a side panel: left open or closed (the panels restack).
+    const wantOpen = id === 'milkdrop' ? w.open : id !== 'equalizer';
     if (w.open !== wantOpen) webamp.store.dispatch({ type: 'TOGGLE_WINDOW', windowId: id });
     if (w.shade) webamp.store.dispatch({ type: 'TOGGLE_WINDOW_SHADE_MODE', windowId: id });
   }
@@ -335,31 +337,6 @@ function placeOpenedEqualizer() {
   }
 }
 
-// Opening Milkdrop puts it where it was last left, docked to the player; if
-// the player has moved since, or the spot is off the display or on another
-// window, it docks to the right of the player, top-aligned with the main
-// window (or to its left, if the right has no room). Winify's window then
-// grows to take it in.
-function placeOpenedMilkdrop() {
-  const layout = currentLayout();
-  const problem = layoutProblem(layout);
-  if ((problem && /milkdrop/.test(problem)) || !touchesAnother(layout, 'milkdrop')) {
-    const sizes = windowSizes(layout);
-    const p = layout.positions;
-    const others = shownWindows(layout).filter((id) => id !== 'milkdrop');
-    const right = Math.max(...others.map((id) => p[id].x + sizes[id].w));
-    const left = Math.min(...others.map((id) => p[id].x));
-    const room = SCREEN_WINDOW ? window.innerWidth : Infinity;   // a fitted window grows instead
-    const x = right + sizes.milkdrop.w <= room ? right : Math.max(0, left - sizes.milkdrop.w);
-    webamp.store.dispatch({
-      type: 'UPDATE_WINDOW_POSITIONS',
-      positions: { milkdrop: { x, y: p.main.y } },
-      absolute: true,
-    });
-    log('milkdrop docked to the right of the player', '(' + (problem || 'was not docked to the player') + ')');
-  }
-}
-
 // If Winify's window could not grow to fit the layout (a small display), slide
 // the whole group into the room there is, keeping it docked.
 async function keepOnScreen(container) {
@@ -427,8 +404,9 @@ async function restoreLayout(container) {
 // default: main and playlist, unshaded, with the equalizer closed.
 async function resetLayout() {
   try { localStorage.removeItem(LAYOUT_KEY); } catch (e) { /* storage unavailable */ }
-  if (!webamp || !mounted) { log('layout reset (applies at next sign-in)'); return; }
+  if (!webamp || !mounted) { panels.reset(); log('layout reset (applies at next sign-in)'); return; }
   await applyDefaultLayout(document.getElementById(mountedInto));
+  panels.reset();
   log('layout reset to default');
 }
 
@@ -460,7 +438,6 @@ function watchLayout(container) {
   };
   let shape = layoutShape();
   let eqOpen = currentLayout().open.equalizer;
-  let mdOpen = currentLayout().open.milkdrop;
   unsubscribeLayout = webamp.store.subscribe(() => {
     if (!webamp) return;
     // Noted before placing: placing dispatches, which comes back here.
@@ -468,10 +445,7 @@ function watchLayout(container) {
     const eqOpened = isOpen && !eqOpen;
     eqOpen = isOpen;
     if (eqOpened) placeOpenedEqualizer();
-    const isMdOpen = currentLayout().open.milkdrop;
-    const mdOpened = isMdOpen && !mdOpen;
-    mdOpen = isMdOpen;
-    if (mdOpened) placeOpenedMilkdrop();
+
     const nowShape = layoutShape();
     if (nowShape !== shape) {
       shape = nowShape;
@@ -535,6 +509,7 @@ async function doMount(containerId) {
   inert.attach(webamp);
   vis.attach(webamp);
   milkdrop.attach(webamp);
+  await panels.attach(webamp);
   log('rendered into #' + containerId, 'doubled =', isDoubled());
   return true;
 }
@@ -545,6 +520,7 @@ function unmount() {
   if (unsubscribeLayout) { unsubscribeLayout(); unsubscribeLayout = null; }
   document.removeEventListener('pointerdown', onPointerDown, true);
   document.removeEventListener('pointerup', onPointerUp, true);
+  panels.detach();
   milkdrop.detach();
   vis.detach();
   inert.detach();

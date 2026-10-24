@@ -56,11 +56,15 @@ h.open().then(async ({ win, js }) => {
     for (let i = 0; i < 30 && !tip; i++) { await h.wait(100); tip = await R('.winify-tooltip'); }
     const top = await R('.winify-search .ws-top');
     check('long album name: full text in a tooltip below its row', !!tip && tip.y >= cell.b && (await js(`document.querySelector('.winify-tooltip').textContent`)) === 'Insomniac (Deluxe Edition) - 25th Anniversary Remaster', JSON.stringify({ cell, tip }));
-    g = await grab('.winify-search .ws-top'); await drag(g.x, g.y, 0, 2000);   // to the bottom: no room below rows
+    // 16 rows high again (it is resizable), then to the bottom: no room below its last row.
+    const sz = await R('.winify-search'); const grip = await R('.winify-search .winify-grip');
+    await drag(grip.x + 10, grip.y + 7, 0, 20 + 13 + 16 * 13 + 38 - sz.h);
+    g = await grab('.winify-search .ws-top'); await drag(g.x, g.y, 0, 2000);
     const last = await R('.winify-search .ws-row:nth-child(16) .ws-album-col');
     win.webContents.sendInputEvent({ type: 'mouseMove', x: last.x + 20, y: last.y + 5 }); await h.wait(800);
     tip = await R('.winify-tooltip'); const top2 = await R('.winify-search .ws-top');
-    check('no room below: shown above its row, still clear of the title bar', !!tip && tip.b <= last.y && tip.y >= top2.b, JSON.stringify({ last, tip, title: top2 }));
+    // The panel's own 38 px bottom bar leaves room under its last row: the tooltip goes there, on screen.
+    check('at the bottom of the screen: the tooltip stays on screen, clear of the title bar', !!tip && tip.b <= (await js('innerHeight')) && tip.y >= top2.b && (tip.y >= last.b || tip.b <= last.y), JSON.stringify({ last, tip, title: top2 }));
     check('no browser tooltips (title attributes) in the window', (await js(`document.querySelectorAll('.winify-search [title]').length`)) === 0);
     win.webContents.sendInputEvent({ type: 'mouseMove', x: 5, y: 700 }); await h.wait(200);
     check('tooltip goes away when the pointer leaves', !(await R('.winify-tooltip')));

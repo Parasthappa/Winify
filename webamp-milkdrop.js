@@ -34,6 +34,7 @@
  */
 
 import * as yours from './webamp-milkdrop-presets.js';
+import * as panels from './webamp-panels.js';
 
 const log = (...args) => console.log('[winify/milkdrop]', ...args);
 
@@ -55,8 +56,9 @@ const IMMEDIATE = 0;
 const DEFAULT = 1;
 const USER_PRESET = 2;
 // The window's size when first opened, in Webamp's 25x29 px resize segments:
-// 400x290 px.
-export const DEFAULT_SIZE = [5, 6];
+// 400x377 px, the side panels' height (webamp-panels.js).
+export const DEFAULT_SIZE = [5, 9];
+const DEFAULT_WIDTH = 275 + 25 * DEFAULT_SIZE[0];
 
 let webamp = null;
 let unsubscribeStore = null;
@@ -701,6 +703,54 @@ function paintButton() {
   if (!button.title) button.title = 'Milkdrop visualizer';
 }
 
+// ---- As one of the side panels (webamp-panels.js) -----------------------------
+// Webamp sizes its windows in 25x29 px steps from 275x116, so a panel
+// rectangle is fitted to those (never taller than asked).
+
+const toSize = (w, h) => [Math.max(0, Math.round((w - 275) / 25)), Math.max(0, Math.floor((h - 116) / 29))];
+const fromSize = ([sw, sh]) => ({ w: 275 + 25 * sw, h: 116 + 29 * sh });
+
+function rect() {
+  const g = webamp.store.getState().windows.genWindows.milkdrop;
+  return Object.assign({ x: g.position.x, y: g.position.y }, fromSize(g.size || DEFAULT_SIZE));
+}
+
+function setRect(r) {
+  if (!webamp) return;
+  webamp.store.dispatch({ type: 'WINDOW_SIZE_CHANGED', windowId: 'milkdrop', size: toSize(r.w, r.h) });
+  webamp.store.dispatch({ type: 'UPDATE_WINDOW_POSITIONS', positions: { milkdrop: { x: r.x, y: r.y } }, absolute: true });
+}
+
+const asPanel = {
+  defaultWidth: DEFAULT_WIDTH,
+  fit: (r) => Object.assign({ x: r.x, y: r.y }, fromSize(toSize(r.w, r.h))),
+  open: () => { if (!isOpen()) toggle(); },
+  close: () => { if (isOpen()) toggle(); },
+  isOpen: () => isOpen(),
+  element: () => windowEl(),
+  setRect,
+};
+
+// A drag or resize that starts on the window itself places it by hand
+// (Webamp also moves it along with the main window it is docked to; that
+// does not count).
+let gesture = null;
+function onPanelPointerDown(e) {
+  if (!webamp || !(e.target instanceof Element) || !e.target.closest('#webamp .gen-window')) return;
+  if (!e.target.closest('#gen-resize-target, .gen-top, .draggable')) return;
+  gesture = rect();
+}
+function onPanelPointerUp() {
+  if (!gesture) return;
+  const from = gesture;
+  gesture = null;
+  requestAnimationFrame(() => {
+    if (!webamp || !isMounted()) return;
+    const now = rect();
+    if (now.x !== from.x || now.y !== from.y || now.w !== from.w || now.h !== from.h) panels.placed('milkdrop', now);
+  });
+}
+
 // ---- Lifecycle ---------------------------------------------------------------
 
 let styleEl = null;
@@ -728,6 +778,8 @@ export function attach(instance) {
     const open = isOpen();
     if (open !== wasOpen) {
       wasOpen = open;
+      // Where the panels put it: its own spot if placed by hand, else the stack.
+      if (open) { setRect(panels.opening('milkdrop')); panels.opened('milkdrop'); } else panels.closed('milkdrop');
       if (open) firstOpened();
       log(open ? 'window opened' : 'window closed - drawing stopped');
       if (window.spotify && window.spotify.milkdropStateChanged) window.spotify.milkdropStateChanged(open);
@@ -744,6 +796,9 @@ export function attach(instance) {
   });
   paintButton();
   relabelViz();
+  panels.register('milkdrop', asPanel);
+  document.addEventListener('pointerdown', onPanelPointerDown, true);
+  document.addEventListener('pointerup', onPanelPointerUp, true);
   const a = audio();
   if (a) {
     unsubscribeAudio = a.onEvent((event) => {
@@ -780,6 +835,8 @@ export function detach() {
   document.removeEventListener('contextmenu', onContextMenu, true);
   if (menuWatch) { menuWatch.disconnect(); menuWatch = null; }
   document.removeEventListener('dragover', onDragOver, true);
+  document.removeEventListener('pointerdown', onPanelPointerDown, true);
+  document.removeEventListener('pointerup', onPanelPointerUp, true);
   document.removeEventListener('drop', onDrop, true);
   checkedSkin = null;
   dropStages();

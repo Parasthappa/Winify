@@ -132,9 +132,7 @@ chassis, the Webamp windows and Winify's own windows are drawn in it.
   main process reading it every 60 ms while Winify is on screen
   (`watchCursor`; only changes are sent, and it looks again on show, restore,
   focus changes and display changes). `acceptFirstMouse` lets a click on a
-  Winify window act even while another app is in front. Search and the
-  picker have full-window backdrops, so while they are open a click outside
-  closes them instead.
+  Winify window act even while another app is in front.
 - **One display.** A window cannot span displays: Winify uses the main
   display (the one with the menu bar) and refits when displays change.
 - **Full screen** (Milkdrop): a transparent window cannot use macOS's own
@@ -165,8 +163,8 @@ chassis, the Webamp windows and Winify's own windows are drawn in it.
 | `webamp-picker.js` | The playlist picker |
 | `webamp-search.js` | Jump to track |
 | `webamp-lyrics.js` | The lyrics window and the LYRIC button |
-| `webamp-dialog.js` | Placement, dragging and tooltips for Winify's own windows |
-| `webamp-room.js` | Grew a fitted app window for those; nothing to do in the see-through window |
+| `webamp-dialog.js` | Dragging, resizing and tooltips for Winify's own windows |
+| `webamp-panels.js` | The side panels (picker, search, lyrics, Milkdrop): default stack, remembered placements, Escape |
 | `webamp-inert.js` | Keeps Webamp controls with no Spotify meaning quiet |
 | `webamp-vis.js` | Feeds Webamp's visualizer from the audio capture |
 | `webamp-milkdrop.js` | Webamp's Milkdrop window, drawn by Butterchurn from the audio capture; its menu, keys and the VIZ button |

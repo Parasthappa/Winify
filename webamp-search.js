@@ -13,15 +13,19 @@
  * Drawn with the active skin's own playlist bitmaps, like the playlist picker.
  */
 
-import { placeDialog, makeDraggable, attachTooltips, hideTooltip } from './webamp-dialog.js';
+import { makeDraggable, makeResizable, attachTooltips, hideTooltip, GRIP_CSS } from './webamp-dialog.js';
+import * as panels from './webamp-panels.js';
 
 const RESULTS_PER_REQUEST = 10;     // Spotify's search maximum since February 2026
 const PAGES = 3;                    // about 30 results
 const DEBOUNCE_MS = 300;
 const ROW = 13;                     // Webamp's playlist row height
-const VISIBLE_ROWS = 16;
 const WIDTH = 475;                  // the playlist window plus eight segments
-const HEIGHT = 20 + 13 + VISIBLE_ROWS * ROW + 14;
+// As many rows as its height holds (it is resizable).
+const visibleRows = () => {
+  const list = el && el.querySelector('.ws-list');
+  return Math.max(1, Math.floor(((list && list.clientHeight) || 16 * ROW) / ROW));
+};
 const FLASH_MS = 2500;
 
 let ctx = null;                     // { webamp, api, say, log, warn, deviceId, refreshSoon, now }
@@ -199,7 +203,6 @@ function injectStyles() {
   const style = document.createElement('style');
   style.id = 'winify-search-style';
   style.textContent = `
-    #webamp .winify-search-backdrop { position: fixed; inset: 0; z-index: 100000; }
     #webamp .winify-search { position: fixed; z-index: 100001; width: ${WIDTH}px; display: flex; flex-direction: column; image-rendering: pixelated; }
     #webamp .winify-search .ws-top { display: flex; height: 20px; }
     #webamp .winify-search .ws-top .playlist-top-left { width: 25px; height: 20px; flex: none; }
@@ -210,12 +213,12 @@ function injectStyles() {
     #webamp .winify-search .ws-close { position: absolute; right: 3px; top: 3px; width: 9px; height: 9px; cursor: pointer; }
     #webamp .winify-search .winify-search-chars { display: inline-flex; line-height: 0; }
     #webamp .winify-search .character { display: inline-block; width: 5px; height: 6px; }
-    #webamp .winify-search .ws-middle { display: flex; }
+    #webamp .winify-search .ws-middle { display: flex; flex: 1; min-height: 0; }
     #webamp .winify-search .ws-middle .playlist-middle-left { width: 12px; flex: none; background-repeat: repeat-y; }
     #webamp .winify-search .ws-middle .playlist-middle-right { width: 20px; flex: none; background-repeat: repeat-y; position: relative; }
     #webamp .winify-search .ws-body { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
     #webamp .winify-search .ws-query { height: 13px; box-sizing: border-box; border: 0; border-bottom: 1px solid; outline: none; padding: 0 2px; font-size: 9px; width: 100%; }
-    #webamp .winify-search .ws-list { height: ${VISIBLE_ROWS * ROW}px; overflow: hidden; font-size: 9px; }
+    #webamp .winify-search .ws-list { flex: 1; min-height: 0; overflow: hidden; font-size: 9px; }
     #webamp .winify-search .ws-row { height: ${ROW}px; line-height: ${ROW}px; display: flex; gap: 6px; padding: 0 2px; white-space: nowrap; cursor: default; user-select: none; }
     #webamp .winify-search .ws-row > span { overflow: hidden; text-overflow: ellipsis; }
     #webamp .winify-search .ws-title-col { flex: 0 0 34%; }
@@ -224,8 +227,10 @@ function injectStyles() {
     #webamp .winify-search .ws-time-col { flex: none; width: 28px; text-align: right; }
     #webamp .winify-search .ws-row.ws-unplayable { opacity: .5; }
     #webamp .winify-search .ws-handle { position: absolute; left: 5px; width: 8px; height: 18px; }
-    #webamp .winify-search .ws-bottom { display: flex; height: 14px; }
-    #webamp .winify-search .ws-bottom .playlist-bottom { flex: 1; background-position: left bottom; display: flex; align-items: center; justify-content: space-between; padding: 0 8px; }
+    #webamp .winify-search .ws-bottom { display: flex; height: 38px; } /* the skin's playlist bottom is 38 px (Webamp fixes it): inside the box, so the drawn edge is the box's */
+    #webamp .winify-search .ws-bottom .playlist-bottom { flex: 1; background-position: left bottom; display: flex; align-items: center; justify-content: space-between; padding: 0 24px 0 8px; }   /* clear of the grip */
+    #webamp .winify-search .ws-top, #webamp .winify-search .ws-bottom { flex: none; }
+    ${GRIP_CSS}
   `;
   document.head.appendChild(style);
 }
@@ -242,7 +247,8 @@ function render() {
   // Rebuild rows only when the results or the scroll change; a selection
   // change restyles in place, or a double-click's second click would land on
   // a new element and never register.
-  const key = scroll + '|' + results.length + '|' + (results[0] && results[0].uri) + '|' + status;
+  const VISIBLE_ROWS = visibleRows();
+  const key = scroll + '|' + VISIBLE_ROWS + '|' + results.length + '|' + (results[0] && results[0].uri) + '|' + status;
   if (key === drawnKey) { paintSelection(); return; }
   drawnKey = key;
   const st = skinStyle();
@@ -303,6 +309,7 @@ function flash(message) {
 function select(index) {
   if (!results.length || status) return;
   selected = Math.max(0, Math.min(results.length - 1, index));
+  const VISIBLE_ROWS = visibleRows();
   if (selected < scroll) scroll = selected;
   if (selected >= scroll + VISIBLE_ROWS) scroll = selected - VISIBLE_ROWS + 1;
   render();
@@ -325,8 +332,6 @@ function build(spot) {
   injectStyles();
   const st = skinStyle();
   const root = document.querySelector('#webamp');
-  const backdrop = document.createElement('div');
-  backdrop.className = 'winify-search-backdrop';
   const d = document.createElement('div');
   d.className = 'winify-search';
   d.setAttribute('role', 'dialog');
@@ -355,13 +360,13 @@ function build(spot) {
   const input = d.querySelector('.ws-query');
   Object.assign(input.style, { background: st.normalbg, color: st.normal, borderColor: st.normal, fontFamily: st.font });
 
-  d.style.left = spot.x + 'px';
-  d.style.top = spot.y + 'px';
-  makeDraggable(d, d.querySelector('.ws-top'), 'search', { ignore: '.ws-close' });
+  place(d, spot);
+  makeDraggable(d, d.querySelector('.ws-top'), { ignore: '.ws-close', onMoved: (rect) => panels.placed('search', rect) });
+  makeResizable(d, { minWidth: panels.MIN_SIZE.w, minHeight: panels.MIN_SIZE.h, onResize: () => render(),
+    onResized: (rect) => panels.placed('search', rect) });
   attachTooltips(d.querySelector('.ws-list'), d, d.querySelector('.ws-top'), '.ws-row > span', skinStyle);
 
-  backdrop.addEventListener('pointerdown', (e) => { e.preventDefault(); close(); });
-  d.querySelector('.ws-close').addEventListener('click', close);
+  d.querySelector('.ws-close').addEventListener('click', () => close());
   input.addEventListener('input', () => {
     clearTimeout(debounceTimer);
     const query = input.value.trim();
@@ -386,13 +391,19 @@ function build(spot) {
   });
   list.addEventListener('wheel', (e) => {
     e.preventDefault();
-    scroll = Math.max(0, Math.min(Math.max(0, results.length - VISIBLE_ROWS), scroll + Math.sign(e.deltaY) * 3));
+    scroll = Math.max(0, Math.min(Math.max(0, results.length - visibleRows()), scroll + Math.sign(e.deltaY) * 3));
     render();
   }, { passive: false });
   d.addEventListener('pointerdown', (e) => e.stopPropagation());
-  root.append(backdrop, d);
-  d.backdrop = backdrop;
+  root.append(d);
   return d;
+}
+
+function place(d, r) {
+  d.style.left = r.x + 'px';
+  d.style.top = r.y + 'px';
+  d.style.width = r.w + 'px';
+  d.style.height = r.h + 'px';
 }
 
 function onKey(e) {
@@ -400,8 +411,8 @@ function onKey(e) {
   const keys = {
     ArrowDown: () => select(selected + 1),
     ArrowUp: () => select(selected - 1),
-    PageDown: () => select(selected + VISIBLE_ROWS),
-    PageUp: () => select(selected - VISIBLE_ROWS),
+    PageDown: () => select(selected + visibleRows()),
+    PageUp: () => select(selected - visibleRows()),
     Enter: () => {
       if (status || !r) return;
       if (e.shiftKey) secondary(r);
@@ -423,14 +434,15 @@ export async function open() {
   if (el) {
     // Already open: keep the search.
     el.querySelector('.ws-query').focus();
+    panels.focus('search');
     return;
   }
-  // Where it was left, or beside the player; Winify's window grows to fit.
+  // Where it was placed by hand, or in the panels' default stack.
   opening = true;
-  const spot = await placeDialog('search', WIDTH, HEIGHT);
+  const spot = panels.opening('search');
   opening = false;
   el = build(spot);
-  el.releaseRoom = spot.release;
+  panels.opened('search');
   results = [];
   selected = 0;
   scroll = 0;
@@ -440,7 +452,8 @@ export async function open() {
   el.querySelector('.ws-query').focus();
 }
 
-export function close() {
+// keepRecord: signing out (search is still remembered as open).
+export function close({ keepRecord = false } = {}) {
   if (!el) return;
   clearTimeout(debounceTimer);
   clearTimeout(flashTimer);
@@ -448,10 +461,9 @@ export function close() {
   searchSeq++;
   closeMenu();
   hideTooltip();
-  el.backdrop.remove();
   el.remove();
-  el.releaseRoom();
   el = null;
+  if (!keepRecord) panels.closed('search');
 }
 
 export const isOpen = () => !!el;
@@ -586,6 +598,12 @@ const menuObserver = new MutationObserver(() => addJumpEntry(true));
 export function init(c, playlistModule) {
   ctx = c;
   playlist = playlistModule;
+  panels.register('search', {
+    defaultWidth: WIDTH,
+    open, close: () => close(), isOpen,
+    element: () => el,
+    setRect: (rect) => { if (el) { place(el, rect); drawnKey = null; render(); } },
+  });
   document.addEventListener('keydown', onKeyDown);
   document.addEventListener('click', onClickCapture, true);
   document.addEventListener('contextmenu', onContextMenu, true);
@@ -593,7 +611,7 @@ export function init(c, playlistModule) {
 }
 
 export function reset() {
-  close();
+  close({ keepRecord: true });
   closeMenu();
   document.removeEventListener('keydown', onKeyDown);
   document.removeEventListener('click', onClickCapture, true);

@@ -30,7 +30,7 @@ h.open().then(async ({ win, js }) => {
   check('opens, loads Butterchurn and the presets (293), a preset chosen', !!s && s.presets === 293, JSON.stringify(s));
   const startIndexes = [s && s.index];
   const m = await R('#webamp #main-window'); let w = await R('#webamp .gen-window');
-  check('docked to the right of the main window, top-aligned; 400 x 290', !!w && w.x === m.r && w.y === m.y && w.w === 400 && w.h === 290, JSON.stringify({ m, w }));
+  check('docked to the right of the main window, top-aligned; 400 x 377 (the main + playlist column\'s height)', !!w && w.x === m.r && w.y === m.y && w.w === 400 && w.h === 377, JSON.stringify({ m, w }));
   check('V button lit', await js(`document.querySelector('#webamp #button-v').classList.contains('selected')`));
   let ns = await until(`(() => { const e = document.querySelector('#webamp .winify-md-nosound'); return e && !e.hidden ? e.textContent : null; })()`, 3000);
   check('no capture: a calm message instead of a picture', !!ns && /No sound to show/.test(ns) && /BlackHole/.test(ns), ns);
@@ -112,7 +112,12 @@ h.open().then(async ({ win, js }) => {
   check('capture back: drawing again, on the new session, same preset', (await rendersIn(1000)) > 20 && (await S()).index === presetBefore);
 
   console.log('7. Resize, full screen');
-  await js('WinifyWebamp.getInstance().store.dispatch({ type: "WINDOW_SIZE_CHANGED", windowId: "milkdrop", size: [9, 9] })'); await h.wait(600);
+  // By its own resize grip (a user's resize: it is then placed by hand).
+  const gr = await R('#webamp .gen-window #gen-resize-target');
+  { const x0 = gr.x + 10, y0 = gr.y + 10;
+    win.webContents.sendInputEvent({ type: 'mouseMove', x: x0, y: y0 }); win.webContents.sendInputEvent({ type: 'mouseDown', x: x0, y: y0, button: 'left', clickCount: 1 }); await h.wait(60);
+    for (let k = 1; k <= 10; k++) { win.webContents.sendInputEvent({ type: 'mouseMove', x: x0 + k * 10, y: y0, modifiers: ['leftButtonDown'] }); await h.wait(30); }
+    win.webContents.sendInputEvent({ type: 'mouseUp', x: x0 + 100, y: y0, button: 'left', clickCount: 1 }); await h.wait(600); }
   w = await R('#webamp .gen-window');
   const cv = await js(`(() => { const c = document.querySelector('#webamp .gen-window canvas'); return [c.width, c.height]; })()`);
   check('resizable: 500 x 377, the picture follows', w.w === 500 && w.h === 377 && cv[0] > 400, JSON.stringify({ w, cv }));

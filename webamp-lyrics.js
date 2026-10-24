@@ -5,8 +5,10 @@
  * "The LYRIC button" below), and Option+3 (classic Winamp's Alt+3, file
  * info). It stays open while the player is used,
  * follows every track change (whatever started it), and is reopened at launch
- * if it was left open. Placement, dragging and the remembered position are
- * the shared custom-window behaviour (webamp-dialog.js).
+ * if it was left open. It is one of the side panels: where it opens, its
+ * size and what is remembered are the panel manager's (webamp-panels.js);
+ * dragging and resizing are the shared custom-window behaviour
+ * (webamp-dialog.js).
  *
  * Spotify's API has no lyrics; they come from LRCLIB (lrclib.net): /api/get
  * with the track's name, first artist, album and duration, and only if that
@@ -16,14 +18,12 @@
  * them for later. Results are cached per track for the session.
  */
 
-import { placeDialog, makeDraggable } from './webamp-dialog.js';
+import { makeDraggable, makeResizable, GRIP_CSS } from './webamp-dialog.js';
+import * as panels from './webamp-panels.js';
 
-const OPEN_KEY = 'winify.lyrics.open';
 const TITLE = 'Lyrics';
 const CREDIT = 'Lyrics from LRCLIB';
 const WIDTH = 300;
-const BODY_HEIGHT = 221;
-const HEIGHT = 20 + BODY_HEIGHT + 14;
 const WATCH_MS = 500;               // how often the current track is checked
 const DURATION_SLACK_S = 4;         // a search match this close is the same recording
 const BUSY_RETRY_MS = 2000;
@@ -156,7 +156,9 @@ function injectStyles() {
     #webamp .winify-lyrics .wl-close { position: absolute; right: 3px; top: 3px; width: 9px; height: 9px; cursor: pointer; }
     #webamp .winify-lyrics .wl-chars { display: inline-flex; line-height: 0; }
     #webamp .winify-lyrics .character { display: inline-block; width: 5px; height: 6px; }
-    #webamp .winify-lyrics .wl-middle { display: flex; height: ${BODY_HEIGHT}px; }
+    #webamp .winify-lyrics .wl-middle { display: flex; flex: 1; min-height: 0; }
+    #webamp .winify-lyrics .wl-top, #webamp .winify-lyrics .wl-bottom { flex: none; }
+    ${GRIP_CSS}
     #webamp .winify-lyrics .wl-middle .playlist-middle-left { width: 12px; flex: none; background-repeat: repeat-y; }
     #webamp .winify-lyrics .wl-middle .playlist-middle-right { width: 20px; flex: none; background-repeat: repeat-y; position: relative; }
     #webamp .winify-lyrics .wl-body { flex: 1; overflow-y: scroll; scrollbar-width: none; padding: 3px 4px 8px; font-size: 10px; line-height: 13px; cursor: default; user-select: text; }
@@ -167,8 +169,8 @@ function injectStyles() {
     #webamp .winify-lyrics .wl-note { opacity: .75; white-space: pre-wrap; }
     #webamp .winify-lyrics .wl-retry { cursor: pointer; text-decoration: underline; }
     #webamp .winify-lyrics .wl-handle { position: absolute; left: 5px; width: 8px; height: 18px; }
-    #webamp .winify-lyrics .wl-bottom { display: flex; height: 14px; }
-    #webamp .winify-lyrics .wl-bottom .playlist-bottom { flex: 1; background-position: left bottom; display: flex; align-items: center; padding: 0 8px; }
+    #webamp .winify-lyrics .wl-bottom { display: flex; height: 38px; } /* the skin's playlist bottom is 38 px (Webamp fixes it): inside the box, so the drawn edge is the box's */
+    #webamp .winify-lyrics .wl-bottom .playlist-bottom { flex: 1; background-position: left bottom; display: flex; align-items: center; padding: 0 24px 0 8px; }   /* clear of the grip */
   `;
   document.head.appendChild(style);
 }
@@ -200,9 +202,10 @@ function build(spot) {
   d.querySelector('.wl-bottom .playlist-bottom').appendChild(skinText(CREDIT));
   const body = d.querySelector('.wl-body');
   Object.assign(body.style, { background: st.normalbg, color: st.normal, fontFamily: st.font });
-  d.style.left = spot.x + 'px';
-  d.style.top = spot.y + 'px';
-  makeDraggable(d, d.querySelector('.wl-top'), 'lyrics', { ignore: '.wl-close' });
+  place(d, spot);
+  makeDraggable(d, d.querySelector('.wl-top'), { ignore: '.wl-close', onMoved: (rect) => panels.placed('lyrics', rect) });
+  makeResizable(d, { minWidth: panels.MIN_SIZE.w, minHeight: panels.MIN_SIZE.h, onResize: placeHandle,
+    onResized: (rect) => panels.placed('lyrics', rect) });
   d.querySelector('.wl-close').addEventListener('click', () => close(true));
   body.addEventListener('scroll', placeHandle, { passive: true });
   dragHandle(d.querySelector('.wl-handle'), body);
@@ -210,6 +213,13 @@ function build(spot) {
   d.addEventListener('pointerdown', (e) => e.stopPropagation());
   document.querySelector('#webamp').appendChild(d);
   return d;
+}
+
+function place(d, r) {
+  d.style.left = r.x + 'px';
+  d.style.top = r.y + 'px';
+  d.style.width = r.w + 'px';
+  d.style.height = r.h + 'px';
 }
 
 // The skin's scrollbar handle follows the text, and can be dragged.
@@ -322,36 +332,30 @@ function watch() {
 
 // ---- Open / close -------------------------------------------------------------------
 
-function remember(open) {
-  try { localStorage.setItem(OPEN_KEY, open ? '1' : '0'); } catch (e) { /* storage unavailable */ }
-}
-
 export async function open() {
   if (!ctx || opening) return;
-  if (el) return;
+  if (el) { panels.focus('lyrics'); return; }
   opening = true;
-  const spot = await placeDialog('lyrics', WIDTH, HEIGHT);
+  const spot = panels.opening('lyrics');
   opening = false;
-  if (!ctx) { spot.release(); return; }
   el = build(spot);
-  el.releaseRoom = spot.release;
-  remember(true);
+  panels.opened('lyrics');
   log('window opened at', spot.x + ',' + spot.y, 'in a', window.innerWidth + 'x' + window.innerHeight, 'window');
   shownUri = undefined;
   watch();
   watchTimer = setInterval(watch, WATCH_MS);
 }
 
-// `byUser`: closed on purpose, so it stays closed at the next launch.
-export function close(byUser) {
+// `false`: put away without closing it on purpose (signing out), so it is
+// still remembered as open.
+export function close(byUser = true) {
   if (!el) return;
   clearInterval(watchTimer);
   watchTimer = null;
   lookupSeq++;
   el.remove();
-  el.releaseRoom();
   el = null;
-  if (byUser) remember(false);
+  if (byUser !== false) panels.closed('lyrics');
   log('window closed');
 }
 
@@ -506,9 +510,13 @@ export function init(c) {
   checkedSkin = null;
   unsubscribeSkin = ctx.webamp.store.subscribe(relabel);
   relabel();
-  let wasOpen = false;
-  try { wasOpen = localStorage.getItem(OPEN_KEY) === '1'; } catch (e) { /* storage unavailable */ }
-  if (wasOpen) open();
+  // Reopened at launch, with the other panels, by the panel manager.
+  panels.register('lyrics', {
+    defaultWidth: WIDTH,
+    open, close: () => close(true), isOpen,
+    element: () => el,
+    setRect: (rect) => { if (el) { place(el, rect); placeHandle(); } },
+  });
 }
 
 export function reset() {

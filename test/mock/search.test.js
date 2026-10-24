@@ -61,7 +61,8 @@ h.open().then(async ({ win, js }) => {
   await key('J'); await h.wait(300); await take();
   const away = await js(`(() => { const d = document.querySelector('.winify-search').getBoundingClientRect(); return { x: Math.round(d.right + 20), y: Math.round(d.top + 20) }; })()`);
   press(Math.min(away.x, 1190), away.y); await h.wait(300);
-  check('clicking away closes with no change', !(await S()).open && (await take()).filter((c) => /^(api:play|api:addToQueue|play|pause)$/.test(c[0])).length === 0);
+  check('clicking away leaves it open (panels close with their own button or Escape), no change', (await S()).open && (await take()).filter((c) => /^(api:play|api:addToQueue|play|pause)$/.test(c[0])).length === 0);
+  await js('WinifySearch.close()'); await h.wait(200);
   await js('mock.active = "none"'); await h.wait(3500); await key('J'); await h.wait(300); await type('road'); await h.wait(900); await key('Return', ['shift']); await h.wait(600);
   check('queue with nothing playing: told so in the marquee, no pop-up', (await marquee()) === 'Nothing playing - press Play first', await marquee());
   await key('Escape'); await js('(mock.active = "winify", mock.setContext("spotify:playlist:big", 0), mock.setPaused(false))'); await h.wait(3000);

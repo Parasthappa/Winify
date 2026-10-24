@@ -20,16 +20,20 @@
  * straight away).
  */
 
-import { placeDialog, makeDraggable, attachTooltips, hideTooltip } from './webamp-dialog.js';
+import { makeDraggable, makeResizable, attachTooltips, hideTooltip, GRIP_CSS } from './webamp-dialog.js';
+import * as panels from './webamp-panels.js';
 
 const PAGE = 50;                    // the /me/playlists maximum
 const PAGE_GAP_MS = 2000;           // background pace: one page every 2 s
 const STALE_MS = 3 * 60 * 60 * 1000;   // refresh a remembered list after this
 const STORE_KEY = 'winify.picker.v1';
 const ROW = 13;                     // Webamp's playlist row height
-const VISIBLE_ROWS = 16;
 const WIDTH = 325;                  // the playlist window plus two segments
-const HEIGHT = 20 + 13 + VISIBLE_ROWS * ROW + 14;
+// As many rows as its height holds (it is resizable).
+const visibleRows = () => {
+  const list = el && el.querySelector('.wp-list');
+  return Math.max(1, Math.floor(((list && list.clientHeight) || 16 * ROW) / ROW));
+};
 // Only playlists Spotify will list in full: ones you own, plus collaborative
 // ones you contribute to. Spotify (February 2026) returns no tracks for
 // anyone else's playlist, so those would only ever show Up Next.
@@ -193,7 +197,6 @@ function injectStyles() {
   const style = document.createElement('style');
   style.id = 'winify-picker-style';
   style.textContent = `
-    #webamp .winify-picker-backdrop { position: fixed; inset: 0; z-index: 100000; }
     #webamp .winify-picker { position: fixed; z-index: 100001; width: ${WIDTH}px; display: flex; flex-direction: column; image-rendering: pixelated; }
     #webamp .winify-picker .wp-top { display: flex; height: 20px; }
     #webamp .winify-picker .wp-top .playlist-top-left { width: 25px; height: 20px; flex: none; }
@@ -204,21 +207,23 @@ function injectStyles() {
     #webamp .winify-picker .wp-close { position: absolute; right: 3px; top: 3px; width: 9px; height: 9px; cursor: pointer; }
     #webamp .winify-picker .winify-picker-chars { display: inline-flex; line-height: 0; }
     #webamp .winify-picker .character { display: inline-block; width: 5px; height: 6px; }
-    #webamp .winify-picker .wp-middle { display: flex; }
+    #webamp .winify-picker .wp-middle { display: flex; flex: 1; min-height: 0; }
     #webamp .winify-picker .wp-middle .playlist-middle-left { width: 12px; flex: none; background-repeat: repeat-y; }
     #webamp .winify-picker .wp-middle .playlist-middle-right { width: 20px; flex: none; background-repeat: repeat-y; position: relative; }
     #webamp .winify-picker .wp-body { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
     #webamp .winify-picker .wp-filter { height: 13px; box-sizing: border-box; border: 0; border-bottom: 1px solid; outline: none; padding: 0 2px; font-size: 9px; width: 100%; }
-    #webamp .winify-picker .wp-list { height: ${VISIBLE_ROWS * ROW}px; overflow: hidden; font-size: 9px; }
+    #webamp .winify-picker .wp-list { flex: 1; min-height: 0; overflow: hidden; font-size: 9px; }
     #webamp .winify-picker .wp-row { height: ${ROW}px; line-height: ${ROW}px; display: flex; padding: 0 2px; white-space: nowrap; cursor: default; user-select: none; }
     #webamp .winify-picker .wp-row .wp-name { flex: 1; overflow: hidden; text-overflow: ellipsis; }
     #webamp .winify-picker .wp-row .wp-count { flex: none; padding-left: 6px; }
     #webamp .winify-picker .wp-handle { position: absolute; left: 5px; width: 8px; height: 18px; }
-    #webamp .winify-picker .wp-bottom { display: flex; height: 14px; }
-    #webamp .winify-picker .wp-bottom .playlist-bottom { flex: 1; background-position: left bottom; display: flex; align-items: center; justify-content: space-between; padding: 0 8px; }
+    #webamp .winify-picker .wp-bottom { display: flex; height: 38px; } /* the skin's playlist bottom is 38 px (Webamp fixes it): inside the box, so the drawn edge is the box's */
+    #webamp .winify-picker .wp-bottom .playlist-bottom { flex: 1; background-position: left bottom; display: flex; align-items: center; justify-content: space-between; padding: 0 24px 0 8px; }   /* clear of the grip */
     #webamp .winify-picker .wp-refresh { cursor: pointer; padding: 2px 3px; border: 1px solid transparent; }
     #webamp .winify-picker .wp-refresh:hover { border-color: currentColor; }
     #webamp .winify-picker .wp-refresh.wp-busy { opacity: .45; cursor: default; }
+    #webamp .winify-picker .wp-top, #webamp .winify-picker .wp-bottom { flex: none; }
+    ${GRIP_CSS}
   `;
   document.head.appendChild(style);
 }
@@ -238,7 +243,8 @@ function paintSelection() {
 
 function renderList() {
   if (!el) return;
-  const key = scroll + '|' + shown.length + '|' + (shown[0] && shown[0].uri) + '|' + rows.length;
+  const VISIBLE_ROWS = visibleRows();
+  const key = scroll + '|' + VISIBLE_ROWS + '|' + shown.length + '|' + (shown[0] && shown[0].uri) + '|' + rows.length;
   if (key === drawnKey) { paintSelection(); return; }
   drawnKey = key;
   const st = skinStyle();
@@ -296,6 +302,7 @@ function renderList() {
 
 function select(index) {
   if (!shown.length) return;
+  const VISIBLE_ROWS = visibleRows();
   selected = Math.max(0, Math.min(shown.length - 1, index));
   if (selected < scroll) scroll = selected;
   if (selected >= scroll + VISIBLE_ROWS) scroll = selected - VISIBLE_ROWS + 1;
@@ -315,8 +322,6 @@ function build(spot) {
   injectStyles();
   const st = skinStyle();
   const root = document.querySelector('#webamp');
-  const backdrop = document.createElement('div');
-  backdrop.className = 'winify-picker-backdrop';
   const p = document.createElement('div');
   p.className = 'winify-picker';
   p.setAttribute('role', 'dialog');
@@ -351,13 +356,13 @@ function build(spot) {
   const filter = p.querySelector('.wp-filter');
   Object.assign(filter.style, { background: st.normalbg, color: st.normal, borderColor: st.normal, fontFamily: st.font });
 
-  p.style.left = spot.x + 'px';
-  p.style.top = spot.y + 'px';
-  makeDraggable(p, p.querySelector('.wp-top'), 'picker', { ignore: '.wp-close' });
+  place(p, spot);
+  makeDraggable(p, p.querySelector('.wp-top'), { ignore: '.wp-close', onMoved: (rect) => panels.placed('picker', rect) });
+  makeResizable(p, { minWidth: panels.MIN_SIZE.w, minHeight: panels.MIN_SIZE.h, onResize: () => renderList(),
+    onResized: (rect) => panels.placed('picker', rect) });
   attachTooltips(p.querySelector('.wp-list'), p, p.querySelector('.wp-top'), '.wp-name', skinStyle);
 
-  backdrop.addEventListener('pointerdown', (e) => { e.preventDefault(); close(); });
-  p.querySelector('.wp-close').addEventListener('click', close);
+  p.querySelector('.wp-close').addEventListener('click', () => close());
   filter.addEventListener('input', applyFilter);
   filter.addEventListener('keydown', onKey);
   const list = p.querySelector('.wp-list');
@@ -371,7 +376,7 @@ function build(spot) {
   });
   list.addEventListener('wheel', (e) => {
     e.preventDefault();
-    const overflow = Math.max(0, shown.length - VISIBLE_ROWS);
+    const overflow = Math.max(0, shown.length - visibleRows());
     scroll = Math.max(0, Math.min(overflow, scroll + Math.sign(e.deltaY) * 3));
     renderList();
   }, { passive: false });
@@ -379,9 +384,15 @@ function build(spot) {
   // Keep clicks inside from reaching Webamp's windows underneath.
   p.addEventListener('pointerdown', (e) => e.stopPropagation());
 
-  root.append(backdrop, p);
-  p.backdrop = backdrop;
+  root.append(p);
   return p;
+}
+
+function place(p, r) {
+  p.style.left = r.x + 'px';
+  p.style.top = r.y + 'px';
+  p.style.width = r.w + 'px';
+  p.style.height = r.h + 'px';
 }
 
 function dragHandle(handle, track) {
@@ -391,7 +402,7 @@ function dragHandle(handle, track) {
     const move = (ev) => {
       const r = track.getBoundingClientRect();
       const f = Math.max(0, Math.min(1, (ev.clientY - r.top - 9) / (r.height - 18)));
-      scroll = Math.round(f * Math.max(0, shown.length - VISIBLE_ROWS));
+      scroll = Math.round(f * Math.max(0, shown.length - visibleRows()));
       renderList();
     };
     const up = () => {
@@ -407,8 +418,8 @@ function onKey(e) {
   const keys = {
     ArrowDown: () => select(selected + 1),
     ArrowUp: () => select(selected - 1),
-    PageDown: () => select(selected + VISIBLE_ROWS),
-    PageUp: () => select(selected - VISIBLE_ROWS),
+    PageDown: () => select(selected + visibleRows()),
+    PageUp: () => select(selected - visibleRows()),
     Enter: () => pick(shown[selected]),
     Escape: () => close(),
   };
@@ -425,13 +436,13 @@ let opening = false;
 
 export async function open() {
   if (!ctx || opening) return;
-  if (el) { el.querySelector('.wp-filter').focus(); return; }
-  // Where it was left, or beside the player; Winify's window grows to fit.
+  if (el) { el.querySelector('.wp-filter').focus(); panels.focus('picker'); return; }
+  // Where it was placed by hand, or in the panels' default stack.
   opening = true;
-  const spot = await placeDialog('picker', WIDTH, HEIGHT);
+  const spot = panels.opening('picker');
   opening = false;
   el = build(spot);
-  el.releaseRoom = spot.release;
+  panels.opened('picker');
   rows = [];
   shown = [];
   selected = 0;
@@ -447,14 +458,14 @@ export async function open() {
   if (!lib || !lib.complete || Date.now() - lib.at > STALE_MS) read(!lib || lib.complete);
 }
 
-export function close() {
+// keepRecord: signing out (the picker is still remembered as open).
+export function close({ keepRecord = false } = {}) {
   if (!el) return;
   hideTooltip();
-  el.backdrop.remove();
   el.remove();
-  el.releaseRoom();
   el = null;
   drawnKey = null;
+  if (!keepRecord) panels.closed('picker');
 }
 
 export const isOpen = () => !!el;
@@ -502,12 +513,18 @@ function onKeyDown(e) {
 
 export function init(c) {
   ctx = c;
+  panels.register('picker', {
+    defaultWidth: WIDTH,
+    open, close: () => close(), isOpen,
+    element: () => el,
+    setRect: (rect) => { if (el) { place(el, rect); renderList(); } },
+  });
   document.addEventListener('click', onClickCapture, true);
   document.addEventListener('keydown', onKeyDown);
 }
 
 export function reset() {
-  close();
+  close({ keepRecord: true });
   document.removeEventListener('click', onClickCapture, true);
   document.removeEventListener('keydown', onKeyDown);
   ctx = null;
