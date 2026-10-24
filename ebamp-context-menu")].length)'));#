@@ -1,0 +1,2 @@
+  // EQ > Presets: opens nothing.
+  console.log('DEBUG eq before', await js('JSON.stringify(WinifyWebamp.getInstance().store.getState().windows.genWindows.equalizer)'), await js('JSON.stringify([...document.querySelectorAll("

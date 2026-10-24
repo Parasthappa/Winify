@@ -22,6 +22,7 @@
   var passing = null;          // what the main process was last told
   var buttons = 0;             // mouse buttons held
   var last = null;             // last pointer position
+  var realMouseIgnored = false; // tests: only the main process's readings count
 
   function overSomething(x, y) {
     var el = document.elementFromPoint(x, y);
@@ -38,6 +39,7 @@
   }
 
   document.addEventListener('mousemove', function (e) {
+    if (realMouseIgnored) return;
     last = { x: e.clientX, y: e.clientY };
     buttons = e.buttons;
     decide();
@@ -68,5 +70,8 @@
   window.WinifyPassThrough = {
     state: function () { return { passing: passing, buttons: buttons, last: last }; },
     overSomething: overSomething,
+    // Tests: the window covers the screen, so a real mouse moved by someone
+    // during a run would mix in with the positions the test sets.
+    ignoreRealMouse: function (on) { realMouseIgnored = !!on; },
   };
 })();

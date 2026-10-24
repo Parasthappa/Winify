@@ -104,6 +104,7 @@ app.whenReady().then(async () => {
   let fake = null;
   screen.getCursorScreenPoint = () => fake || realCursor();
   const at = async (x, y) => { fake = { x: area.x + Math.round(x), y: area.y + Math.round(y) }; await wait(250); };
+  await js('WinifyPassThrough.ignoreRealMouse(true)');   // a real mouse moving during the run must not count
   win.blur(); await wait(300);
   check('Winify not focused', !win.isFocused() && !(await js('document.hasFocus()')));
   await at(5, area.height / 2);
@@ -135,6 +136,7 @@ app.whenReady().then(async () => {
   await at(dp(70, 64).x, dp(70, 64).y);
   check('...the window passes them through there', passing() === true);
   fake = null;
+  await js('WinifyPassThrough.ignoreRealMouse(false)');
   win.focus(); await wait(300);
 
   console.log('4. Windows anywhere on screen; layouts as screen positions');
@@ -183,6 +185,7 @@ app.whenReady().then(async () => {
   const md = await R('#webamp .gen-window'); const pm = await R('#webamp #main-window'); const pp = await R('#webamp #playlist-window');
   check('the player is at the right edge: Milkdrop goes to the second row, under the playlist, on screen; the player does not move',
     md && md.y === pp.b && md.r <= area.width && md.b <= area.height && pm.x === area.width - 275, JSON.stringify({ md, pm, pp }));
+  win.show(); win.moveTop(); win.focus(); await wait(300);   // in front, whatever else is in use on the Mac
   await js('WinifyWebamp.getInstance().store.dispatch({ type: "SET_MILKDROP_FULLSCREEN", enabled: true })');
   for (let i = 0; i < 40 && !win.isSimpleFullScreen(); i++) await wait(100);
   await wait(800);

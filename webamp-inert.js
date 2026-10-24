@@ -43,7 +43,11 @@ let realInputClick = null;
 const DEAD_MENU_ITEMS = new Set(['10 tracks back', '10 tracks fwd']);
 const DEAD_MENU_CSS = `
   #webamp #playlist-list-menu li:has(.new-list),
-  #webamp #playlist-list-menu li:has(.save-list) { display: none; }`;
+  #webamp #playlist-list-menu li:has(.save-list) { display: none; }
+  /* The main menu's first item, "Webamp...", links to webamp.org: Webamp's
+     own about page, not Winify's. It goes, with the line under it. */
+  #webamp-context-menu li:has(> a[href*="webamp.org"]),
+  #webamp-context-menu li:has(> a[href*="webamp.org"]) + li.hr { display: none; }`;
 let deadMenuStyle = null;
 
 function hideDeadItems() {

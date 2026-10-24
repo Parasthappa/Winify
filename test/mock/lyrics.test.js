@@ -106,7 +106,11 @@ h.open().then(async ({ win, js }) => {
   win.webContents.sendInputEvent({ type: 'mouseUp', x: Math.round(mainBox.x + 100), y: Math.round(mainBox.y + 60), button: 'right', clickCount: 1 }); await h.wait(400);
   const items = await js(`[...document.querySelectorAll('#webamp-context-menu li')].filter(l => l.firstChild && l.firstChild.nodeType === 3).map(l => [l.firstChild.textContent.trim(), getComputedStyle(l).display !== 'none'])`);
   const visible = items.filter((x) => x[1]).map((x) => x[0]);
+  const top = await js(`(() => { const ul = document.querySelector('#webamp-context-menu ul.context-menu'); const shown = [...ul.children].filter((l) => getComputedStyle(l).display !== 'none'); return { webamp: [...ul.querySelectorAll('a')].filter((a) => /webamp\\.org/.test(a.href) && getComputedStyle(a.closest('li')).display !== 'none').length, first: shown[0] && (shown[0].classList.contains('hr') ? '---' : shown[0].textContent.trim().slice(0, 20)) }; })()`);
+  check('main menu: no "Webamp..." link (webamp.org), and no line left at the top', top.webamp === 0 && top.first !== '---', JSON.stringify(top));
   check('Playback: "10 tracks back" / "10 tracks fwd" hidden; Back/Fwd 5 seconds and Previous..Next kept', !visible.includes('10 tracks back') && !visible.includes('10 tracks fwd') && visible.includes('Back 5 seconds') && visible.includes('Next'), JSON.stringify(visible));
+  // Close the menu with a click on an empty spot: it covers the playlist's title bar, where the next click goes.
+  { const W = await js('innerWidth'), H = await js('innerHeight'); win.webContents.sendInputEvent({ type: 'mouseDown', x: W - 5, y: H - 5, button: 'left', clickCount: 1 }); win.webContents.sendInputEvent({ type: 'mouseUp', x: W - 5, y: H - 5, button: 'left', clickCount: 1 }); await h.wait(300); }
   await key('Escape'); await h.click(win, js, '#playlist-window', 0.5, 0.02); await h.wait(200);
   // LIST OPTS is VIZ now (Milkdrop): no menu of its own.
   await h.click(win, js, '#playlist-list-menu'); await h.wait(300);
@@ -115,7 +119,8 @@ h.open().then(async ({ win, js }) => {
   if (await js('WinifyMilkdrop.isOpen()')) await js('WinifyMilkdrop.toggle()');
   await h.click(win, js, '#playlist-window', 0.5, 0.02); await h.wait(200);
   // EQ > Presets: opens nothing.
-  await js(`WinifyWebamp.getInstance().store.dispatch({ type: 'TOGGLE_WINDOW', windowId: 'equalizer' })`); await h.wait(400);
+  // Opened (if a click on a leftover menu has not already done that).
+  await js(`(() => { const s = WinifyWebamp.getInstance().store; if (!s.getState().windows.genWindows.equalizer.open) s.dispatch({ type: 'TOGGLE_WINDOW', windowId: 'equalizer' }); })()`); await h.wait(400);
   const eqOpen = await js(`!!document.querySelector('#webamp #presets-context')`);
   if (eqOpen) { await h.click(win, js, '#webamp #presets-context'); await h.wait(400); }
   const presetItems = await js(`[...document.querySelectorAll('#webamp-context-menu li')].map(l => l.textContent)`);

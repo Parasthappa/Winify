@@ -191,9 +191,11 @@ h.open().then(async ({ win, js }) => {
   await pick('Random preset');
   check('Random preset', (await S()).index !== before2 && !(await js(`!!document.getElementById('webamp-context-menu')`)));
   await h.click(win, js, '#webamp .gen-window', 0.5, 0.03);
-  const a0 = (await S()).index; await key('Space'); const a1 = (await S()).index; await key('Space'); const a2 = (await S()).index; await key('R'); const a3 = (await S()).index;
-  await rightClick(); await pick('Previous preset'); const b1 = (await S()).index;
-  await key('Backspace'); const b2 = (await S()).index; await key('Backspace'); const b3 = (await S()).index;
+  // Each step waited for (the preset changes), not read after a fixed time: under load a key can take longer.
+  const nextIndex = async (from) => { for (let i = 0; i < 20; i++) { const n = (await S()).index; if (n !== from) return n; await h.wait(100); } return (await S()).index; };
+  const a0 = (await S()).index; await key('Space'); const a1 = await nextIndex(a0); await key('Space'); const a2 = await nextIndex(a1); await key('R'); const a3 = await nextIndex(a2);
+  await rightClick(); await pick('Previous preset'); const b1 = await nextIndex(a3);
+  await key('Backspace'); const b2 = await nextIndex(b1); await key('Backspace'); const b3 = await nextIndex(b2);
   check('Previous goes back through the ones actually shown (R, Space, Space -> back)', b1 === a2 && b2 === a1 && b3 === a0 && a3 !== a2, JSON.stringify({ shown: [a0, a1, a2, a3], back: [b1, b2, b3] }));
   await rightClick(); await pick('Auto-cycle');
   check('Auto-cycle off: no timed changes, remembered', (await S()).autoCycle === false && (await js(`JSON.parse(localStorage.getItem('winify.milkdrop.v1')).autoCycle`)) === false);
