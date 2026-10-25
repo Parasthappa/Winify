@@ -105,6 +105,9 @@ window.spotify = {
   },
   nowPlaying: (text) => rec('nowPlaying', text),
   windowCommand: (c) => rec('windowCommand', c),
+  // Where the window sits among other apps' (main.js): set, and echoed back as main does.
+  onWindowLevel: (fn) => { (mock.levelListeners = mock.levelListeners || []).push(fn); },
+  setWindowLevel: (l) => { rec('setWindowLevel', l); mock.windowLevel = l; setTimeout(() => (mock.levelListeners || []).forEach((fn) => fn(l)), 0); },
   onVisibility: (fn) => { visibilityListeners.push(fn); },
   setVisibleForTest: (v) => { WinifyAudio.setVisible(v); visibilityListeners.forEach((fn) => fn(v)); },
   transferPlayback: async (id, play) => {

@@ -19,6 +19,7 @@ import * as vis from './webamp-vis.js';
 import * as milkdrop from './webamp-milkdrop.js';
 import * as panels from './webamp-panels.js';
 import * as frame from './webamp-frame.js';
+import * as ontop from './webamp-ontop.js';
 
 let webamp = null;
 let mounted = false;
@@ -546,6 +547,7 @@ async function doMount(containerId) {
   vis.attach(webamp);
   milkdrop.attach(webamp);
   frame.attach(webamp);
+  ontop.attach(webamp);
   await panels.attach(webamp);
   log('rendered into #' + containerId, 'doubled =', isDoubled());
   return true;
@@ -558,6 +560,7 @@ function unmount() {
   document.removeEventListener('pointerdown', onPointerDown, true);
   document.removeEventListener('pointerup', onPointerUp, true);
   panels.detach();
+  ontop.detach();
   frame.detach();
   milkdrop.detach();
   vis.detach();

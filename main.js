@@ -35,6 +35,38 @@ function readConfig() {
   }
 }
 
+// Where Winify's window sits among other apps' windows, remembered in
+// config.json ("windowLevel"):
+//   'normal' - like any app's
+//   'top'    - always on top: above other apps' windows (macOS's floating
+//              level). The main window's A button (classic Winamp's).
+const WINDOW_LEVELS = ['normal', 'top'];
+let windowLevel = 'normal';
+
+function loadWindowLevel() {
+  const level = readConfig().windowLevel;
+  windowLevel = WINDOW_LEVELS.includes(level) ? level : 'normal';
+}
+
+function applyWindowLevel() {
+  if (!win || win.isDestroyed()) return;
+  if (windowLevel === 'top') win.setAlwaysOnTop(true, 'floating');
+  else win.setAlwaysOnTop(false);
+  send('window-level', windowLevel);
+}
+
+function setWindowLevel(level) {
+  if (!WINDOW_LEVELS.includes(level)) return;
+  windowLevel = level;
+  try {
+    fs.writeFileSync(configFile(), JSON.stringify(Object.assign(readConfig(), { windowLevel: level }), null, 2), { mode: 0o600 });
+  } catch (err) {
+    console.error('[window] could not remember the window level:', err.message);
+  }
+  console.log('[window] level:', level);
+  applyWindowLevel();
+}
+
 function loadClientId() {
   clientId = String(readConfig().clientId || ENV_CLIENT_ID || '').trim();
 }
@@ -296,6 +328,9 @@ function createWindow() {
   });
   watchVisibility();
   watchHomeArea();
+  // Always on top (remembered), and the page told which, once it is there.
+  applyWindowLevel();
+  win.webContents.on('did-finish-load', () => send('window-level', windowLevel));
   // Until the page says otherwise, clicks pass through.
   setPassThrough(true);
   watchCursor();
@@ -1153,6 +1188,9 @@ ipcMain.handle('lrclib', async (_event, path, params) => {
   return { status: res.status, body: await res.json() };
 });
 
+// The main window's A button: always on top, or not.
+ipcMain.on('window-level', (_event, level) => setWindowLevel(level));
+
 // The chassis's now-playing display: "PLAY ON SPOTIFY" opens the track in the
 // Spotify app; without the app the link reads "GET SPOTIFY FREE" and opens
 // Spotify's download page (Spotify's design guidelines, "Linking to Spotify").
@@ -1298,6 +1336,7 @@ app.whenReady().then(async () => {
     app.dock.setIcon(nativeImage.createFromPath(path.join(__dirname, 'assets', 'icon.png')));
   }
   loadClientId();
+  loadWindowLevel();
   if (!clientId) console.log('[config] no Spotify Client ID yet - the sign-in screen asks for one');
 
   await initWidevine();

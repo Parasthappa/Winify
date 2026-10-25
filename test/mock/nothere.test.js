@@ -38,11 +38,8 @@ h.open().then(async ({ win, js }) => {
   await drag('#balance', 0.5, 0.05);
   check('dragged left: the same', (await store('s.media.balance')) === 0 && (await js(`document.querySelector('#webamp #balance').value`)) === thumbBefore);
 
-  console.log('3. The clutter bar\'s A');
-  check('tooltip "Not available"', (await title('#button-a')) === 'Not available');
-  const before = await store('JSON.stringify({ w: s.windows, d: s.display.doubled })');
-  await calls(); await h.click(win, js, '#button-a'); await h.wait(200);
-  check('clicking it changes nothing', (await store('JSON.stringify({ w: s.windows, d: s.display.doubled })')) === before && (await calls()).filter((c) => /^(play|pause|api:|nextTrack|seek)/.test(c[0])).length === 0);
+  console.log('3. The clutter bar\'s A is always on top now (mock/ontop), not "Not available"');
+  check('A\'s tooltip is "Always on top"', (await title('#button-a')) === 'Always on top');
 
   console.log('4. Mono / stereo: no clicks, so no tooltip');
   check('no tooltip on mono or stereo', !(await title('#mono')) && !(await title('#stereo')));
@@ -59,7 +56,7 @@ h.open().then(async ({ win, js }) => {
   console.log('6. After windowshade and back, the same');
   await js(`WinifyWebamp.getInstance().store.dispatch({ type: 'TOGGLE_WINDOW_SHADE_MODE', windowId: 'main' })`); await h.wait(300);
   await js(`WinifyWebamp.getInstance().store.dispatch({ type: 'TOGGLE_WINDOW_SHADE_MODE', windowId: 'main' })`); await h.wait(400);
-  check('tooltips back on the redrawn controls', (await title('#equalizer-button')) === 'Equalizer coming to Windows' && (await title('#balance')) === 'Not available' && (await title('#button-a')) === 'Not available');
+  check('tooltips back on the redrawn controls', (await title('#equalizer-button')) === 'Equalizer coming to Windows' && (await title('#balance')) === 'Not available');
 
   const errs = JSON.parse(await js('JSON.stringify(errors)'));
   check('no page errors', errs.length === 0, JSON.stringify(errs));

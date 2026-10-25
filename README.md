@@ -210,7 +210,11 @@ between them reach whatever is behind.
 The Winify panel (the one you signed in on) stays at the bottom-right of
 the screen; drag it wherever you like. Its **yellow** light minimizes
 everything to the Dock (click Winify's Dock icon to bring it back), and its
-**red** light closes everything. Either way, music keeps playing. (The main
+**red** light closes everything. Either way, music keeps playing.
+
+Click the **A** on the main window's left edge to keep Winify **always on
+top** of other apps' windows (it lights up while on); click it again to turn
+it off. Winify remembers the setting. (The main
 Winamp window's title bar has no buttons of its own: double-click it to
 switch to the slim windowshade view and back.)
 

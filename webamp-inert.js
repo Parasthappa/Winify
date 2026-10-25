@@ -15,8 +15,8 @@
  * Main window controls that do nothing here stay drawn as the skin has them,
  * but don't respond, and say so on hover (NOT_HERE): on a Mac the EQ button
  * and the balance slider (Spotify's sound can't be equalized or panned
- * there; the main menu's Equalizer item goes too), and anywhere the clutter
- * bar's A ("always on top" in Winamp, which Webamp leaves without a use).
+ * there; the main menu's Equalizer item goes too). The clutter bar's A is
+ * always on top (webamp-ontop.js).
  *
  * The main menu has no Exit: closing is the red light alone. Should Webamp
  * close itself anyway, the Winify window is hidden instead, as the red light
@@ -61,7 +61,6 @@ const MAC = /^Mac/i.test(navigator.platform || '');
 const NOT_HERE = [
   { selector: '#webamp #main-window #equalizer-button', title: 'Equalizer coming to Windows', mac: true },
   { selector: '#webamp #main-window #balance', title: 'Not available', mac: true },
-  { selector: '#webamp #main-window #button-a', title: 'Not available' },
 ].filter((c) => !c.mac || MAC);
 //   Main menu > Equalizer             on a Mac, the equalizer window can't be
 //                                     opened (its EQ button doesn't either)
