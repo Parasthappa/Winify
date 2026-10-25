@@ -75,7 +75,12 @@ h.open().then(async ({ win, js }) => {
   await c('#title-bar', 0.3, 0.5); await h.wait(200);
   await c('#title-bar', 0.3, 0.5, 'right'); await h.wait(300);
   const hover = await js(`(() => { const parent = [...document.querySelectorAll('#webamp-context-menu li.parent')].find(p => [...p.querySelectorAll(':scope > ul > li')].some(l => l.firstChild && l.firstChild.textContent === 'File...')); const b = parent.getBoundingClientRect(); return { x: Math.round(b.left + 20), y: Math.round(b.top + b.height / 2) }; })()`);
-  win.webContents.sendInputEvent({ type: 'mouseMove', x: hover.x, y: hover.y }); await h.wait(400);
+  win.webContents.sendInputEvent({ type: 'mouseMove', x: hover.x, y: hover.y });
+  // Waited for, not a fixed time: the submenu opens on hover, later under load.
+  const fileShown = `(() => { const l = [...document.querySelectorAll('#webamp-context-menu li')].find(l => l.firstChild && l.firstChild.nodeType === 3 && l.firstChild.textContent === 'File...');
+    if (!l) return false; const b = l.getBoundingClientRect(); return b.width > 0 && b.height > 0 && getComputedStyle(l).visibility !== 'hidden'; })()`;
+  for (let i = 0; i < 40 && !(await js(fileShown)); i++) await h.wait(100);
+  await h.wait(100);
   await js(`[...document.querySelectorAll('#webamp-context-menu li')].find(l => l.firstChild && l.firstChild.nodeType === 3 && l.firstChild.textContent === 'File...').setAttribute('data-t', 'file')`);
   await c('#webamp-context-menu li[data-t="file"]');
   for (let i = 0; i < 30 && !(p = await P()).open; i++) await h.wait(100);   // waited for, not a fixed time (load)
