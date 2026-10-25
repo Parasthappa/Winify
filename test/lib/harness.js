@@ -3,7 +3,10 @@ const { app, BrowserWindow } = require('electron');
 const http = require('http'), fs = require('fs'), path = require('path');
 const ROOT = path.resolve(__dirname, '..', '..');
 // One settings folder and port per suite, so suites can run side by side.
-const SUITE = path.basename(require.main.filename, '.js');
+// Named from the script Electron was given: under castLabs' Electron,
+// require.main.filename is just "electron", which gave every suite the same
+// folder.
+const SUITE = path.basename(process.argv[1] || require.main.filename, '.js');
 const PROFILE = path.join(ROOT, 'test', '.profiles', 'mock-' + SUITE);
 const PORT = Number(process.env.TEST_PORT) || 18899;
 const PAGE = path.join(ROOT, 'test', 'mock', 'page.html');
