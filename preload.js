@@ -43,6 +43,10 @@ contextBridge.exposeInMainWorld('spotify', {
   choosePresetFiles: () => ipcRenderer.invoke('milkdrop:choose-presets'),
   // The Winify panel's lights (and Webamp's Exit) act on the Winify window.
   windowCommand: (command) => ipcRenderer.send('window-command', command),
+  // The chassis's now-playing display: is the Spotify app here, and open a
+  // track in it.
+  spotifyAppInstalled: () => ipcRenderer.invoke('spotify-app-installed'),
+  openInSpotify: (uri) => ipcRenderer.send('open-in-spotify', uri),
   // What is playing, for the menu-bar item (so main need not ask Spotify).
   nowPlaying: (text) => ipcRenderer.send('now-playing', text),
   // Winify's window follows what it shows: the sign-in chassis, or the player.

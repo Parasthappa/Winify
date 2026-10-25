@@ -1148,8 +1148,22 @@ ipcMain.handle('lrclib', async (_event, path, params) => {
     headers: { 'User-Agent': 'Winify/' + require('./package.json').version + ' (Winamp-style Spotify player; Electron)' },
     signal: AbortSignal.timeout(LRCLIB_TIMEOUT_MS),
   });
-  if (!res.ok) return { status: res.status, body: null };
+  // Busy (429/503): how long LRCLIB asks clients to wait before trying again.
+  if (!res.ok) return { status: res.status, body: null, retryAfter: res.headers.get('Retry-After') };
   return { status: res.status, body: await res.json() };
+});
+
+// The chassis's now-playing display: "PLAY ON SPOTIFY" opens the track in the
+// Spotify app; without the app the link reads "GET SPOTIFY FREE" and opens
+// Spotify's download page (Spotify's design guidelines, "Linking to Spotify").
+function spotifyAppInstalled() {
+  try { return !!app.getApplicationNameForProtocol('spotify://'); } catch (e) { return false; }
+}
+ipcMain.handle('spotify-app-installed', () => spotifyAppInstalled());
+ipcMain.on('open-in-spotify', (_event, uri) => {
+  const m = /^spotify:track:([A-Za-z0-9]{22})$/.exec(String(uri || ''));
+  if (!spotifyAppInstalled()) { shell.openExternal('https://www.spotify.com/download/'); return; }
+  if (m) shell.openExternal('spotify:track:' + m[1]);
 });
 
 // Makes the in-app device the active Spotify Connect target.

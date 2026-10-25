@@ -16,6 +16,9 @@
   var SIGN_IN_SCALE = 0.356;
   // First run: how long "CLIENT ID SAVED" shows before signing in by itself.
   var SAVED_PAUSE_MS = 1400;
+  // The now-playing display's stand-in while a track has no cover (rare):
+  // a plain dark square, so the layout never jumps.
+  var NO_COVER = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8" fill="#1b2733"/></svg>');
 
   var queued = false, comp = null, vals = {}, bindings = [];
   function schedule() {
@@ -154,6 +157,8 @@
     var failed = !setup && status === 'error';
     var live = powered && !asleep;
     var redirectHelp = failed && s.failKind === 'redirect';
+    var track = s.track || null;
+    var nowPlaying = connected && !!track && !!track.title;
 
     var eqHeights = [21, 35, 54, 72, 47, 63, 84, 58, 40, 26];
     var eqDur   = [1050, 1550, 920, 1310, 1750, 1160, 1460, 1000, 1650, 1240];
@@ -248,7 +253,18 @@
       isConnecting: connecting || (setup && s.setupBusy) || s.autoSignIn === true,
 
       showSetup: setup && !welcome,
-      showLogoParts: (!setup || welcome) && !redirectHelp,
+      showLogoParts: (!setup || welcome) && !redirectHelp && !nowPlaying,
+      // Signed in, with a track: what is playing, attributed to Spotify with
+      // its logo and a link back (Spotify's Developer Policy II.4-II.5 and
+      // design guidelines). Before that, the wordmark.
+      showNowPlaying: nowPlaying,
+      npCover: nowPlaying ? (track.cover || NO_COVER) : NO_COVER,
+      npCoverAlt: nowPlaying ? 'Album cover' + (track.album ? ': ' + track.album : '') : '',
+      npTitle: nowPlaying ? track.title : '',
+      npArtist: nowPlaying ? (track.artist || '') : '',
+      npLinkLabel: s.spotifyApp === false ? 'GET SPOTIFY FREE' : 'PLAY ON SPOTIFY',
+      npLinkTitle: s.spotifyApp === false ? 'Opens Spotify\u2019s download page' : 'Opens this track in the Spotify app',
+      onOpenSpotify: function () { if (IPC && IPC.openInSpotify && nowPlaying) IPC.openInSpotify(track.uri); },
       showRedirectHelp: redirectHelp,
       showWaitHint: connecting && (s.step || 0) === 0,
       showChangeLink: !setup && !connecting && !connected && !s.autoSignIn && !!IPC,
@@ -552,9 +568,23 @@
     });
 
     IPC.onSignedOut(function () {
-      comp.setState({ status: 'idle', step: 0, failKind: null });
+      comp.setState({ status: 'idle', step: 0, failKind: null, track: null });
       showApp(false);
     });
+
+    // What is playing, from the player (webamp-spotify.js); and whether the
+    // Spotify app is here, for the link's wording.
+    function checkSpotifyApp() {
+      if (!IPC.spotifyAppInstalled) return;
+      IPC.spotifyAppInstalled().then(function (yes) { comp.setState({ spotifyApp: !!yes }); }).catch(function () {});
+    }
+    window.addEventListener('winify:now-playing', function (e) {
+      var track = e.detail || null;
+      var was = comp.state.track;
+      comp.setState({ track: track });
+      if (track && (!was || was.uri !== track.uri)) checkSpotifyApp();   // installed or removed meanwhile
+    });
+    checkSpotifyApp();
 
     IPC.ready();
   });

@@ -240,6 +240,17 @@ app.whenReady().then(async () => {
   guard();
   check('Enter plays it on Winify', !!playing, playing);
 
+  // 5b. The chassis shows it: cover (loaded from Spotify's image server), title, artist, Spotify's
+  // logo and the link back. From the player's own state: no Web API requests. Photographed.
+  const np = await until(`(() => { const q = (s) => document.querySelector('#login-screen ' + s); const c = q('.sa-np-cover');
+    return c && c.complete && c.naturalWidth > 0 && /^https:/.test(c.src) && /blinding lights/i.test(q('.sa-np-title').textContent) && q('.sa-np-logo').getBoundingClientRect().width >= 70
+      ? { title: q('.sa-np-title').textContent, artist: q('.sa-np-artist').textContent, cover: c.naturalWidth + 'x' + c.naturalHeight, link: q('.sa-np-link').textContent.trim() } : null; })()`, 10000);
+  check('the chassis shows it: album cover, title, artist, Spotify logo, link back', !!np, np ? np.title + ' - ' + np.artist + ', cover ' + np.cover + ', "' + np.link + '"' : 'not shown');
+  try {
+    const r = await js(`(() => { const b = document.querySelector('#login-screen').getBoundingClientRect(); return { x: Math.round(b.left), y: Math.round(b.top), width: Math.round(b.width), height: Math.round(b.height) }; })()`);
+    fs.writeFileSync(path.join(__dirname, '..', '.output', 'smoke-chassis.png'), (await win.webContents.capturePage(r)).toPNG());
+  } catch (e) { console.log('       (no chassis photo: ' + e.message + ')'); }
+
   // 6. Lyrics for it
   // The I button toggles, and Winify reopens lyrics if they were open last time.
   if (!(await js(`WinifyLyrics.isOpen()`))) await js(`document.querySelector('#webamp #button-i').dispatchEvent(new MouseEvent('click', { bubbles: true }))`);

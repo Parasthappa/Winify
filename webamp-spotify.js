@@ -65,6 +65,7 @@ const now = {
   title: null,
   artist: null,
   album: null,
+  cover: null,                      // the album's (or show's) cover image URL, from Spotify's own state
   durationMs: 0,
   positionMs: 0,
   sampledAt: 0,                     // performance.now() when positionMs was read
@@ -232,12 +233,26 @@ function showStreamFormat() {
 // asking Spotify itself.
 // Main keeps a status line (it no longer asks Spotify itself); sent on change.
 let reportedNowPlaying = null;
+let reportedTrack;
 function reportNowPlaying() {
   const text = now.where === 'none' || !now.title ? 'Nothing is playing'
     : now.title + (now.artist ? ' \u2014 ' + now.artist : '');
-  if (!window.spotify.nowPlaying || text === reportedNowPlaying) return;
-  reportedNowPlaying = text;
-  window.spotify.nowPlaying(text);
+  if (window.spotify.nowPlaying && text !== reportedNowPlaying) {
+    reportedNowPlaying = text;
+    window.spotify.nowPlaying(text);
+  }
+  // The chassis's now-playing display (winify.js): the track as Spotify
+  // describes it, or null when nothing is playing.
+  const track = now.where === 'none' || !now.title ? null
+    : { uri: now.linkedFromUri || now.trackUri, title: now.title, artist: now.artist, album: now.album, cover: now.cover };
+  tellChassis(track);
+}
+
+function tellChassis(track) {
+  const key = JSON.stringify(track);
+  if (key === reportedTrack) return;
+  reportedTrack = key;
+  window.dispatchEvent(new CustomEvent('winify:now-playing', { detail: track }));
 }
 
 // Shown again: fresh state now rather than at the next (slow) hidden poll.
@@ -265,7 +280,16 @@ function scheduleApiPoll() {
   apiTimer = setTimeout(pollApi, now.where === 'elsewhere' ? API_POLL_ELSEWHERE_MS : API_POLL_IDLE_MS);
 }
 
-function setTrack(uri, title, artist, album, durationMs, linkedFromUri) {
+// The cover to show: the smallest of Spotify's sizes at least COVER_PX wide
+// (the chassis shows it about 100 px wide, at up to 2x), else the largest.
+const COVER_PX = 200;
+function coverOf(images) {
+  const list = (images || []).filter((i) => i && i.url).sort((a, b) => (a.width || 0) - (b.width || 0));
+  return (list.find((i) => (i.width || 0) >= COVER_PX) || list[list.length - 1] || {}).url || null;
+}
+
+function setTrack(uri, title, artist, album, durationMs, linkedFromUri, cover) {
+  now.cover = cover || (uri === now.trackUri ? now.cover : null);
   if (uri === now.trackUri && durationMs === now.durationMs) return;
   now.trackUri = uri;
   now.linkedFromUri = linkedFromUri || null;
@@ -283,6 +307,7 @@ function clearTrack() {
   now.title = null;
   now.artist = null;
   now.album = null;
+  now.cover = null;
   now.durationMs = 0;
   now.positionMs = 0;
 }
@@ -298,7 +323,8 @@ function applySdkState(s) {
   now.contextUri = (s.context && s.context.uri) || null;
   if (t) {
     setTrack(t.uri, t.name, t.artists.map((a) => a.name).join(', '),
-      t.album && t.album.name, s.duration || t.duration_ms, t.linked_from && t.linked_from.uri);
+      t.album && t.album.name, s.duration || t.duration_ms, t.linked_from && t.linked_from.uri,
+      coverOf(t.album && t.album.images));
   }
   if (!isHeld('position')) {
     now.positionMs = s.position;
@@ -338,7 +364,8 @@ function applyApiState(p) {
   if (item) {
     setTrack(item.uri, item.name,
       (item.artists || item.show && [item.show] || []).map((a) => a.name).join(', '),
-      item.album && item.album.name, item.duration_ms);
+      item.album && item.album.name, item.duration_ms, null,
+      coverOf((item.album && item.album.images) || item.images || (item.show && item.show.images)));
   }
   now.positionMs = p.progress_ms || 0;
   now.sampledAt = performance.now();
@@ -780,6 +807,7 @@ export function attach(instance) {
 
 export function detach() {
   attached = false;
+  tellChassis(null);
   if (unsubscribeTrack) { unsubscribeTrack(); unsubscribeTrack = null; }
   document.documentElement.classList.remove('winify-loaded');
   playlist.reset();

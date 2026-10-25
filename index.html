@@ -252,7 +252,7 @@
       <span style="display: block; height: 5px; background: #565e66; box-shadow: 0 1px 0 rgba(255,255,255,.7);"></span>
       <span style="display: block; height: 5px; background: #565e66; box-shadow: 0 1px 0 rgba(255,255,255,.7);"></span>
     </span>
-    <span style="font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 22px; letter-spacing: 2.4px; color: #4f575e; text-shadow: 0 1px 0 rgba(255,255,255,.7);">SPOTIFY &amp; WINAMP REMASTERED</span>
+    <span style="font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 22px; letter-spacing: 2.4px; color: #4f575e; text-shadow: 0 1px 0 rgba(255,255,255,.7);">Make Your Player Yours Again</span>
 
     <span style="margin-left: auto; display: flex; align-items: center; gap: 8px;">
       <button type="button" class="sa-win" onClick="{{onSleep}}" aria-label="{{sleepLabel}}" aria-pressed="{{isAsleep}}" style="width: 44px; height: 44px; padding: 0; display: flex; align-items: center; justify-content: center; border: none; border-radius: 22px; cursor: pointer; background: none;">
@@ -326,6 +326,23 @@
               <span class="{{bar.cls}}" style="display: block; width: 12px; height: 44px; background: #8d97a1; transform-origin: bottom; animation-delay: {{bar.d}}ms; animation-duration: {{bar.t}}ms"></span>
             </sc-for>
           </div>
+          </sc-if>
+
+          <!-- signed in, a track playing: its cover (whole, uncropped, 4 px corners at
+               the chassis's size), title and artist, and Spotify's white logo (on this
+               dark screen) at 77 px wide on screen (70 px minimum) with its clear space
+               (half the icon's height), and the link back to Spotify. The chassis is
+               drawn at 0.356: 1 px on screen is 2.81 px here. -->
+          <sc-if value="{{showNowPlaying}}">
+            <img class="sa-np-cover" src="{{npCover}}" alt="{{npCoverAlt}}" width="292" height="292" style="position: absolute; left: 34px; top: 34px; width: 292px; height: 292px; object-fit: contain; border-radius: 11px; background: #000;">
+            <div style="position: absolute; left: 362px; top: 40px; width: 600px; display: flex; flex-direction: column; gap: 10px;">
+              <span class="sa-np-title" style="font-family: 'Archivo', sans-serif; font-weight: 700; font-size: 44px; line-height: 1.15; color: #eef4f8; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">{{npTitle}}</span>
+              <span class="sa-np-artist" style="font-family: 'Archivo', sans-serif; font-weight: 600; font-size: 34px; line-height: 1.2; color: #9fb0bf; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{npArtist}}</span>
+            </div>
+            <div style="position: absolute; left: 362px; top: 206px; display: flex; align-items: center; gap: 40px;">
+              <img class="sa-np-logo" src="assets/spotify-logo-white.svg" alt="Spotify" width="216" height="59" style="display: block; width: 216px; height: 59px; margin: 30px 0;">
+              <button type="button" class="sa-link sa-np-link" onClick="{{onOpenSpotify}}" title="{{npLinkTitle}}" style="font-size: 24px;">{{npLinkLabel}} &#x2197;</button>
+            </div>
           </sc-if>
 
           <div role="status" aria-live="polite" style="position: absolute; left: 34px; bottom: 34px; display: flex; align-items: center; gap: 12px; font-family: 'JetBrains Mono', monospace; font-weight: 400; font-size: 21px; letter-spacing: 2.2px; color: {{statusColor}}; white-space: nowrap;">
