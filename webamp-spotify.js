@@ -30,6 +30,7 @@ import * as playlist from './webamp-playlist.js';
 import * as picker from './webamp-picker.js';
 import * as search from './webamp-search.js';
 import * as lyrics from './webamp-lyrics.js';
+import * as mix from './webamp-mix.js';
 import { analyserHandle } from './webamp-vis.js';
 
 const SDK_POLL_MS = 1000;           // local SDK state, no network
@@ -742,6 +743,10 @@ export function attach(instance) {
     deviceId: winifyDeviceId,
   }, playlist);
   lyrics.init({ webamp, now, api, log, warn });
+  mix.init({
+    webamp, now, api: apiNotingQueue, say, log, warn, refreshSoon,
+    deviceId: winifyDeviceId,
+  });
   attached = true;
   guardMediaFilePrompt();
   document.addEventListener('click', onClickCapture, true);
@@ -781,6 +786,7 @@ export function detach() {
   picker.reset();
   search.reset();
   lyrics.reset();
+  mix.reset();
   timers.forEach(clearInterval);
   timers = [];
   clearTimeout(apiTimer);

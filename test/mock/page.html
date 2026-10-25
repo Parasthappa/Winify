@@ -24,8 +24,16 @@ window.mock = {
   context: null, idx: 0, autoplayOn: false, apIdx: 0,
   // keepContext: Spotify may go on reporting the old album as the source.
   startAutoplay(keepContext) { this.autoplayOn = true; this.apIdx = 0; this.track = AUTOPLAY[0]; if (!keepContext) this.context = null; this.position = 0; this.at = Date.now(); },
-  list() { return this.context ? ctxList(this.context) : null; },
-  setContext(uri, index) { this.context = uri; this.idx = index || 0; if (uri) this.track = ctxList(uri)[this.idx]; this.position = 0; this.at = Date.now(); },
+  list() { return this.context ? ctxList(this.context) : this.uris && this.uris.includes(this.track) ? this.uris : null; },
+  uris: null,                // a list of songs played with no context (uris)
+  autoplayAfterUris: false,  // does Autoplay follow a list of songs? (the smoke run finds out)
+  // The end of a list of songs: it stops (showing its first song), or Autoplay follows.
+  urisEnded() {
+    if (this.autoplayAfterUris && !this.lone) { this.startAutoplay(false); return; }
+    this.setPaused(true); this.position = 0;
+    if (!this.lone) { this.idx = 0; this.track = this.uris[0]; }
+  },
+  setContext(uri, index) { this.context = uri; if (uri) this.uris = null; this.idx = index || 0; if (uri) this.track = ctxList(uri)[this.idx]; this.position = 0; this.at = Date.now(); },
   active: 'none',            // 'winify' | 'phone' | 'none'
   resumable: true,           // does transfer find a session to resume?
   libraryForbidden: false,
@@ -49,6 +57,8 @@ window.mock = {
     if (this.queue.length) { this.track = this.queue.shift(); this.position = 0; this.at = Date.now(); return; }
     if (this.autoplayOn) { this.track = AUTOPLAY[++this.apIdx]; this.position = 0; this.at = Date.now(); return; }
     if (!l) { this.setPaused(true); this.position = 0; return; }
+    if (!this.context && this.idx >= l.length - 1 && this.repeat !== 'context') { this.urisEnded(); return; }
+    if (!this.context && this.idx >= l.length - 1) { this.idx = 0; this.track = l[0]; this.position = 0; this.at = Date.now(); return; }
     if (this.idx < l.length - 1) { this.track = l[++this.idx]; this.position = 0; this.at = Date.now(); return; }
     if (this.repeat === 'context') { this.setContext(this.context, 0); return; }
     this.startAutoplay(true);   // the album ran out; Spotify still reports it as the source
@@ -110,6 +120,7 @@ window.WinifyPlayer = {
   nextTrack: async () => { rec('nextTrack'); const l = mock.list();
     if (mock.queue.length) { mock.track = mock.queue.shift(); mock.position = 0; mock.at = Date.now(); return true; }
     if (mock.lone && !mock.autoplayOn) { mock.setPaused(true); mock.position = 0; return true; }   // nothing after it: it stops
+    if (l && !mock.context && !mock.autoplayOn && mock.idx === l.length - 1 && mock.repeat !== 'context') { mock.urisEnded(); return true; }
     if (l && !mock.autoplayOn && mock.idx === l.length - 1 && mock.repeat !== 'context') { mock.startAutoplay(true); return true; }
     if (mock.autoplayOn) mock.track = AUTOPLAY[++mock.apIdx]; else if (l) mock.track = l[++mock.idx]; else mock.track++; mock.position = 0; mock.at = Date.now(); return true; },
   previousTrack: async () => { rec('previousTrack'); const l = mock.list(); if (l) mock.track = l[--mock.idx]; else mock.track--; mock.position = 0; mock.at = Date.now(); return true; },
@@ -155,8 +166,12 @@ window.fetch = async (url, opts = {}) => {
       const i = b.offset ? (b.offset.position != null ? b.offset.position : l.indexOf(+b.offset.uri.split(':').pop())) : 0;
       mock.setContext(b.context_uri, i);
       if (b.position_ms) { mock.position = b.position_ms; mock.at = Date.now(); }
-    } else if (b.uris) { mock.context = null; mock.track = +b.uris[0].split(':').pop(); mock.lone = b.uris.length === 1; }
-    else { mock.context = null; mock.track = 100; }
+    } else if (b.uris) {
+      mock.context = null; mock.uris = b.uris.map((x) => +x.split(':').pop()); mock.lone = b.uris.length === 1;
+      mock.idx = (b.offset && b.offset.position) || 0; mock.track = mock.uris[mock.idx]; mock.position = 0; mock.at = Date.now();
+      if (b.position_ms) mock.position = b.position_ms;
+    }
+    else { mock.context = null; mock.uris = null; mock.track = 100; }
     return json(204);
   }
   const page = (list, mapper) => { const lim = +u.searchParams.get('limit') || 20, off = +u.searchParams.get('offset') || 0;
@@ -191,7 +206,8 @@ window.fetch = async (url, opts = {}) => {
     const pl = PLAYLISTS.find((x) => x.id === mm[1]);
     if (mm[1] === 'notmine' || (pl && pl.owner.id !== 'user1' && !pl.collaborative)) return json(403, { error: { status: 403, message: 'Forbidden' } });
     // New shape: the track lives under `item`; `track` is now just a boolean.
-    return page(ctxList('spotify:playlist:' + mm[1]), (n) => ({ added_at: null, is_local: false, track: true, item: T(n) }));
+    // mock.itemOf: a test's own items (local files, unavailable songs).
+    return page(ctxList('spotify:playlist:' + mm[1]), (n) => (mock.itemOf ? mock.itemOf(n) : { added_at: null, is_local: false, track: true, item: T(n) }));
   }
   if (m === 'GET' && p === '/me/tracks') {
     rec('api:savedTracks', u.searchParams.get('offset'));

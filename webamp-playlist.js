@@ -86,6 +86,9 @@ let plan = null;                    // Play track, then Autoplay: { uri, albumUr
 let contextList = null;             // the last full list loaded: { uri, list, name }
 let more = null;                    // the rest of a big list, being read: { contextUri, path, map, rows, offset, total, name, hurry, wake }
 let shuffleWaiting = false;         // shuffle asked for while the list is still coming
+let mix = null;                     // a Winify mix being played: { uri, name, tracks, started, done }
+let finalLeftMs = Infinity;         // a mix's last song: how much was left at the last poll that played
+let finishTimer = null;
 const artistNames = {};             // artist URI -> name, for the header
 const contextNames = {};            // playlist URI -> name, also for ones whose items cannot be read
 let seenContext;                    // undefined = never synced
@@ -157,6 +160,7 @@ function headerFor(newMode, contextUri, name, label) {
   const k = kind(contextUri);
   if (k === 'album') return { prefix: 'ALBUM \u00b7 ', name: name || '' };
   if (k === 'collection') return { prefix: '', name: 'LIKED SONGS' };
+  if (k === 'mix') return { prefix: 'MIX \u00b7 ', name: name || '' };
   if (k === 'playlist' && (name || contextNames[contextUri])) return { prefix: '', name: name || contextNames[contextUri] };
   return { prefix: '', name: 'UP NEXT' };
 }
@@ -251,17 +255,19 @@ function showMissing() {
   showStandIn();
   if (!n.trackUri) return;
   const key = context + '|' + n.trackUri;
-  if (wasMode === 'list' && !ending && retriedMissing !== key) {
+  const isMix = kind(context) === 'mix';
+  if (wasMode === 'list' && !ending && !isMix && retriedMissing !== key) {
     retriedMissing = key;
     ctx.log('playing track is not in the loaded list - reloading', listName || context);
-    load(n.contextUri);
+    load(contextNow());
   } else if (wasMode === 'list') {
+    if (isMix) finishMix('autoplay');
     autoplay = true;
     ending = false;
     ctx.log('the list has run out - Spotify\'s Autoplay is playing; showing its queue');
-    refreshQueue(++loadGen, n.contextUri);
+    refreshQueue(++loadGen, contextNow());
   } else if (wasMode === 'queue') {
-    refreshQueue(++loadGen, n.contextUri);
+    refreshQueue(++loadGen, contextNow());
   }
 }
 
@@ -272,6 +278,7 @@ function kind(uri) {
   if (/^spotify:album:/.test(uri)) return 'album';
   if (/^spotify:playlist:/.test(uri)) return 'playlist';
   if (/:collection/.test(uri)) return 'collection';
+  if (/^winify:mix:/.test(uri)) return 'mix';
   return uri.split(':')[1] || 'other';
 }
 
@@ -419,8 +426,9 @@ async function load(contextUri) {
   const k = kind(contextUri);
   // A different context: show the current track alone until its list is in.
   if (mode !== 'standin' && listContext !== contextUri) showStandIn();
-  // Starting the album that ran out again: it is already loaded.
-  if (contextList && contextList.uri === contextUri && contextList.list.some(matches)) {
+  // Starting the album that ran out again: it is already loaded. A mix is
+  // only ever here.
+  if (contextList && contextList.uri === contextUri && (k === 'mix' || contextList.list.some(matches))) {
     installList(contextList.list, 'list', contextUri, contextList.name);
     return;
   }
@@ -644,7 +652,7 @@ function takeOverNext() {
 // When the order runs out (repeat off), the source is ended the way Play
 // track does it, and Spotify's Autoplay carries on.
 
-const ordering = () => !!ctx && mode === 'list' && ctx.now.where === 'winify' && listContext === ctx.now.contextUri;
+const ordering = () => !!ctx && mode === 'list' && ctx.now.where === 'winify' && listContext === contextNow();
 const playable = (e) => !!e && !e.isLabel && e.playable && !e.skipped && !!e.uri;
 
 function nextIndex(from) {
@@ -808,10 +816,8 @@ async function endOrder(why) {
     if (last === cur) {
       await window.WinifyPlayer.seek(Math.max(0, ctx.now.durationMs - ALBUM_TAIL_MS));
     } else {
-      await ctx.api('PUT', '/me/player/play?device_id=' + encodeURIComponent(ctx.deviceId()), {
-        context_uri: listContext, offset: { position: last.position },
-        position_ms: Math.max(0, last.durationMs - ALBUM_TAIL_MS),
-      });
+      await ctx.api('PUT', '/me/player/play?device_id=' + encodeURIComponent(ctx.deviceId()),
+        playBody(last.position, { position_ms: Math.max(0, last.durationMs - ALBUM_TAIL_MS) }));
     }
     ctx.log('play order:', why, '- ending', listName || 'the source', 'so Spotify\'s Autoplay follows');
   } catch (err) {
@@ -830,7 +836,7 @@ async function startEntry(k) {
   clearTimeout(orderTimer);
   if (e.position != null) {
     await ctx.api('PUT', '/me/player/play?device_id=' + encodeURIComponent(ctx.deviceId()),
-      { context_uri: listContext, offset: { position: e.position } });
+      playBody(e.position));
   } else {
     // Not part of the source (a queued track): through the queue.
     await queueUri(e.uri);
@@ -1054,6 +1060,9 @@ function renumber() {
     const nodes = cell.firstElementChild ? cell.firstElementChild.childNodes : [];
     if (nodes.length < 3 || nodes[0].nodeType !== Node.TEXT_NODE || nodes[1].nodeType !== Node.TEXT_NODE) return;
     const index = offset + i;
+    // A mix's songs say which playlist they came from.
+    const from = entries[index] && entries[index].from ? 'From ' + entries[index].from : null;
+    if (from) { if (cell.title !== from) cell.title = from; } else if (cell.hasAttribute('title')) cell.removeAttribute('title');
     const number = index === 0 ? '' : String(index).padStart(width, '\u00a0');
     const dot = index === 0 ? '' : '. ';
     if (nodes[0].nodeValue !== number) nodes[0].nodeValue = number;
@@ -1224,6 +1233,96 @@ function handShuffleBack() {
     .catch((err) => ctx.warn('could not turn Spotify\'s shuffle on -', err.message));
 }
 
+// ---- Mixes ------------------------------------------------------------------------
+// A mix (webamp-mix.js) plays as a list of songs, which Spotify reports with
+// no context. While one plays, its own uri stands in as the context, so the
+// order, skips, queue and shuffle treat it like a playlist. It starts when
+// one of its songs plays without a context, and lasts until a real context
+// plays, another source is started, or it has finished.
+
+const realContext = (uri) => !!uri && ['album', 'playlist', 'collection', 'artist', 'show', 'station', 'user'].includes(kind(uri));
+
+function mixContext() {
+  const n = ctx.now;
+  if (!mix || mix.done || n.where !== 'winify' || realContext(n.contextUri)) return null;
+  if (!mix.started && mix.tracks.some((t) => t.uri === n.trackUri || t.uri === n.linkedFromUri)) mix.started = true;
+  return mix.started ? mix.uri : null;
+}
+
+// The source playing now, as the list knows it.
+const contextNow = () => mixContext() || ctx.now.contextUri;
+
+// What to send to play the list's source from `position`.
+function playBody(position, extra) {
+  if (kind(listContext) !== 'mix') return Object.assign({ context_uri: listContext, offset: { position } }, extra);
+  return Object.assign({ uris: mix.tracks.map((t) => t.uri), offset: { position } }, extra);
+}
+
+function mixRows(m) {
+  return m.tracks.map((t) => ({ uri: t.uri, name: t.name, durationMs: t.durationMs, playable: true, from: t.from }));
+}
+
+// A mix is about to play from its first song: { id, name, tracks }.
+export function expectMix(m) {
+  endPlan();
+  singleTrackUri = null;
+  clearTimeout(finishTimer);
+  const again = activeMixUri() === 'winify:mix:' + m.id;
+  mix = { uri: 'winify:mix:' + m.id, name: m.name, tracks: m.tracks, started: false, done: false };
+  contextList = { uri: mix.uri, list: mixRows(m), name: m.name };
+  finalLeftMs = Infinity;
+  if (again) seenContext = undefined;                    // the same mix again starts over
+}
+
+export const activeMixUri = () => (mix && !mix.done && mix.started ? mix.uri : null);
+
+export function renamedMix(uri, name) {
+  if (mix && mix.uri === uri) mix.name = name;
+  if (contextList && contextList.uri === uri) contextList.name = name;
+  if (listContext === uri && hasHeader()) {
+    listName = name;
+    entries[0].headerName = name;
+    entries[0].name = '— ' + entries[0].headerPrefix + name + ' —';
+    paintSkips();
+  }
+}
+
+// The mix has played out. Spotify's Autoplay either carries on (its queue is
+// shown, as after a playlist) or does not, and playback stops.
+function finishMix(how) {
+  if (!mix || mix.done) return;
+  mix.done = true;
+  clearTimeout(finishTimer);
+  seenContext = ctx.now.contextUri;                      // not a new source: the end of this one
+  if (how === 'autoplay') {
+    ctx.log('mix: finished - Spotify\'s Autoplay carried on after it');
+  } else {
+    ending = false;
+    ctx.log('mix: finished - Spotify\'s Autoplay did not follow; stopped');
+    ctx.say('Mix finished');
+  }
+}
+
+// Called on every poll while a mix plays: has the last song ended by itself?
+function watchMixEnd() {
+  const n = ctx.now;
+  if (!mix || mix.done || !mix.started || listContext !== mix.uri) return;
+  if (!n.paused) {
+    clearTimeout(finishTimer);
+    finishTimer = null;
+    // (Spotify may show the first song again once the list has ended.)
+    finalLeftMs = n.durationMs && nextIndex(currentIndex) < 0 ? n.durationMs - ctx.positionMs() : Infinity;
+    return;
+  }
+  const atEnd = ending || finalLeftMs < 3000;
+  if (!atEnd || finishTimer) return;
+  // Stopped at the end; give Autoplay a moment to start something.
+  finishTimer = setTimeout(() => {
+    finishTimer = null;
+    if (ctx && mix && !mix.done && ctx.now.paused) finishMix('stopped');
+  }, 4000);
+}
+
 // ---- Called by webamp-spotify.js ----------------------------------------------
 
 export function init(c) {
@@ -1256,6 +1355,7 @@ export function init(c) {
 // to be followed by Autoplay. Without an album it plays on its own.
 export function expectSingleTrack(p) {
   endPlan();
+  mix = null;
   if (!p.albumUri) { singleTrackUri = p.uri; return; }
   plan = { uri: p.uri, albumUri: p.albumUri, albumTracks: p.albumTracks || null,
     shown: false, until: performance.now() + PLAN_WAIT_MS };
@@ -1269,6 +1369,9 @@ export function reset() {
   singleTrackUri = null;
   endPlan();
   contextList = null;
+  mix = null;
+  clearTimeout(finishTimer);
+  finalLeftMs = Infinity;
   more = null;
   shuffleWaiting = false;
   clearTimeout(queueTimer);
@@ -1310,6 +1413,7 @@ export function sync() {
   if (!ctx) return;
   takeOverShuffle();
   scheduleOrder();
+  watchMixEnd();
 }
 
 function syncSource() {
@@ -1324,9 +1428,10 @@ function syncSource() {
   }
   seenWhere = n.where;
 
-  const contextChanged = n.contextUri !== seenContext;
+  const source = contextNow();
+  const contextChanged = source !== seenContext;
   const trackChanged = n.trackUri !== seenTrack;
-  seenContext = n.contextUri;
+  seenContext = source;
   seenTrack = n.trackUri;
 
   if (plan && followPlan(n, trackChanged)) return;
@@ -1335,17 +1440,22 @@ function syncSource() {
     // A new source ends Autoplay, and a single track's moment.
     cameFromList = mode === 'list' || mode === 'single' || (autoplay && cameFromList);
     autoplay = false;
-    if (n.contextUri) singleTrackUri = null;
+    if (mix && !mix.started && !source) return;          // a mix about to start
+    if (source) singleTrackUri = null;
+    if (mix && mix.started && source !== mix.uri) {
+      if (!mix.done && ending) ctx.log('mix: finished - Spotify\'s Autoplay carried on after it');
+      mix = null;                                        // another source
+    }
     if (mode === 'standin') writeStandIn();
-    load(n.contextUri);
+    load(source);
     return;
   }
   if (!trackChanged) return;
 
   // Autoplay, then the album that ran out is played again: back to its list.
-  if (autoplay && contextList && contextList.uri === n.contextUri && contextList.list.some(matches)) {
+  if (autoplay && contextList && contextList.uri === source && contextList.list.some(matches)) {
     autoplay = false;
-    installList(contextList.list, 'list', n.contextUri, contextList.name);
+    installList(contextList.list, 'list', source, contextList.name);
     return;
   }
 
@@ -1355,7 +1465,7 @@ function syncSource() {
     highlight(true);
     clearTimeout(queueTimer);
     const gen = loadGen;
-    queueTimer = setTimeout(() => refreshQueue(gen, n.contextUri), QUEUE_REFRESH_MS);
+    queueTimer = setTimeout(() => refreshQueue(gen, source), QUEUE_REFRESH_MS);
   } else {
     highlight(true);
   }
@@ -1446,6 +1556,7 @@ window.WinifyPlaylist = {
     label: entries[0] && entries[0].isLabel ? entries[0].name : null,
     header: hasHeader() ? entries[0].name : null,
     line: mode === 'single' ? entries[1].name : null,
+    mix: mix && { uri: mix.uri, name: mix.name, started: mix.started, done: mix.done },
     plan: plan && { uri: plan.uri, shown: plan.shown, jumping: !!plan.jumping, last: plan.last || null },
     loading: stillComing() ? { loaded: more.rows.length, total: more.total, hurry: more.hurry } : null,
     order: mode === 'list' ? { shuffle: shuffleOn, shuffleWaiting, pending: pending.slice(), ending,

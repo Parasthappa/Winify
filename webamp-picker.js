@@ -23,6 +23,8 @@
 import { makeDraggable, makeResizable, attachTooltips, hideTooltip } from './webamp-dialog.js';
 import { makeFrame, FRAME_CSS } from './webamp-frame.js';
 import * as panels from './webamp-panels.js';
+import * as mixes from './webamp-mix.js';
+import { showMenu } from './webamp-search.js';
 
 const PAGE = 50;                    // the /me/playlists maximum
 const PAGE_GAP_MS = 2000;           // background pace: one page every 2 s
@@ -63,19 +65,64 @@ function recall() {
   try { return JSON.parse(localStorage.getItem(STORE_KEY)) || null; } catch (e) { return null; }
 }
 
-// Liked Songs, then your playlists (and collaborative ones you are in).
+// Your Winify mixes (newest first, under their own label), then Liked
+// Songs and your playlists (and collaborative ones you are in).
 function listFrom(l) {
-  if (!l) return [];
-  return [{ name: 'Liked Songs', uri: 'spotify:user:' + l.meId + ':collection', count: l.liked }].concat(l.entries);
+  const saved = mixes.saved().map((m) => ({ name: m.name, uri: mixes.uriOf(m), count: m.tracks.length, mixId: m.id }));
+  const top = saved.length ? [{ label: true, name: 'Winify mixes', uri: 'winify:label:mixes' }].concat(saved,
+    [{ label: true, name: 'Your Spotify playlists', uri: 'winify:label:spotify' }]) : [];
+  if (!l) return top;
+  return top.concat([{ name: 'Liked Songs', uri: 'spotify:user:' + l.meId + ':collection', count: l.liked }], l.entries);
+}
+
+// The rows matching a filter; a section label stays when anything under it does.
+function filtered(q) {
+  if (!q) return rows.slice();
+  const out = [];
+  let label = null;
+  for (const r of rows) {
+    if (r.label) { label = r; continue; }
+    if (!r.name.toLowerCase().includes(q)) continue;
+    if (label) { out.push(label); label = null; }
+    out.push(r);
+  }
+  return out;
+}
+
+// Your own playlists (not ones you only collaborate on, not Liked Songs),
+// with their track counts: the random mix picks from these. The saved list
+// is used; with none yet it is read first. Lists saved before ownership was
+// recorded count every entry as yours.
+export async function ownPlaylists() {
+  if (!lib) lib = recall();
+  // A read under way is finished (sooner), not started again.
+  while (loading) {
+    hurry();
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  // A list saved before it said which are yours is read again, once.
+  if (!lib || !lib.entries.length || lib.entries.some((e) => !('mine' in e))) {
+    const reading = read(true);
+    hurry();
+    await reading;
+  }
+  return lib ? lib.entries.filter((e) => e.mine !== false && e.count > 0) : [];
+}
+
+// Mixes changed (made, renamed, deleted): the open picker shows it.
+export function mixesChanged() {
+  if (!el) return;
+  drawnKey = null;
+  showList();
 }
 
 function entryOf(p, meId) {
   if (!p) return null;
-  const mine = p.owner && p.owner.id === meId;
+  const mine = !!p.owner && p.owner.id === meId;
   if (!mine && !(INCLUDE_COLLABORATIVE && p.collaborative)) return null;
   // February 2026: the track count moved from `tracks` to `items`.
   const count = p.items && typeof p.items.total === 'number' ? p.items.total : null;
-  return { name: (p.name || '').trim() || UNTITLED, uri: p.uri, count };
+  return { name: (p.name || '').trim() || UNTITLED, uri: p.uri, count, mine };
 }
 
 // While a refresh is under way: what it has read so far, then whatever the
@@ -160,7 +207,7 @@ function showList() {
   const keep = shown[selected] && shown[selected].uri;
   rows = listFrom(lib);
   const q = el.querySelector('.wp-filter').value.trim().toLowerCase();
-  shown = q ? rows.filter((r) => r.name.toLowerCase().includes(q)) : rows.slice();
+  shown = filtered(q);
   const at = keep ? shown.findIndex((r) => r.uri === keep) : -1;
   selected = at >= 0 ? at : Math.min(selected, Math.max(0, shown.length - 1));
   drawnKey = null;
@@ -214,6 +261,8 @@ function injectStyles() {
     #webamp .winify-picker .wp-refresh { cursor: pointer; padding: 2px 3px; border: 1px solid transparent; }
     #webamp .winify-picker .wp-refresh:hover { border-color: currentColor; }
     #webamp .winify-picker .wp-refresh.wp-busy { opacity: .45; cursor: default; }
+    #webamp .winify-picker .wp-row.wp-label { opacity: .6; font-size: 8px; letter-spacing: 1px; justify-content: center; }
+    #webamp .winify-picker .wp-rename { flex: 1; height: 11px; box-sizing: border-box; border: 1px solid; outline: none; padding: 0 2px; font-size: 9px; }
     ${FRAME_CSS}
   `;
   document.head.appendChild(style);
@@ -233,7 +282,7 @@ function paintSelection() {
 }
 
 function renderList() {
-  if (!el) return;
+  if (!el || renaming) return;
   const VISIBLE_ROWS = visibleRows();
   const key = scroll + '|' + VISIBLE_ROWS + '|' + shown.length + '|' + (shown[0] && shown[0].uri) + '|' + rows.length;
   if (key === drawnKey) { paintSelection(); return; }
@@ -241,19 +290,31 @@ function renderList() {
   const st = skinStyle();
   const list = el.querySelector('.wp-list');
   list.textContent = '';
-  const currentUri = ctx.now.contextUri;
+  const currentUri = mixes.currentUri() || ctx.now.contextUri;
+  // Numbered within the list, section labels aside.
+  const numbers = [];
+  shown.reduce((n, r, i) => { numbers[i] = r.label ? null : n + 1; return r.label ? n : n + 1; }, 0);
   shown.slice(scroll, scroll + VISIBLE_ROWS).forEach((r, i) => {
     const index = scroll + i;
     const row = document.createElement('div');
     row.className = 'wp-row';
     row.dataset.index = String(index);
+    if (r.label) {
+      // A section label: not a row to choose.
+      row.classList.add('wp-label');
+      row.style.color = st.normal;
+      row.textContent = '\u2014 ' + r.name.toUpperCase() + ' \u2014';
+      list.appendChild(row);
+      return;
+    }
+    if (r.mixId) row.dataset.mix = r.mixId;
     const isCurrent = !!currentUri && (r.uri === currentUri ||
       (/:collection/.test(r.uri) && /:collection/.test(currentUri)));
     row.style.color = isCurrent ? st.current : st.normal;
     if (index === selected) row.style.background = st.selectedbg;
     const name = document.createElement('span');
     name.className = 'wp-name';
-    name.textContent = (index + 1) + '. ' + r.name;
+    name.textContent = numbers[index] + '. ' + r.name;
     const count = document.createElement('span');
     count.className = 'wp-count';
     count.textContent = r.count == null ? '' : String(r.count);
@@ -291,10 +352,15 @@ function renderList() {
   if (loading && scroll + VISIBLE_ROWS >= shown.length - 4) hurry();
 }
 
-function select(index) {
+function select(index, dir = Math.sign(index - selected) || 1) {
   if (!shown.length) return;
   const VISIBLE_ROWS = visibleRows();
-  selected = Math.max(0, Math.min(shown.length - 1, index));
+  let i = Math.max(0, Math.min(shown.length - 1, index));
+  // Section labels are passed over, in the direction of travel.
+  while (shown[i] && shown[i].label) i += dir;
+  if (!shown[i]) { i = Math.max(0, Math.min(shown.length - 1, index)); while (shown[i] && shown[i].label) i -= dir; }
+  if (!shown[i]) return;
+  selected = i;
   if (selected < scroll) scroll = selected;
   if (selected >= scroll + VISIBLE_ROWS) scroll = selected - VISIBLE_ROWS + 1;
   renderList();
@@ -303,7 +369,7 @@ function select(index) {
 function applyFilter() {
   const q = el.querySelector('.wp-filter').value.trim().toLowerCase();
   if (q) hurry();                     // a filter needs the whole list
-  shown = q ? rows.filter((r) => r.name.toLowerCase().includes(q)) : rows.slice();
+  shown = filtered(q);
   selected = 0;
   scroll = 0;
   renderList();
@@ -344,7 +410,19 @@ function build(spot) {
   const list = p.querySelector('.wp-list');
   list.addEventListener('click', (e) => {
     const row = e.target.closest('.wp-row');
-    if (row && row.dataset.index) select(Number(row.dataset.index));
+    if (row && row.dataset.index && !row.classList.contains('wp-label')) select(Number(row.dataset.index));
+  });
+  // A Winify mix: rename or delete it (on this Mac only).
+  list.addEventListener('contextmenu', (e) => {
+    const row = e.target.closest('.wp-row[data-mix]');
+    if (!row) return;
+    e.preventDefault();
+    select(Number(row.dataset.index));
+    const id = row.dataset.mix;
+    showMenu(e.clientX, e.clientY, [
+      { label: 'Rename', action: () => rename(id) },
+      { label: 'Delete', action: () => { mixes.remove(id); } },
+    ]);
   });
   list.addEventListener('dblclick', (e) => {
     const row = e.target.closest('.wp-row');
@@ -427,8 +505,9 @@ export async function open() {
   showList();
   el.querySelector('.wp-filter').focus();
   // Start on whatever is playing, if it is in the list.
-  const at = shown.findIndex((r) => r.uri === ctx.now.contextUri);
-  if (at >= 0) select(at);
+  const playing = mixes.currentUri() || ctx.now.contextUri;
+  const at = shown.findIndex((r) => r.uri === playing);
+  select(at >= 0 ? at : 0);
   // Nothing remembered, unfinished, or a few hours old: read it (in the
   // background when there is a list to show meanwhile).
   if (!lib || !lib.complete || Date.now() - lib.at > STALE_MS) read(!lib || lib.complete);
@@ -446,9 +525,42 @@ export function close({ keepRecord = false } = {}) {
 
 export const isOpen = () => !!el;
 
+// Renaming a mix in its row: Enter keeps the name, Escape leaves it as it was.
+let renaming = null;
+function rename(id) {
+  const row = el && el.querySelector('.wp-row[data-mix="' + id + '"]');
+  const mix = mixes.saved().find((m) => m.id === id);
+  if (!row || !mix) return;
+  const st = skinStyle();
+  const input = document.createElement('input');
+  input.className = 'wp-rename';
+  input.value = mix.name;
+  input.dataset.ownEscape = '1';      // Escape is this field's, not the panel's
+  Object.assign(input.style, { background: st.normalbg, color: st.current, borderColor: st.normal, fontFamily: st.font });
+  row.querySelector('.wp-name').replaceWith(input);
+  renaming = id;
+  input.focus();
+  input.select();
+  const done = (keep) => {
+    if (renaming !== id) return;
+    renaming = null;
+    if (keep && input.value.trim()) mixes.rename(id, input.value.trim());
+    drawnKey = null;
+    showList();
+    if (el) el.querySelector('.wp-filter').focus();
+  };
+  input.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter') { e.preventDefault(); done(true); }
+    if (e.key === 'Escape') { e.preventDefault(); done(false); }
+  });
+  input.addEventListener('blur', () => done(true));
+}
+
 // Plays it; the picker stays open (panels close only with x or Escape).
 async function pick(entry) {
-  if (!entry) return;
+  if (!entry || entry.label) return;
+  if (entry.mixId) { mixes.playSaved(entry.mixId); return; }
   const deviceId = ctx.deviceId();
   if (!deviceId) { ctx.say('Winify device not ready'); return; }
   try {

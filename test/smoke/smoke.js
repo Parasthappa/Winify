@@ -2,7 +2,8 @@
 //
 // Runs the real Winify with your own sign-in and checks the core flows end to
 // end: sign-in, a playlist from the picker, Next/Previous, the visualizer
-// hearing the music, playing from search, and lyrics. It plays music out loud
+// hearing the music, playing from search, lyrics, and a random mix (its end
+// too with SMOKE_MIX_END=1, which needs higher caps). It plays music out loud
 // for about a minute, then pauses.
 //
 // Starts from Winify's default window layout, window positions and lyrics
@@ -27,7 +28,8 @@ const fs = require('fs'), path = require('path');
 
 // Two budgets: Winify's own Web API calls, and those Spotify's player library
 // (the Web Playback SDK) makes to play the music. Preflights count in both.
-const BUDGET = 30;
+// SMOKE_BUDGET raises Winify's cap for one run (only with the user's say-so).
+const BUDGET = Number(process.env.SMOKE_BUDGET) || 30;
 const PLAYER_BUDGET = 60;
 const PLAYER_PATH = /^\/v1\/(melody|track-playback|storage-resolve|widevine-license)\//;
 const TIME_LIMIT_MS = 120000;
@@ -169,9 +171,12 @@ app.whenReady().then(async () => {
   // 2. A playlist from the picker: your smallest own playlist (fewest requests to list it)
   phase = 'flows';
   await js(`document.querySelector('#webamp #eject').dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
-  const rows = await until(`(() => { const r = [...document.querySelectorAll('.winify-picker .wp-row')]; return r.length > 1 ? r.map((x, i) => ({ i, name: x.querySelector('.wp-name').textContent, n: parseInt(x.querySelector('.wp-count').textContent, 10) })) : null; })()`, 15000);
+  // Section labels and Winify's own mixes are passed over.
+  const rows = await until(`(() => { const r = [...document.querySelectorAll('.winify-picker .wp-row')]; return r.length > 1 ? r.map((x, i) => ({ i,
+    playlist: !x.classList.contains('wp-label') && !x.dataset.mix && !!x.querySelector('.wp-name') && !!x.querySelector('.wp-count'),
+    name: x.querySelector('.wp-name') ? x.querySelector('.wp-name').textContent : '', n: x.querySelector('.wp-count') ? parseInt(x.querySelector('.wp-count').textContent, 10) : 0 })) : null; })()`, 15000);
   guard();
-  const choice = rows && rows.filter((r) => r.i > 0 && r.n >= 3 && r.n <= 100).sort((a, b) => a.n - b.n)[0];
+  const choice = rows && rows.filter((r) => r.playlist && r.name !== 'Liked Songs' && r.n >= 3 && r.n <= 100).sort((a, b) => a.n - b.n)[0];
   if (!check('picker lists your playlists', !!choice, rows ? rows.length + ' rows' : 'none')) stop('Needs one playlist of your own with 3-100 tracks.', 1);
   await js(`document.querySelectorAll('.winify-picker .wp-row')[${choice.i}].dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))`);
   let pl = await until(`(() => { const s = WinifyPlaylist.state(), n = WinifyControls.state(); return s.mode === 'list' && s.currentIndex === 1 && n.where === 'winify' && !n.paused ? { s, n } : null; })()`, 15000);
@@ -243,12 +248,45 @@ app.whenReady().then(async () => {
   check('lyrics found and shown for it (LRCLIB)', !!lyr, lyr ? 'via /api/' + lyr : JSON.stringify(await js('WinifyLyrics.state()')).slice(0, 160));
   await js(`WinifyLyrics.close(false)`);
 
+  // 7. A random mix (the Winamp logo makes one of 10 playlists; 3 here, to
+  // keep within the budget, unless SMOKE_MIX_PLAYLISTS says otherwise). With
+  // SMOKE_MIX_END=1, also its end: does Spotify's Autoplay follow a list of
+  // songs? Played from 8 s before the end of its last song. That costs more
+  // than the player library's 60 allows alongside the other steps, so it is
+  // left out by default.
+  const MIX_PLAYLISTS = Number(process.env.SMOKE_MIX_PLAYLISTS) || 3;
+  const before = count.webApi;
+  await js(`WinifyMix.make({ playlists: ${MIX_PLAYLISTS} })`);
+  const mixed = await until(`(() => { const s = WinifyPlaylist.state(), m = WinifyMix.state(), n = WinifyControls.state();
+    return m.last && s.mix && s.mix.started && s.mode === 'list' && s.currentIndex === 1 && n.where === 'winify' && !n.paused ? { s, m: m.last } : null; })()`, 20000);
+  guard();
+  check('a mix of ' + MIX_PLAYLISTS + ' of your playlists plays on Winify, as its own list (all its songs in one play request)', !!mixed && (await js('WinifyMix.saved()[0].tracks.length')) === mixed.m.songs,
+    mixed ? mixed.s.header + ' / ' + mixed.m.songs + ' songs, ' + mixed.m.requests + ' requests (' + (count.webApi - before) + ' counted)' : JSON.stringify(await js('WinifyMix.state()')).slice(0, 160));
+  if (mixed && process.env.SMOKE_MIX_END) {
+    const tracks = await js(`WinifyMix.saved()[0].tracks`);
+    const lastSong = tracks[tracks.length - 1];
+    await js(`window.spotify.api('PUT', '/me/player/play?device_id=' + encodeURIComponent(WinifyPlayer.getDeviceId()), ${JSON.stringify({
+      uris: tracks.map((t) => t.uri), offset: { position: tracks.length - 1 }, position_ms: Math.max(0, lastSong.durationMs - 8000) })})`);
+    const atLast = await until(`WinifyControls.state().trackUri === ${JSON.stringify(lastSong.uri)} && WinifyPlaylist.state().currentIndex === ${tracks.length}`, 10000);
+    guard();
+    check('the mix\'s last song, as its last row', !!atLast);
+    const end = await until(`(() => { const s = WinifyPlaylist.state(), n = WinifyControls.state(), uris = ${JSON.stringify(tracks.map((t) => t.uri))};
+      if (s.mix && s.mix.done && n.paused) return 'stopped';
+      if (n.trackUri && !uris.includes(n.trackUri) && !n.paused) return 'autoplay';
+      return null; })()`, 25000);
+    guard();
+    const note = await js(`WinifyWebamp.getInstance().store.getState().userInput.userMessage`);
+    console.log('       After the mix: ' + (end === 'autoplay' ? 'Spotify\'s Autoplay carried on (' + await js('WinifyControls.state().title') + ')'
+      : end === 'stopped' ? 'Autoplay did not follow; playback stopped' : 'unclear (neither within 25 s)'));
+    check('at its end: Autoplay carries on, or it stops cleanly with "Mix finished"', end === 'autoplay' || (end === 'stopped' && (note === 'Mix finished' || await js('WinifyPlaylist.state().mix.done'))), end + ' / ' + note);
+  }
+
   // Done: your shuffle and repeat back, pause, your settings back, and what it cost.
   if (spotifyWas.shuffle) await js(`window.spotify.api('PUT', '/me/player/shuffle?state=true')`).catch(() => {});
   if (spotifyWas.repeat && spotifyWas.repeat !== 'off') await js(`window.spotify.api('PUT', '/me/player/repeat?state=${spotifyWas.repeat}')`).catch(() => {});
   await js(`WinifyPlayer.pause()`); await wait(800);   // after Winify's own last saves
   const restored = await restoreState();
-  console.log('Your own settings put back: ' + (restored == null ? 'nothing was set aside' : restored + ' of 4 (the others were Winify\'s defaults already)'));
+  console.log('Your own settings put back: ' + (restored == null ? 'nothing was set aside' : restored + ' of 5 (the others were Winify\'s defaults already)'));
   guard();
   report();
   console.log(stamp().trim() + ' in all.\n' + (fails ? 'SMOKE: ' + fails + ' FAILED' : 'SMOKE: ALL PASSED'));

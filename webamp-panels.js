@@ -318,6 +318,7 @@ function onPointerDown(e) {
 
 function onKeyDown(e) {
   if (e.key !== 'Escape' || !focused || e.defaultPrevented) return;
+  if (e.target instanceof Element && e.target.closest('[data-own-escape]')) return;   // a field that uses it (renaming)
   if (document.getElementById('webamp-context-menu')) return;   // the menu takes it
   if (document.fullscreenElement) return;                       // leaves full screen first
   const p = panels.get(focused);

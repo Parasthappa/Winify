@@ -123,6 +123,18 @@ all control Spotify.
 
 Press **Eject** or press **L**. Pick Liked Songs or one of your playlists (type to filter).
 
+### A random mix
+
+Click the Winamp logo (bottom right of the main window). Winify picks 10 of
+your own playlists at random, takes 10 random songs from each, shuffles them
+and plays them. Skip, reorder, queue and shuffle work as with any playlist.
+Hover over a song to see which playlist it came from. Click the logo again
+for a fresh mix.
+
+Your last 10 mixes are kept on this Mac (never on your Spotify account) and
+listed at the top of the playlist picker, under "Winify mixes". Pick one to
+play it again exactly. Right-click one to rename or delete it.
+
 ### Finding a track
 
 Press **J** (or the playlist window's **ADD** button) and type to search.
