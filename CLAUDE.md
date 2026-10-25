@@ -2,6 +2,7 @@
 
 Winify is a Winamp-style Spotify player (Electron + Webamp + the Spotify Web
 Playback SDK). User-facing docs: README.md. How it is built: DEVELOPMENT.md.
+Where the 1.0 release stands, and what each stage needs: RELEASE_PLAN.md.
 
 ## Before every commit
 
