@@ -11,6 +11,11 @@
  * would run off the bottom is shortened to fit. All open at the same height,
  * the main window's plus the playlist window's default height, so they line
  * up with that column. Closing one slides the later ones over (and up).
+ * The Winify panel (the chassis, with what's playing) is off-limits: a panel
+ * that would overlap it goes to the next free spot, past it in the same row
+ * or in the next row; only when there is none does it stay where it was
+ * (the chassis is drawn above every window, so nothing covers it anyway).
+ * Moving the chassis restacks.
  *
  * Placed: a panel dragged (or snapped) or resized by the user leaves the
  * stack; its spot and size are remembered and it opens there again. Reset
@@ -88,6 +93,16 @@ function column() {
 
 const area = () => ({ w: window.innerWidth, h: window.innerHeight });
 
+// The chassis (#login-screen), where it is now: kept clear by the stack.
+function chassis() {
+  const el = document.getElementById('login-screen');
+  if (!el || !el.offsetWidth) return null;
+  const r = el.getBoundingClientRect();
+  return { x: Math.round(r.left), y: Math.round(r.top), r: Math.round(r.right), b: Math.round(r.bottom) };
+}
+const overlaps = (f, c) => !!c && f.x < c.r && f.x + f.w > c.x && f.y < c.b && f.y + f.h > c.y;
+const CHASSIS_TRIES = 12;      // free spots looked at before giving up on one
+
 // Where the stacked panels go, in order: { id: { x, y, w, h } }.
 function stack(ids) {
   const col = column();
@@ -98,27 +113,41 @@ function stack(ids) {
   let rowStart = col.right;
   let rowH = 0;
   let row = 0;
+  const ch = chassis();
   for (const id of ids) {
     const p = panels.get(id);
     if (!p) continue;
     const w = p.defaultWidth;
-    // No room left in this row (the first row too, even for its first panel:
-    // the column may be at the right edge); a fresh lower row is used as is.
-    if (x + w > W && !(row > 0 && x === rowStart)) {
-      // A new row: the first one under the column, later ones under that.
-      y = row === 0 ? col.bottom : y + rowH;
-      x = rowStart = col.left;
-      rowH = 0;
-      row++;
+    let fitted = null, first = null;
+    for (let tries = 0; ; tries++) {
+      // No room left in this row (the first row too, even for its first panel:
+      // the column may be at the right edge); a fresh lower row is used as is.
+      if (x + w > W && !(row > 0 && x === rowStart)) {
+        // A new row: the first one under the column, later ones under that.
+        y = row === 0 ? col.bottom : y + rowH;
+        x = rowStart = col.left;
+        rowH = 0;
+        row++;
+      }
+      const h = Math.max(MIN_SIZE.h, Math.min(col.height, H - y));
+      if (y + h > H) y = Math.max(0, H - h);
+      // Never off the screen: a stacked panel must not push the player (Webamp
+      // pulls a window that is off screen back, with its snapped group).
+      const px = Math.max(0, Math.min(x, W - w));
+      fitted = p.fit ? p.fit({ x: px, y, w, h }) : Object.assign({ x: px, y }, stepped(w, h, Math.floor));
+      if (!first) first = { fitted, x, y, row, rowStart, rowH };
+      if (!overlaps(fitted, ch)) break;
+      if (tries >= CHASSIS_TRIES || y + h >= H && x + w > W) {
+        // Nowhere free: where it would have gone (the chassis stays on top).
+        ({ fitted, x, y, row, rowStart, rowH } = first);
+        break;
+      }
+      // The next free spot: past the chassis in this row, else the next row.
+      rowH = Math.max(rowH, fitted.h);
+      x = ch.r + w <= W && px < ch.r ? ch.r : W + 1;
     }
-    const h = Math.max(MIN_SIZE.h, Math.min(col.height, H - y));
-    if (y + h > H) y = Math.max(0, H - h);
-    // Never off the screen: a stacked panel must not push the player (Webamp
-    // pulls a window that is off screen back, with its snapped group).
-    const px = Math.max(0, Math.min(x, W - w));
-    const fitted = p.fit ? p.fit({ x: px, y, w, h }) : Object.assign({ x: px, y }, stepped(w, h, Math.floor));
     out[id] = fitted;
-    x = px + fitted.w;
+    x = fitted.x + fitted.w;
     rowH = Math.max(rowH, fitted.h);
   }
   return out;
@@ -182,6 +211,11 @@ export function placed(id, rect) {
 }
 
 // Reset window layout: forget the placements, restack what is open.
+// The chassis was moved: restack, so the stack keeps clear of it.
+export function chassisMoved() {
+  if (webamp) relayout();
+}
+
 export function reset() {
   store.placed = {};
   save();
@@ -339,6 +373,7 @@ export async function attach(instance) {
   document.addEventListener('keydown', onKeyDown, true);
   document.addEventListener('pointerdown', onMainPointerDown, true);
   document.addEventListener('pointerup', onMainPointerUp, true);
+  window.addEventListener('winify:chassis-moved', chassisMoved);
   const order = store.open.slice();
   for (const id of order) {
     const p = panels.get(id);
@@ -357,12 +392,14 @@ export function detach() {
   document.removeEventListener('keydown', onKeyDown, true);
   document.removeEventListener('pointerdown', onMainPointerDown, true);
   document.removeEventListener('pointerup', onMainPointerUp, true);
+  window.removeEventListener('winify:chassis-moved', chassisMoved);
   onMainPointerUp();
   webamp = null;
   focused = null;
 }
 
 window.WinifyPanels = {
+  chassis: () => chassis(),
   state: () => ({ open: store.open.slice(), placed: JSON.parse(JSON.stringify(store.placed)), focused, stacked: stacked() }),
   reset,
   relayout: () => relayout(),

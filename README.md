@@ -188,6 +188,8 @@ the player, as many at once as you like.
 - They line up to the right of the main and playlist windows, in the order
   you open them. When the screen runs out of room, they start a second row
   under the playlist window. Closing one moves the others up to fill the gap.
+  They keep clear of the Winify panel (the one showing what's playing), and
+  that panel is always drawn in front, even of a panel you drag onto it.
 - Drag a panel by its title bar (it snaps to the windows around it), or
   resize it from its bottom-right corner, in the same steps as the playlist
   window so the edges line up. Winify then remembers where you put it and

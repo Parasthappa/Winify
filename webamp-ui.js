@@ -43,6 +43,9 @@ const OPTIONS = {
   // Webamp's Milkdrop window, drawn by Butterchurn (webamp-milkdrop.js).
   __butterchurnOptions: milkdrop.butterchurnOptions,
   handleTrackDropEvent,
+  // Its windows (#webamp, on <body>) under the chassis, which is drawn above
+  // them (index.html); its menus are lifted above the chassis there too.
+  zIndex: 1,
   // Webamp's "load list" opens the playlist picker (its LIST OPTS button is
   // VIZ in Winify, webamp-milkdrop.js, so this is not normally reached); null leaves
   // Webamp's playlist alone (the picker plays the choice itself).

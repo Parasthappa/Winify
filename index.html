@@ -63,7 +63,11 @@
   /* The chassis: Winify's home base, always shown, signed in or not. A box
      the size of the drawn chassis (winify.js places and scales the design in
      it); is-active only says which state it is in (signed out). */
-  #login-screen { position: fixed; z-index: 0; }
+  /* The chassis is drawn above every Winify window (Webamp's root element,
+     with Winify's panels in it, is 1: webamp-ui.js), so nothing covers
+     what's playing. Menus (Webamp's and Winify's, on <body>) go above it. */
+  #login-screen { position: fixed; z-index: 2; }
+  body > #webamp-context-menu, body > div:has(ul.context-menu) { z-index: 3 !important; }
   #sa-stage { width: 1280px; height: 1070px; transform-origin: 0 0; position: absolute; left: 0; top: 0; }
   /* Only the chassis's own shape shows and takes clicks: the design's
      backdrop (it was the window's background) goes, and the drawing's box

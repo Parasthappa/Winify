@@ -494,6 +494,8 @@
         box.removeEventListener('pointerup', up);
         box.removeEventListener('pointercancel', up);
         try { localStorage.setItem(PLACE_KEY, JSON.stringify({ x: box.offsetLeft, y: box.offsetTop })); } catch (err) { /* storage unavailable */ }
+        // The side panels' stack keeps clear of the chassis (webamp-panels.js).
+        window.dispatchEvent(new CustomEvent('winify:chassis-moved'));
       }
       box.addEventListener('pointermove', move);
       box.addEventListener('pointerup', up);

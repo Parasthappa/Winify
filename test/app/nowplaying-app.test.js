@@ -97,6 +97,17 @@ app.whenReady().then(async () => {
   check('a track without a cover: a plain dark square in its place, the layout unchanged', /^data:image\/svg\+xml/.test(await js(`document.querySelector('#login-screen .sa-np-cover').getAttribute('src')`)) && JSON.stringify(await R('#login-screen .sa-np-cover')) === JSON.stringify(cover));
   installed = true;
 
+  console.log('3b. Nothing covers it: the chassis is drawn above every window');
+  await js(`WinifyLyrics.open()`); await wait(600);
+  // The lyrics panel moved right over the cover (as a drag there would leave it).
+  await js(`(() => { const c = document.querySelector('#login-screen .sa-np-cover').getBoundingClientRect(); const l = document.querySelector('#webamp .winify-lyrics');
+    l.style.left = Math.round(c.left - 40) + 'px'; l.style.top = Math.round(c.top - 40) + 'px'; return true; })()`); await wait(200);
+  const onTop = await js(`(() => { const c = document.querySelector('#login-screen .sa-np-cover').getBoundingClientRect(); const l = document.querySelector('#webamp .winify-lyrics').getBoundingClientRect();
+    const covers = l.left < c.right && l.right > c.left && l.top < c.bottom && l.bottom > c.top;
+    const e = document.elementFromPoint(c.left + c.width / 2, c.top + c.height / 2); return { covers, hit: e && e.className }; })()`);
+  check('a panel moved over the cover art: the cover stays in front of it', onTop.covers && /sa-np-cover/.test(onTop.hit || ''), JSON.stringify(onTop));
+  await js(`WinifyLyrics.close()`); await wait(300);
+
   console.log('4. Music stops: the wordmark again');
   playing = false; await js(`window.dispatchEvent(new CustomEvent('winify:now-playing', { detail: null }))`); await js('WinifyControls.refresh()');
   check('nothing playing: back to the wordmark', await until(`!document.querySelector('#login-screen .sa-np-cover') && !!document.querySelector('#login-screen img[alt="Winify"]')`));
