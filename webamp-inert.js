@@ -12,6 +12,12 @@
  * Winify panel's yellow and red lights, and windowshade is a double-click on
  * the title bar (as in classic Winamp). See TITLE_BAR_CSS.
  *
+ * Main window controls that do nothing here stay drawn as the skin has them,
+ * but don't respond, and say so on hover (NOT_HERE): on a Mac the EQ button
+ * and the balance slider (Spotify's sound can't be equalized or panned
+ * there; the main menu's Equalizer item goes too), and anywhere the clutter
+ * bar's A ("always on top" in Winamp, which Webamp leaves without a use).
+ *
  * The main menu has no Exit: closing is the red light alone. Should Webamp
  * close itself anyway, the Winify window is hidden instead, as the red light
  * does: Webamp's own close would remove the whole interface, leaving an
@@ -48,6 +54,18 @@ let realInputClick = null;
 //   Main menu > Exit                  closing is the Winify panel's red light
 //                                     alone (the line above it goes too)
 const DEAD_MENU_ITEMS = new Set(['10 tracks back', '10 tracks fwd', 'Exit']);
+
+// Controls that do nothing here, and the tooltip that says so (the native
+// one, as Webamp's own controls have). `mac`: only on a Mac.
+const MAC = /^Mac/i.test(navigator.platform || '');
+const NOT_HERE = [
+  { selector: '#webamp #main-window #equalizer-button', title: 'Equalizer coming to Windows', mac: true },
+  { selector: '#webamp #main-window #balance', title: 'Not available', mac: true },
+  { selector: '#webamp #main-window #button-a', title: 'Not available' },
+].filter((c) => !c.mac || MAC);
+//   Main menu > Equalizer             on a Mac, the equalizer window can't be
+//                                     opened (its EQ button doesn't either)
+if (MAC) DEAD_MENU_ITEMS.add('Equalizer');
 const DEAD_MENU_CSS = `
   #webamp #playlist-list-menu li:has(.new-list),
   #webamp #playlist-list-menu li:has(.save-list) { display: none; }
@@ -125,6 +143,28 @@ function onClickCapture(e) {
   }
 }
 
+// A press, click or key on a control that does nothing here goes no further:
+// the EQ button doesn't toggle (or look pressed), the balance slider doesn't
+// move.
+function onNotHereCapture(e) {
+  if (!attached || !(e.target instanceof Element)) return;
+  if (!NOT_HERE.some((c) => e.target.closest(c.selector))) return;
+  if (e.type === 'keydown' && (e.key === 'Tab' || e.metaKey)) return;
+  e.preventDefault();
+  e.stopPropagation();
+}
+const NOT_HERE_EVENTS = ['pointerdown', 'mousedown', 'click', 'dblclick', 'keydown', 'input', 'change'];
+
+// The tooltips, (re)applied whenever Webamp redraws the main window.
+function labelNotHere() {
+  for (const c of NOT_HERE) {
+    const el = document.querySelector(c.selector);
+    if (!el || el.title === c.title) continue;
+    el.title = c.title;
+    if (el.tagName === 'INPUT') el.tabIndex = -1;          // the balance slider: not reachable by Tab either
+  }
+}
+
 function install() {
   if (realAlert) return;
   realAlert = window.alert;
@@ -174,12 +214,15 @@ export function attach(webamp) {
   install();
   attached = true;
   document.addEventListener('click', onClickCapture, true);
+  for (const type of NOT_HERE_EVENTS) document.addEventListener(type, onNotHereCapture, true);
   deadMenuStyle = document.createElement('style');
   deadMenuStyle.id = 'winify-dead-menu-items';
   deadMenuStyle.textContent = DEAD_MENU_CSS + TITLE_BAR_CSS;
   document.head.appendChild(deadMenuStyle);
   menuObserver.observe(document.body, { childList: true });
+  labelNotHere();
   unsubscribers = [
+    webamp.store.subscribe(labelNotHere),
     // Nothing in the interface closes Webamp now (no close button, no Exit):
     // a safeguard.
     webamp.onWillClose((cancel) => {
@@ -192,6 +235,7 @@ export function attach(webamp) {
 export function detach() {
   attached = false;
   document.removeEventListener('click', onClickCapture, true);
+  for (const type of NOT_HERE_EVENTS) document.removeEventListener(type, onNotHereCapture, true);
   menuObserver.disconnect();
   if (deadMenuStyle) deadMenuStyle.remove();
   deadMenuStyle = null;
