@@ -7,10 +7,13 @@ Where the 1.0 release stands, and what each stage needs: RELEASE_PLAN.md.
 ## Before every commit
 
 1. Run the full test suite: `npm test` (about 15 minutes; no Spotify requests).
-2. Run the smoke test against the real Spotify: `npm run smoke` (under a
-   minute, at most 30 Web API requests by Winify and 60 by Spotify's player
-   library). It needs Winify quit and a remembered sign-in, plays music, and
-   starts from Winify's default layout, putting the user's own back afterwards.
+2. Only for changes that touch Spotify requests, sign-in or playback: also run
+   the smoke test against the real Spotify, `npm run smoke` (under a minute,
+   at most 30 Web API requests by Winify and 60 by Spotify's player library).
+   Changes that don't (layout, panels, visuals, shortcuts) need the full suite
+   alone. The smoke test needs Winify quit and a remembered sign-in, plays
+   music, and starts from Winify's default layout, putting the user's own back
+   afterwards.
    Standing permission: up to 3 runs per day without asking, at least 10
    minutes apart, as long as those caps stay at 30 and 60. Check
    `test/.output/smoke-runs.log` (one line per run) first. Beyond that, or
