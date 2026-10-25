@@ -12,8 +12,9 @@
  * Winify panel's yellow and red lights, and windowshade is a double-click on
  * the title bar (as in classic Winamp). See TITLE_BAR_CSS.
  *
- * The main menu's Exit hides the Winify window, as the red light does:
- * Webamp's own close would otherwise remove the whole interface, leaving an
+ * The main menu has no Exit: closing is the red light alone. Should Webamp
+ * close itself anyway, the Winify window is hidden instead, as the red light
+ * does: Webamp's own close would remove the whole interface, leaving an
  * empty window until relaunch.
  */
 
@@ -44,7 +45,9 @@ let realInputClick = null;
 //   EQ > Presets                      Spotify has no EQ: presets only moved
 //                                     the sliders; Save and From Eqf... are
 //                                     file dialogs. The button opens nothing.
-const DEAD_MENU_ITEMS = new Set(['10 tracks back', '10 tracks fwd']);
+//   Main menu > Exit                  closing is the Winify panel's red light
+//                                     alone (the line above it goes too)
+const DEAD_MENU_ITEMS = new Set(['10 tracks back', '10 tracks fwd', 'Exit']);
 const DEAD_MENU_CSS = `
   #webamp #playlist-list-menu li:has(.new-list),
   #webamp #playlist-list-menu li:has(.save-list) { display: none; }
@@ -91,7 +94,11 @@ let deadMenuStyle = null;
 function hideDeadItems() {
   for (const li of document.querySelectorAll('#webamp-context-menu li')) {
     const label = li.firstChild && li.firstChild.nodeType === Node.TEXT_NODE ? li.firstChild.textContent.trim() : '';
-    if (DEAD_MENU_ITEMS.has(label) && li.style.display !== 'none') li.style.display = 'none';
+    if (!DEAD_MENU_ITEMS.has(label) || li.style.display === 'none') continue;
+    li.style.display = 'none';
+    // Exit is the main menu's last item: no line left hanging above it.
+    const before = li.previousElementSibling;
+    if (label === 'Exit' && !li.nextElementSibling && before && before.classList.contains('hr')) before.style.display = 'none';
   }
 }
 
@@ -173,7 +180,8 @@ export function attach(webamp) {
   document.head.appendChild(deadMenuStyle);
   menuObserver.observe(document.body, { childList: true });
   unsubscribers = [
-    // The main menu's Exit (the title bar's close button is gone).
+    // Nothing in the interface closes Webamp now (no close button, no Exit):
+    // a safeguard.
     webamp.onWillClose((cancel) => {
       cancel();
       window.spotify.windowCommand('hide');
