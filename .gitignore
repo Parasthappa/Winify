@@ -11,3 +11,6 @@ test/.output/
 
 # Local tool settings (the preview browser), kept out of the project.
 .claude/launch.json
+
+# Skins for the gallery check (test/gallery): their artists' work, not ours to publish.
+test/skins/
