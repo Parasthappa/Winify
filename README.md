@@ -347,6 +347,16 @@ When you sign in, Winify asks Spotify for permission to see your account type
 (to check for Premium), play music, see and control what is playing, read your
 playlists, and read your Liked Songs.
 
+## Not affiliated with Spotify or Winamp
+
+Winify is an independent, free, open-source project. It is not affiliated
+with, endorsed by, or sponsored by Spotify or Winamp. Spotify is a trademark
+of Spotify AB, and Winamp is a trademark of its owner, Winamp Group. The
+classic skin Winify shows is Winamp's own, by Nullsoft, as included in
+Webamp. Music, cover art and song details come from Spotify; lyrics come
+from LRCLIB and belong to their songwriters and publishers. Everything else
+Winify uses is credited in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
 ## For developers
 
 How Winify is built, and how to work on it: see [DEVELOPMENT.md](DEVELOPMENT.md).
