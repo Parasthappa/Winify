@@ -171,6 +171,7 @@ chassis, the Webamp windows and Winify's own windows are drawn in it.
 | `webamp-frame.js` | The panels' frame (Webamp's generic window, as Milkdrop's) and consistent cursors |
 | `webamp-panels.js` | The side panels (picker, search, lyrics, Milkdrop): default stack, remembered placements, Escape |
 | `webamp-inert.js` | Keeps Webamp controls with no Spotify meaning quiet |
+| `webamp-controls.js` | The main window's controls per platform: on Mac no balance or EQ, a longer volume slider drawn from the skin |
 | `webamp-vis.js` | Feeds Webamp's visualizer from the audio capture |
 | `webamp-milkdrop.js` | Webamp's Milkdrop window, drawn by Butterchurn from the audio capture; its menu, keys and the VIZ button |
 | `webamp-milkdrop-presets.js` | Presets you add: converted, test-loaded, kept in IndexedDB |

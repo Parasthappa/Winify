@@ -48,6 +48,12 @@ let realInputClick = null;
 //   Main menu > Exit                  closing is the Winify panel's red light
 //                                     alone (the line above it goes too)
 const DEAD_MENU_ITEMS = new Set(['10 tracks back', '10 tracks fwd', 'Exit']);
+
+// More items to hide, per platform (webamp-controls.js: Equalizer on Mac).
+export function hideMenuItem(label, hidden) {
+  if (hidden) DEAD_MENU_ITEMS.add(label);
+  else DEAD_MENU_ITEMS.delete(label);
+}
 const DEAD_MENU_CSS = `
   #webamp #playlist-list-menu li:has(.new-list),
   #webamp #playlist-list-menu li:has(.save-list) { display: none; }

@@ -126,7 +126,10 @@ h.open().then(async ({ win, js }) => {
   await m('(mock.libraryForbidden = false, mock.resumable = true)');
 
   console.log('L. Inert controls'); await js(`(() => { const st = WinifyWebamp.getInstance().store; if (!st.getState().windows.genWindows.equalizer.open) st.dispatch({ type: 'TOGGLE_WINDOW', windowId: 'equalizer' }); })()`); await h.wait(400); const before = await S(); await take();
-  await c('#balance', 0.95, 0.5); await h.wait(300); s = await S(); check('Balance: stays centred', s.balance === 0 && before.balance === 0, String(s.balance));
+  // Balance is hidden on Mac; the Windows layout still shows it.
+  await js(`WinifyControlsLayout.use('windows')`); await h.wait(300);
+  await c('#balance', 0.95, 0.5); await h.wait(300); s = await S(); check('Balance (Windows layout): stays centred', s.balance === 0 && before.balance === 0, String(s.balance));
+  await js(`WinifyControlsLayout.use('mac')`); await h.wait(300);
   await c('#band-60', 0.5, 0.1); await c('#preamp', 0.5, 0.9); await h.wait(300); s = await S(); check('EQ + preamp sliders: unchanged', s.bands === before.bands, before.bands + ' -> ' + s.bands);
   await js('window.__fileInputs = 0; const rc = HTMLInputElement.prototype.click; document.addEventListener("change", () => {}, true);');
   await c('#eject'); await h.wait(600);

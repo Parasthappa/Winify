@@ -119,6 +119,9 @@ device list in the Spotify app on your phone or computer.
 Play, Pause, Stop, Next, Previous, the position bar, volume, Shuffle and Repeat
 all control Spotify.
 
+On a Mac, Spotify's sound can't be panned or equalized, so the main window
+has no balance slider or EQ button; the volume slider is longer instead.
+
 ### Choosing a playlist
 
 Press **Eject** or press **L**. Pick Liked Songs or one of your playlists (type
