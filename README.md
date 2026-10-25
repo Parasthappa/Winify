@@ -214,7 +214,10 @@ everything to the Dock (click Winify's Dock icon to bring it back), and its
 
 Click the **A** on the main window's left edge to keep Winify **always on
 top** of other apps' windows (it lights up while on); click it again to turn
-it off. Winify remembers the setting. (The main
+it off. Or keep Winify **behind other apps**, sitting on the desktop like a
+widget: tick **Keep behind other apps** in the menu-bar menu. Clicking
+Winify then leaves it behind the other apps' windows. Only one of the two can
+be on: turning one on turns the other off. Winify remembers the setting. (The main
 Winamp window's title bar has no buttons of its own: double-click it to
 switch to the slim windowshade view and back.)
 

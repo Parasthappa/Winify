@@ -26,18 +26,26 @@ global.fetch = async (u, o = {}) => {
   if (/^https:\/\/(api|accounts)\.spotify\.com\//.test(url)) { const r = spotify(o.method || 'GET', url); return new Response(r.body == null ? null : JSON.stringify(r.body), { status: r.status, headers: { 'Content-Type': 'application/json' } }); }
   return realFetch(u, o);
 };
+// The menu-bar menu, as main.js builds it (its items are clicked here).
+let trayMenu = null;
+const realSetMenu = electron.Tray.prototype.setContextMenu;
+electron.Tray.prototype.setContextMenu = function (menu) { trayMenu = menu; return realSetMenu.call(this, menu); };
+const trayItem = (label) => trayMenu && trayMenu.items.find((i) => i.label === label);
 require(path.join(__dirname, '..', '..', 'main.js'));
 setTimeout(() => { console.log('WATCHDOG'); app.exit(2); }, 150000);
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 let fails = 0; const check = (l, ok, d) => { if (!ok) fails++; console.log((ok ? '  PASS ' : '  FAIL ') + l + (d ? '   ' + String(d).slice(0, 300) : '')); return ok; };
-// The macOS window level ("layer") of Winify's big window: the largest window this process has on screen.
+// The macOS window level ("layer") of Winify's big window: the largest window this app (this process: other
+// suites' Electron windows may be open at the same time) has on screen.
 function layer() {
-  const out = execFileSync('swift', [path.join(__dirname, '..', 'lib', 'window-layers.swift'), 'Electron'], { encoding: 'utf8' });
-  const rows = out.trim().split('\n').map((l) => { const m = l.match(/layer (-?\d+) \| .* \| \S+ \S+ (\d+)x(\d+)$/); return m ? { layer: +m[1], area: +m[2] * +m[3] } : null; }).filter(Boolean);
+  const out = execFileSync('swift', [path.join(__dirname, '..', 'lib', 'window-layers.swift'), String(process.pid)], { encoding: 'utf8' });
+  const rows = out.trim().split('\n').map((l) => { const m = l.match(/\| layer (-?\d+) \| \S+ \S+ (\d+)x(\d+)$/); return m ? { layer: +m[1], area: +m[2] * +m[3] } : null; }).filter(Boolean);
   rows.sort((a, b) => b.area - a.area);
   return rows.length ? rows[0].layer : null;
 }
 const config = () => JSON.parse(fs.readFileSync(path.join(profile, 'config.json'), 'utf8'));
+// Waited for (not a fixed time: under load the page and macOS take longer): the level to become `want`.
+async function settle(want, ms = 4000) { const end = Date.now() + ms; let l; while (Date.now() < end) { l = layer(); if (l === want) return l; await new Promise((r) => setTimeout(r, 250)); } return l; }
 app.whenReady().then(async () => {
   session.defaultSession.protocol.handle('https', async (req) => {
     if (new URL(req.url).host === 'api.spotify.com') { const r = spotify(req.method, req.url); return new Response(r.body == null ? null : JSON.stringify(r.body), { status: r.status, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } }); }
@@ -57,6 +65,32 @@ app.whenReady().then(async () => {
   await click('#webamp #main-window #button-a');
   check('A again: on top (3), remembered', win.isAlwaysOnTop() && layer() === 3 && config().windowLevel === 'top', JSON.stringify({ layer: layer(), config: config() }));
   check('the rest of config.json is kept (the saved Client ID)', config().clientId === SAVED_ID, JSON.stringify(config()));
+
+  console.log('2. Behind other apps: the menu-bar menu');
+  let item = trayItem('Keep behind other apps');
+  check('menu-bar menu: "Keep behind other apps", unticked while on top', !!item && item.type === 'checkbox' && !item.checked, JSON.stringify(item && { type: item.type, checked: item.checked }));
+  item.click(); await wait(500);
+  check('ticked: one level below other apps\' windows (-1), remembered; always on top turned off (A not lit)', layer() === -1 && config().windowLevel === 'behind' && trayItem('Keep behind other apps').checked &&
+    !(await js(`document.querySelector('#webamp #button-a').classList.contains('selected')`)), JSON.stringify({ layer: layer(), config: config() }));
+  // A click on Winify (the main window) brings Winify's app forward, not its window: it stays at -1.
+  await click('#webamp #main-window #title-bar');
+  win.focus(); await wait(400);
+  check('clicked and focused: still behind (-1)', layer() === -1, String(layer()));
+  await click('#webamp #main-window #button-a');
+  check('A while behind: always on top (3), "Keep behind" unticked', layer() === 3 && config().windowLevel === 'top' && !trayItem('Keep behind other apps').checked, JSON.stringify({ layer: layer(), config: config() }));
+  trayItem('Keep behind other apps').click();
+  const l2 = await settle(-1); await until(`!document.querySelector('#webamp #button-a').classList.contains('selected')`, 4000);
+  check('the menu item again while on top: behind (-1), A not lit', l2 === -1 && !(await js(`document.querySelector('#webamp #button-a').classList.contains('selected')`)), JSON.stringify({ layer: l2, config: config() }));
+
+  console.log('3. Full screen (Milkdrop) while behind');
+  win.webContents.emit('enter-html-full-screen');
+  const l3 = await settle(0);
+  check('full screen: an ordinary window while it lasts (0), not stuck under other apps', l3 === 0 && win.isSimpleFullScreen(), String(l3));
+  win.webContents.emit('leave-html-full-screen');
+  const l4 = await settle(-1);
+  check('left: behind again (-1), back on its usual area', l4 === -1 && !win.isSimpleFullScreen(), String(l4));
+  trayItem('Keep behind other apps').click(); await wait(500);
+  check('unticked: an ordinary window (0)', layer() === 0 && config().windowLevel === 'normal', String(layer()));
 
   console.log(fails ? 'RESULT: ' + fails + ' FAILED' : 'RESULT: ALL PASSED');
   app.exit(fails ? 1 : 0);

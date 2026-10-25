@@ -35,7 +35,7 @@ contextBridge.exposeInMainWorld('spotify', {
   // document.hidden does not reflect win.hide() in Electron, so visibility
   // has to be pushed from the main process.
   onVisibility: on('window:visibility'),
-  // Where Winify's window sits among other apps': 'normal' or 'top'.
+  // Where Winify's window sits among other apps': 'normal', 'top' or 'behind'.
   onWindowLevel: on('window-level'),
   setWindowLevel: (level) => ipcRenderer.send('window-level', level),
   // Menu-bar actions arrive here now that the test buttons are gone.

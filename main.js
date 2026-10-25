@@ -40,8 +40,14 @@ function readConfig() {
 //   'normal' - like any app's
 //   'top'    - always on top: above other apps' windows (macOS's floating
 //              level). The main window's A button (classic Winamp's).
-const WINDOW_LEVELS = ['normal', 'top'];
+//   'behind' - behind other apps: one level below every other app's
+//              ordinary windows (-1), on the desktop like a widget (still
+//              above the desktop's icons). Clicking it leaves it there. The
+//              menu-bar menu's "Keep behind other apps".
+// One setting, so turning one on turns the other off.
+const WINDOW_LEVELS = ['normal', 'top', 'behind'];
 let windowLevel = 'normal';
+let inFullScreen = false;     // Milkdrop full screen (macOS can report the change late)
 
 function loadWindowLevel() {
   const level = readConfig().windowLevel;
@@ -50,9 +56,24 @@ function loadWindowLevel() {
 
 function applyWindowLevel() {
   if (!win || win.isDestroyed()) return;
-  if (windowLevel === 'top') win.setAlwaysOnTop(true, 'floating');
-  else win.setAlwaysOnTop(false);
   send('window-level', windowLevel);
+  // Full screen (Milkdrop) keeps its own level, in front of everything:
+  // lowered, macOS treats it as covered and slows its drawing. The setting
+  // is applied again when it ends.
+  if (inFullScreen) return;
+  if (windowLevel === 'top') win.setAlwaysOnTop(true, 'floating');
+  else if (windowLevel === 'behind') win.setAlwaysOnTop(true, 'normal', -1);
+  else if (win.isAlwaysOnTop()) win.setAlwaysOnTop(false);
+}
+
+// Applied again shortly after a change, and whenever the window is focused,
+// shown or restored: Chromium keeps its own idea of the window's level and
+// can put it back, which was seen to leave "behind" at the ordinary level.
+let levelTimer = null;
+function reapplyWindowLevelSoon() {
+  if (windowLevel === 'normal') return;        // nothing to hold on to
+  clearTimeout(levelTimer);
+  levelTimer = setTimeout(applyWindowLevel, 300);
 }
 
 function setWindowLevel(level) {
@@ -65,6 +86,8 @@ function setWindowLevel(level) {
   }
   console.log('[window] level:', level);
   applyWindowLevel();
+  reapplyWindowLevelSoon();
+  buildTray();
 }
 
 function loadClientId() {
@@ -328,8 +351,10 @@ function createWindow() {
   });
   watchVisibility();
   watchHomeArea();
-  // Always on top (remembered), and the page told which, once it is there.
+  // Always on top or behind (remembered), and the page told which, once it
+  // is there.
   applyWindowLevel();
+  for (const event of ['focus', 'show', 'restore']) win.on(event, reapplyWindowLevelSoon);
   win.webContents.on('did-finish-load', () => send('window-level', windowLevel));
   // Until the page says otherwise, clicks pass through.
   setPassThrough(true);
@@ -338,6 +363,10 @@ function createWindow() {
   // screen, so it covers the whole display in simple full screen instead,
   // and goes back to the usable area after.
   win.webContents.on('enter-html-full-screen', () => {
+    // Behind other apps, full screen would stay under their windows: an
+    // ordinary window while it lasts.
+    inFullScreen = true;
+    if (windowLevel === 'behind') win.setAlwaysOnTop(false);
     win.setSimpleFullScreen(true);
     // In front of everything else, or macOS treats it as covered and slows
     // its drawing.
@@ -350,6 +379,8 @@ function createWindow() {
       if (!win || win.isDestroyed()) return;
       win.setSimpleFullScreen(false);
       win.setBounds(homeArea());
+      inFullScreen = false;
+      applyWindowLevel();
     }, 0);
   });
 
@@ -706,6 +737,12 @@ function buildTray() {
         showWindow();
         send('ui:command', { name: 'jump-to-track' });
       },
+    },
+    {
+      label: 'Keep behind other apps',
+      type: 'checkbox',
+      checked: windowLevel === 'behind',
+      click: () => setWindowLevel(windowLevel === 'behind' ? 'normal' : 'behind'),
     },
     {
       label: 'Reset window layout',
@@ -1188,7 +1225,8 @@ ipcMain.handle('lrclib', async (_event, path, params) => {
   return { status: res.status, body: await res.json() };
 });
 
-// The main window's A button: always on top, or not.
+// The main window's A button: always on top, or not (the menu-bar menu sets
+// "behind" itself).
 ipcMain.on('window-level', (_event, level) => setWindowLevel(level));
 
 // The chassis's now-playing display: "PLAY ON SPOTIFY" opens the track in the
