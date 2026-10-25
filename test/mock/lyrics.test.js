@@ -59,6 +59,20 @@ h.open().then(async ({ win, js }) => {
   await js('LRC.busy = false'); await h.click(win, js, '.winify-lyrics .wl-retry');
   s = await untilL((v) => /Song 2006/.test(v.text || '') && /No lyrics found/.test(v.text || ''));
   check('...retry once it is free: a real answer', /No lyrics found/.test(s.text), s.text);
+  // Busy with a Retry-After: no request before that time. 3 s: waited out, one quiet retry.
+  await js('(LRC.busy = true, LRC.retryAfter = 3, LRC.times = [])'); await play(7);
+  s = await untilL((v) => /Song 2007/.test(v.text || '') && /busy/.test(v.text || ''), 15000);
+  let times = await js('LRC.times');
+  const gaps = times.slice(1).map((t, i) => t - times[i]);
+  check('Retry-After 3 s: the quiet retry waits at least 3 s (at most 30% more)', gaps.length >= 2 && gaps[gaps.length - 1] >= 3000 && gaps[gaps.length - 1] <= 3900 + 400, JSON.stringify(gaps));
+  // 60 s: no quiet retry, and the window's retry sends nothing until then.
+  await js('(LRC.retryAfter = 60, LRC.times = [])'); await play(8);
+  s = await untilL((v) => /Song 2008/.test(v.text || '') && /busy/.test(v.text || ''), 15000);
+  const n60 = (await js('LRC.times')).length;
+  await js('LRC.busy = false'); await h.click(win, js, '.winify-lyrics .wl-retry'); await h.wait(1500);
+  s = await L();
+  check('Retry-After 60 s: no quiet retry; clicking retry meanwhile asks nothing, still "busy"', (await js('LRC.times')).length === n60 && /busy/.test(s.text || ''), JSON.stringify({ n60, now: (await js('LRC.times')).length, text: s.text }));
+  await js('(LRC.retryAfter = null, WinifyLyrics.clearBusy())');
   // A slow lookup shows that it is looking.
   await js('LRC.delay = 1500'); await play(5);
   s = await untilL((v) => /Song 2005/.test(v.text || ''));

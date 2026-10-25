@@ -69,6 +69,7 @@ setInterval(() => { if (mock.active === 'winify' && !mock.paused && mock.pos() >
 window.LRC = {
   fail: new Set(),           // track names whose lookups fail (network)
   delay: 150,
+  times: [],                 // when each lookup was made
   get(q) {
     const n = q.track_name;
     if (n === 'Song 2000') return { id: 1, trackName: n, artistName: q.artist_name, albumName: q.album_name, duration: +q.duration, instrumental: false,
@@ -88,10 +89,11 @@ window.LRC = {
 };
 window.spotify = {
   lrclib: async (path, q) => {
-    rec('lrclib', path, q.track_name);
+    rec('lrclib', path, q.track_name); LRC.times.push(Date.now());
     await new Promise((r) => setTimeout(r, LRC.delay));
     if (LRC.fail.has(q.track_name)) throw new Error("Error invoking remote method 'lrclib': TypeError: fetch failed");
-    if (LRC.busy && path === '/api/search') return { status: 503, body: null };
+    // LRC.retryAfter: the Retry-After a busy LRCLIB sends (seconds), as main.js passes it on.
+    if (LRC.busy && path === '/api/search') return { status: 503, body: null, retryAfter: LRC.retryAfter == null ? null : String(LRC.retryAfter) };
     if (path === '/api/get') { const r = LRC.get(q); return r ? { status: 200, body: r } : { status: 404, body: null }; }
     return { status: 200, body: LRC.search(q) };
   },

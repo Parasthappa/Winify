@@ -27,7 +27,9 @@ const CREDIT = 'Lyrics from LRCLIB';
 const WIDTH = 325;                  // as the picker's: a tidier stack
 const WATCH_MS = 500;               // how often the current track is checked
 const DURATION_SLACK_S = 4;         // a search match this close is the same recording
-const BUSY_RETRY_MS = 2000;
+const BUSY_FALLBACK_S = 2;          // LRCLIB busy without saying how long to wait
+const BUSY_QUIET_MAX_S = 20;        // a longer wait is not done quietly: the window offers a retry
+const BUSY_JITTER = 0.3;            // up to 30% more, as LRCLIB asks, so clients don't retry in step
 
 let ctx = null;                     // { webamp, api, now }
 let el = null;
@@ -96,12 +98,30 @@ function answered(res, allowNotFound) {
   throw err;
 }
 
-// LRCLIB is sometimes briefly busy (503): one quiet retry before giving up.
+// LRCLIB busy (429 rate limit, 503): it says how long to wait (Retry-After,
+// seconds or a date), and asks every client to wait at least that long. No
+// request goes out before then: a short wait is waited out for one quiet
+// retry; a long one leaves the window's own retry to the listener.
+let busyUntil = 0;
+
+function retryAfterMs(value) {
+  const n = Number(value);
+  if (value != null && value !== '' && isFinite(n)) return Math.max(0, n) * 1000;
+  const at = Date.parse(value);
+  return isFinite(at) ? Math.max(0, at - Date.now()) : BUSY_FALLBACK_S * 1000;
+}
+
 async function lrclib(path, params) {
-  const res = await window.spotify.lrclib(path, params);
-  if (res.status !== 429 && res.status !== 503) return res;
-  await new Promise((resolve) => setTimeout(resolve, BUSY_RETRY_MS));
-  return window.spotify.lrclib(path, params);
+  for (let attempt = 0; ; attempt++) {
+    const wait = busyUntil - Date.now();
+    if (wait > BUSY_QUIET_MAX_S * 1000) return { status: 429, body: null };   // still asked to wait
+    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+    const res = await window.spotify.lrclib(path, params);
+    if (res.status !== 429 && res.status !== 503) return res;
+    busyUntil = Date.now() + retryAfterMs(res.retryAfter) * (1 + Math.random() * BUSY_JITTER);
+    log('LRCLIB busy (' + res.status + '): waiting', Math.round((busyUntil - Date.now()) / 100) / 10, 's before asking again');
+    if (attempt >= 1) return res;
+  }
 }
 
 async function lookUp(d) {
@@ -518,6 +538,7 @@ export function reset() {
 window.WinifyLyrics = {
   open, close, toggle, isOpen,
   find: (details) => lookUp(details),
+  clearBusy: () => { busyUntil = 0; },             // tests: forget a Retry-After
   state: () => ({ open: !!el, shownUri, cached: [...lyricsCache.keys()],
     entry: shownUri ? lyricsCache.get(shownUri) || null : null,
     text: el ? el.querySelector('.wl-body').innerText : null }),
