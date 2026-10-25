@@ -2,6 +2,11 @@
 
 Winify 1.0 is a Mac-only release on GitHub. Windows comes later, as 1.1.
 
+What "release" means (decided 25 Oct 2026): personal use, plus the source
+code on GitHub. Free and non-commercial; everyone who builds it brings their
+own Spotify Client ID. No public download of a built app, so no Apple
+developer membership (no notarizing) and no signed build for others.
+
 Every session: check here which stage we are in, and tick items off as they
 are done (with the commit, where there is one).
 
@@ -18,23 +23,79 @@ Done means:
       personal, and the findings have been listed for the user to decide on.
 - [x] This plan exists, and CLAUDE.md points to it.
 
-## 2. Check the rules
+## 2. Check the rules: researched and decided (25 Oct 2026)
 
 Done means a short written answer (with links) for each of these, saying
 what Winify 1.0 may do, what it must include and what it must not do:
 
-- [ ] castLabs' terms for distributing an app signed with their VMP service
-      (Electron for Content Security), including whether others may download
-      a signed build from GitHub.
-- [ ] Spotify's Developer Terms and Developer Policy for an open-source,
-      non-commercial player: use of the Web API and the Web Playback SDK,
-      each user bringing their own Client ID, the name "Winify" and its look,
-      and what may be said about Spotify in the README.
-- [ ] The licence of everything Winify includes, and what credit each needs:
-      Webamp, Butterchurn, its presets, the preset converter (.milk to
-      Butterchurn), and LRCLIB's lyrics data.
-- [ ] Any change the answers call for is listed as a task in a later stage
-      (or a decision for the user), before stage 3 starts.
+- [x] castLabs: fine. Electron for Content Security is MIT-licensed
+      ([LICENSE](https://github.com/castlabs/electron-releases/blob/master/LICENSE)).
+      EVS is a free service for "production Widevine/VMP signing of
+      application packages derived from official releases"
+      ([EVS wiki](https://github.com/castlabs/electron-releases/wiki/EVS));
+      no published terms restrict distributing a signed app. The Widevine
+      module is not bundled: the app downloads it from Google on first launch
+      ([README](https://github.com/castlabs/electron-releases#readme)).
+      With no public download (see the top), castLabs' confirmation for
+      distributing a signed build is not needed: everyone who builds Winify
+      signs their own copy with their own free EVS account, as the README
+      describes.
+- [x] Spotify: needs changes, and one risk to accept or clear
+      ([Developer Policy](https://developer.spotify.com/policy),
+      [Developer Terms](https://developer.spotify.com/terms),
+      [Design guidelines](https://developer.spotify.com/documentation/design)).
+      Policy III.11 forbids products that "mimic, or replicate or attempt to
+      replace a core user experience of Spotify" without written permission;
+      Winify is a full player, though it adds its own value (skins,
+      visualizers, lyrics, mixes). Fine: non-commercial, Premium only, each
+      user's own Client ID, the name (doesn't begin with "Spot").
+- [x] Winamp: needs a change (disclaimer; tagline). "Winamp" is Winamp
+      Group's trademark; Webamp says the Winamp name and interface "are
+      surely property of Nullsoft"
+      ([Webamp README](https://github.com/captbaritone/webamp#license)).
+- [x] Licences: fine. Everything Winify ships is MIT, except
+      @assemblyscript/loader (Apache-2.0, also compatible). The default skin's
+      artwork (Nullsoft) and the Milkdrop presets (many community authors)
+      aren't covered by those licences: credited in THIRD_PARTY_NOTICES.md.
+- [x] LRCLIB: fine, with two small changes. The API "is openly accessible to
+      all users and applications", no key needed
+      ([API docs](https://lrclib.net/docs)).
+- [x] THIRD_PARTY_NOTICES.md and the README's "Not affiliated" section:
+      approved; committed with the cover art.
+- [x] Any change the answers call for is listed below, before stage 3 starts.
+
+Changes the rules call for (before publishing):
+
+- [x] Show the current track's cover art while playing (Spotify Policy II.5:
+      "no playback of Spotify Content without showing relevant cover art and
+      metadata"): the chassis's now-playing display.
+- [x] Attribute Spotify content with the Spotify logo, at least 70 px
+      (Policy II.4.1; Design guidelines, "Attribute with the Spotify logo"):
+      Spotify's white full logo, 77 px wide on screen, with its clear space.
+- [x] Link song details back to Spotify ("OPEN SPOTIFY" / "PLAY ON SPOTIFY")
+      (Policy II.4.2; Design guidelines, "Linking to Spotify"): "PLAY ON
+      SPOTIFY" opens the track in the Spotify app ("GET SPOTIFY FREE" without
+      it).
+- [x] Replace the tagline "SPOTIFY & WINAMP REMASTERED": Spotify's
+      guidelines say "Don't use the Spotify brand together with any other
+      brand". ("BUILT FOR SPOTIFY PREMIUM" and "Continue with Spotify" are
+      fine: "suggesting to users that it is 'for Spotify' is acceptable.")
+      Now "Make Your Player Yours Again".
+- [x] LRCLIB: wait as long as its Retry-After says before asking again
+      (was a fixed 2 s).
+- [ ] LRCLIB: add the project's GitHub link to Winify's User-Agent, once the
+      repository exists (stage 5).
+- [ ] Ship THIRD_PARTY_NOTICES.md, Electron's LICENSE and
+      LICENSES.chromium.html with the packaged app (stage 4).
+
+Decisions (25 Oct 2026):
+
+- [x] Spotify III.11 (replicating Spotify's core experience): risk accepted
+      at this level: personal use and source code, free, non-commercial,
+      each user with their own Client ID, no public download.
+- [x] Spotify III.13 (visualizers), III.5 and III.6 (lyrics, visuals that
+      move with the music), and the default skin showing "WINAMP": no change
+      asked for; kept, at the same level, with the README's disclaimer.
 
 ## 3. Finish the window magic
 
@@ -48,7 +109,7 @@ Done means each works, has tests against the mocks, and is in the README:
 - [ ] Existing window behaviour still works: dragging, clicks passing
       through, panels, the sign-in panel's lights, hide and show.
 
-## 4. Package
+## 4. Package (for the user's own use)
 
 Done means:
 
@@ -57,25 +118,31 @@ Done means:
 - [ ] Its name is "Winify" everywhere: the menu bar, Finder, the Dock, the
       app switcher and Activity Monitor (not "Electron").
 - [ ] It has Winify's icon in Finder and the Dock.
-- [ ] It is VMP-signed by castLabs, in the right order relative to Apple's
-      code signing, so Spotify plays in the packaged app.
-- [ ] It comes in a .dmg with the usual "drag to Applications" window.
-- [ ] Sign-in, playback, the visualizers and lyrics work from the installed
-      app (the smoke test, run against the packaged app).
+- [ ] It is VMP-signed with the user's own EVS account, after any other
+      signing step that changes the app, so Spotify plays in the packaged app.
+      Apple: ad-hoc signing only (no developer membership, no notarizing).
+- [ ] THIRD_PARTY_NOTICES.md, Electron's LICENSE and LICENSES.chromium.html
+      are inside the app.
+- [ ] Sign-in, playback, the visualizers and lyrics work from the built app
+      (the smoke test, run against it).
 - [ ] Native system-audio capture is retested in the packaged app, to see
       whether BlackHole is still needed. The answer, either way, goes in the
       README's visualizer setup.
+- No .dmg or download for other people.
 
-## 5. Publish
+## 5. Publish (the source code)
 
 Done means:
 
-- [ ] The README is ready for strangers: what Winify is, plain install
-      steps from the .dmg, setting up a Client ID, the visualizer setup,
-      troubleshooting, and privacy.
-- [ ] Credits name everything Winify uses, as stage 2 says they must.
+- [ ] The README is ready for strangers: what Winify is, how to build and
+      run it from the source (Node, the castLabs Electron, their own EVS
+      signing and Spotify Client ID), the visualizer setup, troubleshooting,
+      privacy, and the "Not affiliated" section.
+- [ ] Credits name everything Winify uses (THIRD_PARTY_NOTICES.md).
 - [ ] Screenshots of Winify are in the README.
 - [ ] The project is on GitHub, with nothing personal in it or its history.
-- [ ] A 1.0 release on GitHub, with the .dmg and release notes.
+- [ ] A 1.0 tag and release notes on GitHub: source only, no built app.
 - [ ] Winify's menu links to the GitHub project (where Webamp's link used
       to be).
+- [ ] LRCLIB: Winify's User-Agent includes the GitHub link (LRCLIB asks for
+      "a link to its homepage or project page").
