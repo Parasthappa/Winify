@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const http = require('http');
 const path = require('path');
+const { redact } = require('./drm-redact');
 
 // Winify ships with no credentials. Every user registers their own Spotify
 // app (Spotify's Development Mode allows no shared one) and pastes its Client
@@ -374,10 +375,13 @@ function enableLoopbackAudio() {
 // a cross-origin iframe, so the only way to see its licence traffic and media
 // errors is through the DevTools protocol at the webContents level.
 
+// Every line it writes goes through redact (drm-redact.js): no tokens or
+// signed links in a transcript that gets pasted into bug reports.
 function attachDrmDebug(win) {
   const t0 = Date.now();
   const stamp = () => '+' + ((Date.now() - t0) / 1000).toFixed(1) + 's';
   const dbg = win.webContents.debugger;
+  const say = (text) => console.log(redact(text));
 
   try {
     dbg.attach('1.3');
@@ -387,13 +391,13 @@ function attachDrmDebug(win) {
   }
   // Bump this whenever the diagnostics change, so a capture can never be
   // mistaken for one produced by an older, still-running instance.
-  console.log('[drm] diagnostics ON - build DIAG-3 (http origin + cross-origin frame capture)');
+  console.log('[drm] diagnostics ON - build DIAG-4 (http origin + cross-origin frame capture, redacted)');
 
   // Mirror the renderer's console into this terminal so the EME hooks, the SDK
   // errors and the licence traffic all land in one transcript.
   win.webContents.on('console-message', (event) => {
     const text = (event && event.message) || '';
-    if (/^\[(drm|winify)/.test(text)) console.log(`[renderer] ${stamp()} ${text}`);
+    if (/^\[(drm|winify)/.test(text)) say(`[renderer] ${stamp()} ${text}`);
   });
 
   // Spotify's Widevine licences go to a spclient host; audio segments come
@@ -411,7 +415,7 @@ function attachDrmDebug(win) {
       if (method === 'Target.attachedToTarget') {
         const sid = params.sessionId;
         const info = params.targetInfo || {};
-        console.log(`[drm] ${stamp()} ATTACHED to ${info.type} ${String(info.url || '').slice(0, 100)}`);
+        say(`[drm] ${stamp()} ATTACHED to ${info.type} ${String(info.url || '').slice(0, 100)}`);
         for (const cmd of ['Network.enable', 'Media.enable', 'Runtime.enable', 'Log.enable']) {
           dbg.sendCommand(cmd, {}, sid).catch(() => {});
         }
@@ -424,18 +428,18 @@ function attachDrmDebug(win) {
       // Console output from inside the SDK's own frame.
       if (method === 'Runtime.consoleAPICalled') {
         const text = (params.args || []).map((a) => a.value || a.description || a.type).join(' ');
-        if (text) console.log(`[drm] ${stamp()} SDK CONSOLE [${params.type}] ${text.slice(0, 400)}`);
+        if (text) say(`[drm] ${stamp()} SDK CONSOLE [${params.type}] ${text.slice(0, 400)}`);
         return;
       }
       if (method === 'Runtime.exceptionThrown') {
         const d = params.exceptionDetails || {};
-        console.log(`[drm] ${stamp()} SDK EXCEPTION ${(d.exception && d.exception.description || d.text || '').slice(0, 400)}`);
+        say(`[drm] ${stamp()} SDK EXCEPTION ${(d.exception && d.exception.description || d.text || '').slice(0, 400)}`);
         return;
       }
       if (method === 'Log.entryAdded') {
         const e = params.entry || {};
         if (e.level === 'error' || /licen|drm|eme|key|media/i.test(e.text || '')) {
-          console.log(`[drm] ${stamp()} BROWSER LOG [${e.level}] ${String(e.text).slice(0, 400)} ${String(e.url || '').slice(0, 120)}`);
+          say(`[drm] ${stamp()} BROWSER LOG [${e.level}] ${String(e.text).slice(0, 400)} ${String(e.url || '').slice(0, 120)}`);
         }
         return;
       }
@@ -444,16 +448,16 @@ function attachDrmDebug(win) {
         const url = params.request.url;
         if (isInteresting(url)) {
           inflight.set(params.requestId, url);
-          if (isLicence(url)) console.log(`[drm] ${stamp()} LICENCE REQUEST ${params.request.method} ${url.slice(0, 160)}`);
+          if (isLicence(url)) say(`[drm] ${stamp()} LICENCE REQUEST ${params.request.method} ${url.slice(0, 160)}`);
         }
       } else if (method === 'Network.responseReceived') {
         const url = inflight.get(params.requestId);
         if (!url) return;
         const st = params.response.status;
         if (isLicence(url)) {
-          console.log(`[drm] ${stamp()} LICENCE RESPONSE ${st} ${params.response.statusText || ''} ${url.slice(0, 160)}`);
+          say(`[drm] ${stamp()} LICENCE RESPONSE ${st} ${params.response.statusText || ''} ${url.slice(0, 160)}`);
         } else if (st >= 400) {
-          console.log(`[drm] ${stamp()} SEGMENT/API ${st} ${url.slice(0, 160)}`);
+          say(`[drm] ${stamp()} SEGMENT/API ${st} ${url.slice(0, 160)}`);
         }
       } else if (method === 'Network.loadingFinished') {
         const url = inflight.get(params.requestId);
@@ -462,35 +466,35 @@ function attachDrmDebug(win) {
             const body = await dbg.sendCommand('Network.getResponseBody', { requestId: params.requestId }, sessionId);
             const text = body.base64Encoded
               ? `<binary licence blob, ${Buffer.from(body.body, 'base64').length} bytes>`
-              : String(body.body).slice(0, 500);
-            console.log(`[drm] ${stamp()} LICENCE BODY ${text}`);
+              : String(body.body).slice(0, 300);                 // an error, as text (redacted)
+            say(`[drm] ${stamp()} LICENCE BODY ${text}`);
           } catch (err) {
-            console.log(`[drm] ${stamp()} LICENCE BODY unavailable: ${err && err.message}`);
+            say(`[drm] ${stamp()} LICENCE BODY unavailable: ${err && err.message}`);
           }
         }
         inflight.delete(params.requestId);
       } else if (method === 'Network.loadingFailed') {
         const url = inflight.get(params.requestId);
         if (url) {
-          console.log(`[drm] ${stamp()} REQUEST FAILED ${params.errorText} ${url.slice(0, 160)}`);
+          say(`[drm] ${stamp()} REQUEST FAILED ${params.errorText} ${url.slice(0, 160)}`);
           inflight.delete(params.requestId);
         }
       } else if (method === 'Media.playerErrorsRaised') {
         for (const e of params.errors || []) {
-          console.log(`[drm] ${stamp()} MEDIA ERROR ${JSON.stringify(e).slice(0, 800)}`);
+          say(`[drm] ${stamp()} MEDIA ERROR ${JSON.stringify(e).slice(0, 800)}`);
         }
       } else if (method === 'Media.playerEventsAdded') {
         for (const e of params.events || []) {
           const v = String(e.value || '');
-          if (v) console.log(`[drm] ${stamp()} MEDIA EVENT ${v.slice(0, 500)}`);
+          if (v) say(`[drm] ${stamp()} MEDIA EVENT ${v.slice(0, 500)}`);
         }
       } else if (method === 'Media.playerPropertiesChanged') {
         for (const pr of params.properties || []) {
-          console.log(`[drm] ${stamp()} MEDIA PROP ${pr.name}=${String(pr.value).slice(0, 200)}`);
+          say(`[drm] ${stamp()} MEDIA PROP ${pr.name}=${String(pr.value).slice(0, 200)}`);
         }
       }
     } catch (err) {
-      console.error('[drm] handler error:', err && err.message);
+      console.error(redact('[drm] handler error: ' + (err && err.message)));
     }
   });
 

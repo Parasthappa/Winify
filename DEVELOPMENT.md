@@ -45,6 +45,10 @@ status, including inside the SDK's iframe):
 npm start -- --drm-debug
 ```
 
+Every line it writes goes through `drm-redact.js`: queries are cut from web
+addresses, and tokens, codes and long opaque strings are hidden (checked by
+`test/app/drm-redact.test.js`).
+
 ## Spotify API limits that shape the design
 
 - **Development Mode** (2026): Premium required, one Client ID per developer,
@@ -172,6 +176,7 @@ chassis, the Webamp windows and Winify's own windows are drawn in it.
 | `webamp-milkdrop-presets.js` | Presets you add: converted, test-loaded, kept in IndexedDB |
 | `milkdrop-convert-worker.js` | Turns .milk and .json files into Butterchurn presets, off the page |
 | `drm-debug.js` | DRM diagnostics, inactive unless `--drm-debug` |
+| `drm-redact.js` | Keeps tokens and signed links out of the DRM diagnostics |
 
 Playback goes through `window.WinifyPlayer` (`play()`, `pause()`,
 `nextTrack()`, `previousTrack()`, `setVolume()`, `getVolume()`, `seek()`), so

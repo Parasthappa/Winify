@@ -303,6 +303,23 @@ window is closed, Winify is hidden or minimized, or the music is paused.
 | The visualizer is empty | Set up the visualizer (above), and check that the Multi-Output Device is your sound output. |
 | Sign-in never finishes | Another app may be using the same sign-in connection. Quit other music or developer tools and try again. |
 
+### If music won't play: the playback log
+
+If Spotify's music won't play in Winify (silence, or it stops after a few
+seconds) and the table above doesn't help, Winify can write a detailed log
+of how Spotify's protected audio is being unlocked. It is off unless you ask
+for it. Quit Winify, then start it from Terminal in the project folder with:
+
+```bash
+npm start -- --drm-debug
+```
+
+Play a song, then copy what Terminal shows (the lines starting with `[drm]`)
+into your bug report. The log never includes your sign-in, passwords or
+private links: web addresses are cut short and anything that looks like a
+key or code is replaced with `[hidden]`. Quit Winify and start it the usual
+way to turn the log off again.
+
 ## Privacy
 
 Winify keeps everything on your Mac:

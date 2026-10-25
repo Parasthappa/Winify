@@ -8,3 +8,6 @@ node_modules/
 # Test runs: settings folders and logs/screenshots.
 test/.profiles/
 test/.output/
+
+# Local tool settings (the preview browser), kept out of the project.
+.claude/launch.json
