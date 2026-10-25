@@ -41,7 +41,7 @@ contextBridge.exposeInMainWorld('spotify', {
   webampStateChanged: (doubled) => ipcRenderer.send('webamp-state', doubled),
   milkdropStateChanged: (open) => ipcRenderer.send('milkdrop-state', open),
   choosePresetFiles: () => ipcRenderer.invoke('milkdrop:choose-presets'),
-  // Webamp's own close and minimize buttons act on the Winify window.
+  // The Winify panel's lights (and Webamp's Exit) act on the Winify window.
   windowCommand: (command) => ipcRenderer.send('window-command', command),
   // What is playing, for the menu-bar item (so main need not ask Spotify).
   nowPlaying: (text) => ipcRenderer.send('now-playing', text),

@@ -164,12 +164,11 @@ app.whenReady().then(async () => {
   check('red light: everything closes together, Winify keeps running; visualizers pause', !win.isVisible() && (await visible()) === false && (await js('WinifyWebamp.isMounted()')));
   app.emit('activate'); await wait(1200);
   check('...and comes back (menu-bar Show / Dock icon)', win.isVisible() && (await visible()) === true && JSON.stringify(await R('#webamp #main-window')) === JSON.stringify(before.main));
-  await click('#webamp #main-window #minimize'); await wait(1200);
-  check('the main window\'s own minimize button: the same as the yellow light', win.isMinimized() && (await visible()) === false);
-  app.emit('activate'); await wait(1500);
-  await click('#webamp #main-window #close'); await wait(800);
-  check('its close button: the same as the red light', !win.isVisible() && (await visible()) === false);
-  app.emit('activate'); await wait(1200);
+  // The main window's title bar has no buttons: only the lights minimize and close.
+  await click('#webamp #main-window #title-bar', 249 / 275, 0.5); await wait(1200);
+  check('where the main window\'s minimize button was: nothing happens', !win.isMinimized() && win.isVisible() && (await visible()) === true);
+  await click('#webamp #main-window #title-bar', 269 / 275, 0.5); await wait(800);
+  check('where its close button was: nothing happens', win.isVisible() && (await visible()) === true && !!(await R('#webamp #main-window')));
   await click('#webamp #playlist-window #playlist-close-button'); await wait(500);
   check('the playlist window closes on its own; everything else stays', !(await R('#webamp #playlist-window')) && win.isVisible() && !!(await R('#webamp #main-window')));
   await js(`WinifyWebamp.getInstance().store.dispatch({ type: 'TOGGLE_WINDOW', windowId: 'playlist' })`); await wait(400);

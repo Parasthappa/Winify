@@ -1216,13 +1216,13 @@ ipcMain.on('ready', () => {
 // coming (forward) so the page can tell when the pointer is back.
 ipcMain.on('window:pass-through', (_event, on) => setPassThrough(on === true));
 
-// Webamp's close (x) and minimize (_) buttons, and its Exit menu item.
 // What is playing, reported by the window: once signed in, main asks
 // Spotify for nothing itself (the one shared poll is the window's).
 ipcMain.on('now-playing', (_event, text) => {
   if (tokens) setStatus(String(text).slice(0, 200));
 });
 
+// The Winify panel's yellow and red lights, and Webamp's Exit menu item.
 ipcMain.on('window-command', (_event, command) => {
   if (command === 'hide') hideWindow();
   if (command === 'minimize' && win && !win.isDestroyed()) win.minimize();
