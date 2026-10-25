@@ -23,7 +23,7 @@
  * new random one every 30 s of showing, with a 5.7 s blend. With the window
  * focused: Space = next, Backspace = previous (back through those shown),
  * R = random, C = auto-cycle, F = full screen (Escape leaves), O = load
- * presets; H = next without blending and L = the preset list are Webamp's.
+ * presets, L = Webamp's preset list; H = next without blending is Webamp's.
  * The same, with the keys shown, are on the window's right-click menu. The
  * name shows briefly on each change (and they are in Webamp's preset list,
  * L). Presets you add are in
@@ -366,6 +366,13 @@ function onKeyDown(e) {
   else if (k === 'c') setAutoCycle(!config.autoCycle);
   else if (k === 'f') toggleFullscreen();
   else if (k === 'o') choosePresets();
+  else if (k === 'l') {
+    // Webamp's preset list, as Webamp's own L does, but wherever the keyboard
+    // focus is (a click on the title bar leaves it outside the window, where
+    // L would reach the playlist picker instead).
+    if (webamp.store.getState().milkdrop.overlay) webamp.store.dispatch({ type: 'SET_FOCUSED_WINDOW', window: 'milkdrop' });
+    webamp.store.dispatch({ type: 'TOGGLE_PRESET_OVERLAY' });
+  }
   else if (e.keyCode === 145 || e.keyCode === 125) { /* Webamp's own 15 s cycling: Winify cycles */ }
   else return;
   e.preventDefault();

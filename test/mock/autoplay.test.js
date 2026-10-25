@@ -13,7 +13,8 @@ h.open().then(async ({ win, js }) => {
     return { rows: s.playlist.trackOrder.slice(__hdr()).map(name), cur: s.playlist.trackOrder.indexOf(s.playlist.currentTrack) - __hdr(), state: WinifyPlaylist.state() }; })()`);
   const until = async (fn, ms = 7000) => { const t0 = Date.now(); let v; while (Date.now() - t0 < ms) { v = await PL(); if (fn(v)) return v; await h.wait(150); } return v; };
   const N = (n) => 'Artist ' + n + ' - Song ' + n;
-  const openSearch = async (q) => { await h.click(win, js, '#title-bar', 0.3, 0.5); await h.wait(150); await key('J'); await h.wait(400); await type(q); await h.wait(900); };
+  // J opens or closes Jump to track: closed first, so J opens a fresh search.
+  const openSearch = async (q) => { await js('WinifySearch.close()'); await h.click(win, js, '#title-bar', 0.3, 0.5); await h.wait(150); await key('J'); await h.wait(400); await type(q); await h.wait(900); };
   const menuPick = async (rowIndex, label) => {
     const r = await centre('.winify-search .ws-row', rowIndex); press(r.x, r.y, 'right'); await h.wait(300);
     const items = await js(`[...document.querySelectorAll('#webamp-context-menu li')].map(l => l.firstChild.textContent)`);

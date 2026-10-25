@@ -525,6 +525,12 @@ export function close({ keepRecord = false } = {}) {
 
 export const isOpen = () => !!el;
 
+// Eject and L: open if closed, close if open (as its own close button does).
+export function toggle() {
+  if (el) close();
+  else open();
+}
+
 // Renaming a mix in its row: Enter keeps the name, Escape leaves it as it was.
 let renaming = null;
 function rename(id) {
@@ -580,7 +586,7 @@ async function pick(entry) {
 // runs afterwards and is suppressed by the media-file guard.
 function onClickCapture(e) {
   if (!ctx || !(e.target instanceof Element)) return;
-  if (e.target.closest('#webamp #eject, #webamp .playlist-eject-button')) { open(); return; }
+  if (e.target.closest('#webamp #eject, #webamp .playlist-eject-button')) { toggle(); return; }
   const li = e.target.closest('#webamp-context-menu li');
   if (li && li.firstChild && li.firstChild.nodeType === Node.TEXT_NODE &&
       li.firstChild.textContent.trim() === 'File...') {
@@ -588,15 +594,15 @@ function onClickCapture(e) {
   }
 }
 
-// L, as classic Winamp's "load", unless typing somewhere. Webamp's own L
-// file prompt is suppressed by the media-file guard.
+// L, as classic Winamp's "load", unless typing somewhere: opens or closes the
+// picker. Webamp's own L file prompt is suppressed by the media-file guard.
 function onKeyDown(e) {
   if (!ctx || e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.key !== 'l' && e.key !== 'L') return;
   const t = e.target;
   if (t && (t.isContentEditable || /^(input|textarea|select)$/i.test(t.tagName))) return;
   e.preventDefault();
-  open();
+  toggle();
 }
 
 export function init(c) {
@@ -625,6 +631,6 @@ export function reset() {
 }
 
 // For inspection from DevTools and tests.
-window.WinifyPicker = { open, close, isOpen, refresh: () => read(true),
+window.WinifyPicker = { open, close, toggle, isOpen, refresh: () => read(true),
   state: () => ({ open: !!el, rows: rows.length, shown: shown.length, selected, scroll, loading: !!loading,
     complete: !!(lib && lib.complete), at: lib ? lib.at : null }) };

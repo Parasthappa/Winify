@@ -443,6 +443,12 @@ export function close({ keepRecord = false } = {}) {
 
 export const isOpen = () => !!el;
 
+// ADD and J: open if closed, close if open (as its own close button does).
+export function toggle() {
+  if (el) close();
+  else open();
+}
+
 // ---- A Winamp-style right-click menu -------------------------------------------
 // Built the way Webamp builds its own (div#webamp-context-menu > ul.context-menu
 // > li, with a span.hotkey), so Webamp's stylesheet draws it the same.
@@ -505,23 +511,23 @@ export function showMenu(x, y, items) {
 
 // ---- Ways in --------------------------------------------------------------------
 
-// J, as in classic Winamp, unless typing somewhere.
+// J, as in classic Winamp, unless typing somewhere: opens or closes it.
 function onKeyDown(e) {
   if (!ctx || e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.key !== 'j' && e.key !== 'J') return;
   const t = e.target;
   if (t && (t.isContentEditable || /^(input|textarea|select)$/i.test(t.tagName))) return;
   e.preventDefault();
-  open();
+  toggle();
 }
 
-// The playlist window's ADD button opens it too, in place of Webamp's
+// The playlist window's ADD button opens (or closes) it too, in place of Webamp's
 // URL / DIR / FILE menu (all inert: Spotify has no local files to add).
 function onClickCapture(e) {
   if (!ctx || !(e.target instanceof Element) || !e.target.closest('#webamp #playlist-add-menu')) return;
   e.preventDefault();
   e.stopPropagation();
-  open();
+  toggle();
 }
 
 // Right-click a playlist window row: Play / Add to queue. A right-button
@@ -597,4 +603,4 @@ export function reset() {
 }
 
 // For the menu bar, DevTools and tests.
-window.WinifySearch = { open, close, isOpen, state: () => ({ open: !!el, title: TITLE, results: results.length, selected, status }) };
+window.WinifySearch = { open, close, toggle, isOpen, state: () => ({ open: !!el, title: TITLE, results: results.length, selected, status }) };

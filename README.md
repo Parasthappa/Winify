@@ -121,7 +121,9 @@ all control Spotify.
 
 ### Choosing a playlist
 
-Press **Eject** or press **L**. Pick Liked Songs or one of your playlists (type to filter).
+Press **Eject** or press **L**. Pick Liked Songs or one of your playlists (type
+to filter). Press **Eject** again to close it, or **L** once you have clicked
+outside its filter box (in the box, L just types).
 
 ### A random mix
 
@@ -137,7 +139,9 @@ play it again exactly. Right-click one to rename or delete it.
 
 ### Finding a track
 
-Press **J** (or the playlist window's **ADD** button) and type to search.
+Press **J** (or the playlist window's **ADD** button) and type to search. Press
+**ADD** again to close it, or **J** once you have clicked outside the search
+box (in the box, J just types).
 
 - **Enter** or double-click plays the track. Spotify's Autoplay continues
   with similar music afterwards.
