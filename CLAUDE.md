@@ -4,32 +4,15 @@ Winify is a Winamp-style Spotify player (Electron + Webamp + the Spotify Web
 Playback SDK). User-facing docs: README.md. How it is built: DEVELOPMENT.md.
 Where the 1.0 release stands, and what each stage needs: RELEASE_PLAN.md.
 
-## Before every commit
-
-1. Run the full test suite: `npm test` (about 15 minutes; no Spotify requests).
-2. Only for changes that touch Spotify requests, sign-in or playback: also run
-   the smoke test against the real Spotify, `npm run smoke` (under a minute,
-   at most 30 Web API requests by Winify and 60 by Spotify's player library).
-   Changes that don't (layout, panels, visuals, shortcuts) need the full suite
-   alone. The smoke test needs Winify quit and a remembered sign-in, plays
-   music, and starts from Winify's default layout, putting the user's own back
-   afterwards.
-   Standing permission: up to 3 runs per day without asking, at least 10
-   minutes apart, as long as those caps stay at 30 and 60. Check
-   `test/.output/smoke-runs.log` (one line per run) first. Beyond that, or
-   with higher caps, ask the user.
-3. Never commit with a failing test, in either. If a test's expectation is
-   genuinely out of date (the requested behaviour changed it), update the test
-   in the same commit and say which check changed and why.
-
-## After every change
-
-In the report to the user, list which existing features were re-checked, and
-how (which suites, which smoke checks, anything checked by hand), and say
-plainly what was not checked.
-
 ## Testing
 
+- Do NOT run the full suite (`npm test`) or the smoke test (`npm run smoke`)
+  unless the user explicitly asks.
+- After a change, test ONLY the feature you touched, once: its suite by name,
+  e.g. `npm test -- picker`.
+- Do not launch the app or take screenshots to verify. The user tests it and
+  says what's wrong.
+- If something fails twice, stop and tell the user. Don't keep retrying.
 - Test against the mocks first (`test/mock`, `test/app`). They fake Spotify
   and send it nothing.
 - Real Spotify requests count toward the user's rate limit (a 429 can block
@@ -38,6 +21,12 @@ plainly what was not checked.
   that talks to the real Spotify, state how many requests it will send.
 - Never refresh the stored Spotify token outside Winify: Spotify replaces the
   refresh token on every use, which can sign the running Winify out.
+
+## Working style
+
+- Before coding, say which files will change, in 2-3 lines.
+- Make the smallest change that works. Don't refactor unrelated code.
+- Keep replies short. No long summaries.
 
 ## Scope
 
@@ -48,6 +37,9 @@ plainly what was not checked.
 
 ## Layout
 
+- `main.js`: the main process: the window, sign-in and tokens, menu bar.
+- `webamp-spotify.js`: connects Spotify to Webamp's controls; Web API calls.
+- `player.js`: the Web Playback SDK (playback).
 - `test/mock/*.test.js`: the player against a fake Spotify in a page
   (`test/mock/page.html`).
 - `test/app/*.test.js`: the real main process and sign-in screen, Spotify
