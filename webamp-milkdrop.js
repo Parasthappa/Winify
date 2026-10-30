@@ -31,6 +31,17 @@
  *
  * The playlist window's LIST OPTS button is VIZ here: it opens and closes
  * this window, like the V button.
+ *
+ * Desktop mode (the right-click menu, or the menu-bar menu): Milkdrop as a
+ * live wallpaper, full screen behind the desktop's icons and every window.
+ * Winify's page floats above other apps, so Webamp's own Desktop Mode (a
+ * layer at the back of that page) can't be behind them: a window of its own
+ * at macOS's desktop level is opened instead (main.js; it takes no clicks),
+ * and Butterchurn draws into it from here, from the same shared audio
+ * source, following the same presets and auto-cycle. The Milkdrop window
+ * closes meanwhile; opening it again (V, VIZ, the menu) ends desktop mode.
+ * It draws only while music plays and Winify is in sight; while Winify is
+ * hidden or minimized its window is closed, and it comes back with Winify.
  */
 
 import * as yours from './webamp-milkdrop-presets.js';
@@ -327,10 +338,15 @@ let suspended = false;
 export const isSuspended = () => suspended;
 const isOpen = () => isMounted() || suspended;
 const isPlaying = () => webamp.store.getState().media.status === 'PLAYING';
-const isShowing = () => isMounted() && isPlaying() && visible() && !!(audio() && audio().isActive());
+const isShowing = () => (isMounted() || !!(desktop && desktop.viz)) && isPlaying() && visible() && !!(audio() && audio().isActive());
 
 function onVisibility(shown) {
   if (!webamp) return;
+  if (desktopOn) {
+    if (!shown && desktop) { closeDesktop(); log('Winify out of sight - desktop mode paused, its window closed'); }
+    else if (shown && !desktop) openDesktop();
+    return;
+  }
   if (!shown && isMounted()) {
     suspended = true;
     webamp.store.dispatch({ type: 'TOGGLE_WINDOW', windowId: 'milkdrop' });
@@ -405,6 +421,8 @@ function menuItems() {
     { label: 'Auto-cycle', hotkey: 'C', action: () => setAutoCycle(!config.autoCycle), checked: config.autoCycle },
     { sep: true },
     { label: 'Load presets\u2026', hotkey: 'O', action: choosePresets },
+    { sep: true },
+    { label: 'Desktop mode', action: () => setDesktop(true), checked: desktopOn },
   ];
 }
 
@@ -576,8 +594,139 @@ export const middleware = (store) => (nextMw) => (action) => {
 // Winify is shown) and closing a suspended window just forgets it. Webamp's
 // store hears of either through an action of Winify's own, which its
 // reducers ignore, so the layout is saved and the menu updated.
+// ---- Desktop mode: Milkdrop as a live wallpaper ---------------------------------
+
+const DESKTOP_PAGE = 'milkdrop-desktop.html';   // opened by main.js at the desktop level
+// Webamp's transition types, as blend seconds (see IMMEDIATE / DEFAULT / USER_PRESET).
+const BLEND_S = [0, 2.7, 5.7];
+let desktopOn = false;
+let desktop = null;            // { win, canvas, viz, source, frame }
+let desktopRenders = 0;        // frames drawn there, for tests
+let desktopOpening = false;
+
+function currentPreset() {
+  const m = md();
+  const p = m.currentPresetIndex == null ? null : m.presets[m.currentPresetIndex];
+  return p && p.type === 'RESOLVED' ? p.preset : null;
+}
+
+// Butterchurn in the wallpaper window, on this capture session's context.
+async function buildDesktopViz() {
+  if (!desktop) return;
+  dropDesktopViz();
+  const a = audio();
+  const context = a && a.getAudioContext();
+  const source = a && a.getSourceNode();
+  if (!context || !source) return;
+  const butterchurn = (await import(BUTTERCHURN)).default;
+  if (!desktop) return;
+  const w = desktop.win;
+  const width = w.innerWidth, height = w.innerHeight;
+  sizeDesktopCanvas();
+  desktop.viz = butterchurn.createVisualizer(context, desktop.canvas,
+    { width, height, pixelRatio: w.devicePixelRatio || 1, textureRatio: 1 });
+  desktop.viz.connectAudio(source);   // into Butterchurn's own nodes; never to the output
+  desktop.source = source;
+  const preset = currentPreset();
+  if (preset) desktop.viz.loadPreset(preset, 0);
+  log('desktop mode: drawing', width + 'x' + height, 'from the shared audio source');
+}
+
+// The canvas's own pixels: the screen's, at its scale (Butterchurn draws into
+// what it is given; Webamp sizes its own canvas the same way).
+function sizeDesktopCanvas() {
+  const w = desktop.win, scale = w.devicePixelRatio || 1;
+  desktop.canvas.width = Math.round(w.innerWidth * scale);
+  desktop.canvas.height = Math.round(w.innerHeight * scale);
+}
+
+function dropDesktopViz() {
+  if (!desktop || !desktop.viz) return;
+  try { desktop.viz.disconnectAudio(desktop.source); } catch (e) { /* context already closed */ }
+  try { desktop.viz.loseGLContext(); } catch (e) { /* already lost */ }
+  desktop.viz = null;
+  desktop.source = null;
+}
+
+function drawDesktop() {
+  if (!desktop) return;
+  if (desktop.viz && visible() && isPlaying()) {
+    try { desktop.viz.render(); desktopRenders++; } catch (e) { log('desktop mode: frame failed -', e.message); }
+  }
+  desktop.frame = desktop.win.requestAnimationFrame(drawDesktop);
+}
+
+// The wallpaper window (main.js opens it at the desktop level, full screen).
+async function openDesktop() {
+  if (desktop || desktopOpening) return;
+  desktopOpening = true;
+  try {
+    const w = window.open(DESKTOP_PAGE, 'winify-milkdrop-desktop');
+    if (!w) { log('desktop mode: no window'); desktopOn = false; reportDesktop(); return; }
+    // The window starts on a blank page; wait for the wallpaper page itself
+    // (a canvas added to the blank one would go with it).
+    const ready = () => { try { return w.location.pathname.endsWith('/' + DESKTOP_PAGE) && w.document.readyState === 'complete' && !!w.document.body; } catch (e) { return false; } };
+    for (let i = 0; i < 100 && !ready(); i++) await new Promise((r) => setTimeout(r, 50));
+    if (!ready()) { log('desktop mode: its page did not load'); try { w.close(); } catch (e) { /* gone */ } desktopOn = false; reportDesktop(); return; }
+    const canvas = w.document.createElement('canvas');
+    canvas.style.cssText = 'display:block; width:100vw; height:100vh;';
+    w.document.body.appendChild(canvas);
+    desktop = { win: w, canvas, viz: null, source: null, frame: 0 };
+    w.addEventListener('resize', () => {
+      if (!desktop) return;
+      sizeDesktopCanvas();
+      if (desktop.viz) desktop.viz.setRendererSize(w.innerWidth, w.innerHeight);
+    });
+    await buildDesktopViz();
+    if (desktop) desktop.frame = w.requestAnimationFrame(drawDesktop);
+  } finally {
+    desktopOpening = false;
+  }
+}
+
+function closeDesktop() {
+  if (!desktop) return;
+  const d = desktop;
+  try { d.win.cancelAnimationFrame(d.frame); } catch (e) { /* gone */ }
+  dropDesktopViz();
+  desktop = null;
+  try { d.win.close(); } catch (e) { /* gone */ }
+}
+
+function reportDesktop() {
+  if (window.spotify && window.spotify.milkdropDesktopChanged) window.spotify.milkdropDesktopChanged(desktopOn);
+}
+
+// On: the Milkdrop window closes and the wallpaper takes over (the presets
+// are loaded first, by opening the window once, if it never was). Off: the
+// wallpaper window closes, cleanly.
+export async function setDesktop(on) {
+  if (!webamp || !!on === desktopOn) return desktopOn;
+  if (on) {
+    if (!md().presets.length) {
+      if (!isOpen()) webamp.store.dispatch({ type: 'TOGGLE_WINDOW', windowId: 'milkdrop' });
+      for (let i = 0; i < 100 && !md().presets.length; i++) await new Promise((r) => setTimeout(r, 100));
+    }
+    desktopOn = true;
+    if (suspended) { suspended = false; webamp.store.dispatch({ type: 'WINIFY_MILKDROP_SUSPENDED', suspended: false }); }
+    if (isMounted()) webamp.store.dispatch({ type: 'TOGGLE_WINDOW', windowId: 'milkdrop' });
+    if (currentPreset() == null) random(IMMEDIATE);
+    shownFor = 0;
+    if (visible()) await openDesktop();
+    log('desktop mode on');
+  } else {
+    desktopOn = false;
+    closeDesktop();
+    log('desktop mode off');
+  }
+  reportDesktop();
+  return desktopOn;
+}
+
 export function toggle() {
   if (!webamp) return false;
+  // The Milkdrop window again: desktop mode ends.
+  if (desktopOn) { setDesktop(false); webamp.store.dispatch({ type: 'TOGGLE_WINDOW', windowId: 'milkdrop' }); return isOpen(); }
   if (suspended || (!isMounted() && !visible())) {
     suspended = !suspended;
     webamp.store.dispatch({ type: 'WINIFY_MILKDROP_SUSPENDED', suspended });
@@ -798,6 +947,8 @@ export function attach(instance) {
       shownFor = 0;
       const preset = index == null ? null : md().presets[index];
       if (preset && mounted) showName(preset.name);
+      // The wallpaper follows: the same preset, with Webamp's blend for how it was chosen.
+      if (desktop && desktop.viz && preset && preset.type === 'RESOLVED') desktop.viz.loadPreset(preset.preset, BLEND_S[md().transitionType] || 0);
     }
     paintButton();
     relabelViz();
@@ -810,9 +961,10 @@ export function attach(instance) {
   const a = audio();
   if (a) {
     unsubscribeAudio = a.onEvent((event) => {
-      if (event === 'started') { for (const s of stages) { s.drop(); s.build(); } }
+      if (event === 'started') { for (const s of stages) { s.drop(); s.build(); } if (desktop) buildDesktopViz(); }
       else if (event === 'stopped' || event === 'ended' || event === 'error') {
         for (const s of stages) s.drop();
+        dropDesktopViz();
         showNoSound();
       }
     });
@@ -834,6 +986,7 @@ export function attach(instance) {
 }
 
 export function detach() {
+  if (desktopOn) { desktopOn = false; closeDesktop(); reportDesktop(); }
   if (unsubscribeStore) { unsubscribeStore(); unsubscribeStore = null; }
   if (unsubscribeAudio) { unsubscribeAudio(); unsubscribeAudio = null; }
   clearInterval(cycleTimer);
@@ -855,6 +1008,9 @@ export function detach() {
 
 window.WinifyMilkdrop = {
   toggle,
+  setDesktop,
+  desktop: () => ({ on: desktopOn, open: !!desktop, drawing: !!(desktop && desktop.viz), renders: desktopRenders,
+    size: desktop ? [desktop.canvas.width, desktop.canvas.height] : null }),
   isOpen,
   next: () => next(),
   previous: () => previous(),

@@ -189,6 +189,7 @@ let remember = false; // mirrors the "remember me" lamp
 let capturingAudio = false; // mirrors the renderer's capture state, for menu labels
 let webampDoubled = true; // mirrors Webamp's double-size mode, for the menu
 let milkdropOpen = false;  // mirrors the Milkdrop window, for the menu
+let milkdropDesktop = false;  // Milkdrop's desktop mode, for the menu
 let tray = null;
 let connected = false; // real Spotify connection state, shown in the menu bar
 let isQuitting = false;
@@ -388,8 +389,36 @@ function createWindow() {
   // open in the default browser instead of a bare in-app window. Only web
   // links: anything else is refused.
   win.webContents.setWindowOpenHandler(({ url }) => {
+    // Milkdrop's desktop mode: its wallpaper window (webamp-milkdrop.js draws
+    // into it). At macOS's desktop level, behind the icons and every window;
+    // it takes no clicks. The whole main display, on every Space.
+    if (url === `${appOrigin}/milkdrop-desktop.html`) {
+      const { bounds } = screen.getPrimaryDisplay();
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          ...bounds,
+          type: 'desktop',
+          frame: false,
+          hasShadow: false,
+          resizable: false,
+          movable: false,
+          focusable: false,
+          skipTaskbar: true,
+          enableLargerThanScreen: true,
+          backgroundColor: '#000000',
+          title: 'Milkdrop',
+          webPreferences: { backgroundThrottling: false },
+        },
+      };
+    }
     if (/^https:\/\//i.test(url)) shell.openExternal(url);
     return { action: 'deny' };
+  });
+  win.webContents.on('did-create-window', (child, { url }) => {
+    if (url !== `${appOrigin}/milkdrop-desktop.html`) return;
+    child.setIgnoreMouseEvents(true);
+    child.setVisibleOnAllWorkspaces(true, { skipTransformProcessType: true });
   });
 
   // Audio capture and lyrics are diagnosed from the terminal, so their logs
@@ -724,6 +753,13 @@ function buildTray() {
         showWindow();
         send('ui:command', { name: 'toggle-milkdrop' });
       },
+    },
+    {
+      label: 'Milkdrop desktop mode',
+      type: 'checkbox',
+      checked: milkdropDesktop,
+      enabled: connected,
+      click: () => send('ui:command', { name: 'toggle-milkdrop-desktop' }),
     },
     {
       label: 'Load skin...',
@@ -1265,6 +1301,11 @@ ipcMain.handle('transfer-playback', async (_event, deviceId, startPlaying) => {
 
 ipcMain.on('webamp-state', (_event, doubled) => {
   webampDoubled = doubled === true;
+  buildTray();
+});
+
+ipcMain.on('milkdrop-desktop', (_event, on) => {
+  milkdropDesktop = on === true;
   buildTray();
 });
 

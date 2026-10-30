@@ -59,25 +59,31 @@ app.whenReady().then(async () => {
   await until('!!(window.WinifyWebamp && WinifyWebamp.isMounted())'); await wait(1200);
 
   console.log('1. Always on top: remembered, and the A button');
-  check('remembered from last time: on top at launch (macOS floating level, 3), A lit', win.isAlwaysOnTop() && layer() === 3 && (await js(`document.querySelector('#webamp #button-a').classList.contains('selected')`)), String(layer()));
+  const l0 = await settle(3);
+  check('remembered from last time: on top at launch (macOS floating level, 3), A lit', win.isAlwaysOnTop() && l0 === 3 && (await js(`document.querySelector('#webamp #button-a').classList.contains('selected')`)), String(layer()));
   await click('#webamp #main-window #button-a');
-  check('A: an ordinary window again (level 0), remembered, A not lit', !win.isAlwaysOnTop() && layer() === 0 && config().windowLevel === 'normal' && !(await js(`document.querySelector('#webamp #button-a').classList.contains('selected')`)), JSON.stringify({ layer: layer(), config: config() }));
+  const l1 = await settle(0);
+  check('A: an ordinary window again (level 0), remembered, A not lit', !win.isAlwaysOnTop() && l1 === 0 && config().windowLevel === 'normal' && !(await js(`document.querySelector('#webamp #button-a').classList.contains('selected')`)), JSON.stringify({ layer: layer(), config: config() }));
   await click('#webamp #main-window #button-a');
-  check('A again: on top (3), remembered', win.isAlwaysOnTop() && layer() === 3 && config().windowLevel === 'top', JSON.stringify({ layer: layer(), config: config() }));
+  const l1b = await settle(3);
+  check('A again: on top (3), remembered', win.isAlwaysOnTop() && l1b === 3 && config().windowLevel === 'top', JSON.stringify({ layer: layer(), config: config() }));
   check('the rest of config.json is kept (the saved Client ID)', config().clientId === SAVED_ID, JSON.stringify(config()));
 
   console.log('2. Behind other apps: the menu-bar menu');
   let item = trayItem('Keep behind other apps');
   check('menu-bar menu: "Keep behind other apps", unticked while on top', !!item && item.type === 'checkbox' && !item.checked, JSON.stringify(item && { type: item.type, checked: item.checked }));
-  item.click(); await wait(500);
-  check('ticked: one level below other apps\' windows (-1), remembered; always on top turned off (A not lit)', layer() === -1 && config().windowLevel === 'behind' && trayItem('Keep behind other apps').checked &&
+  item.click();
+  const lb = await settle(-1);
+  check('ticked: one level below other apps\' windows (-1), remembered; always on top turned off (A not lit)', lb === -1 && config().windowLevel === 'behind' && trayItem('Keep behind other apps').checked &&
     !(await js(`document.querySelector('#webamp #button-a').classList.contains('selected')`)), JSON.stringify({ layer: layer(), config: config() }));
   // A click on Winify (the main window) brings Winify's app forward, not its window: it stays at -1.
   await click('#webamp #main-window #title-bar');
   win.focus(); await wait(400);
-  check('clicked and focused: still behind (-1)', layer() === -1, String(layer()));
+  const lc = await settle(-1);
+  check('clicked and focused: still behind (-1)', lc === -1, String(lc));
   await click('#webamp #main-window #button-a');
-  check('A while behind: always on top (3), "Keep behind" unticked', layer() === 3 && config().windowLevel === 'top' && !trayItem('Keep behind other apps').checked, JSON.stringify({ layer: layer(), config: config() }));
+  const la = await settle(3);
+  check('A while behind: always on top (3), "Keep behind" unticked', la === 3 && config().windowLevel === 'top' && !trayItem('Keep behind other apps').checked, JSON.stringify({ layer: layer(), config: config() }));
   trayItem('Keep behind other apps').click();
   const l2 = await settle(-1); await until(`!document.querySelector('#webamp #button-a').classList.contains('selected')`, 4000);
   check('the menu item again while on top: behind (-1), A not lit', l2 === -1 && !(await js(`document.querySelector('#webamp #button-a').classList.contains('selected')`)), JSON.stringify({ layer: l2, config: config() }));
@@ -89,8 +95,9 @@ app.whenReady().then(async () => {
   win.webContents.emit('leave-html-full-screen');
   const l4 = await settle(-1);
   check('left: behind again (-1), back on its usual area', l4 === -1 && !win.isSimpleFullScreen(), String(l4));
-  trayItem('Keep behind other apps').click(); await wait(500);
-  check('unticked: an ordinary window (0)', layer() === 0 && config().windowLevel === 'normal', String(layer()));
+  trayItem('Keep behind other apps').click();
+  const lu = await settle(0);
+  check('unticked: an ordinary window (0)', lu === 0 && config().windowLevel === 'normal', String(layer()));
 
   console.log(fails ? 'RESULT: ' + fails + ' FAILED' : 'RESULT: ALL PASSED');
   app.exit(fails ? 1 : 0);

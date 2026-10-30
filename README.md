@@ -284,6 +284,11 @@ same setup as the small visualizer (above).
   | The list of presets (yours included) | **L** |
 
 - Drag its bottom-right corner to make it bigger.
+- **Desktop mode** (right-click the Milkdrop window, or the menu-bar menu)
+  turns Milkdrop into a live wallpaper: full screen behind your desktop icons
+  and every window. The Milkdrop window closes meanwhile; open it again (or
+  untick Desktop mode in the menu-bar menu) to go back. It pauses while
+  Winify is hidden or minimized, like the window does.
 
 ### Adding presets
 

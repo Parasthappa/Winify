@@ -34,8 +34,16 @@ global.fetch = async (u, o = {}) => {
 const { dialog } = require('electron');
 const dialogCalls = [];
 dialog.showOpenDialog = async (...args) => { dialogCalls.push(args[args.length - 1]); return { canceled: false, filePaths: [path.join(__dirname, '..', 'fixtures', 'milkdrop')] }; };
+// The menu-bar menu, as main.js builds it.
+let trayMenu = null;
+const realSetMenu = require('electron').Tray.prototype.setContextMenu;
+require('electron').Tray.prototype.setContextMenu = function (menu) { trayMenu = menu; return realSetMenu.call(this, menu); };
+const trayItem = (label) => trayMenu && trayMenu.items.find((i) => i.label === label);
+// Window levels as macOS reports them, for this app's windows (test/lib/window-layers.swift).
+const layers = () => require('child_process').execFileSync('swift', [path.join(__dirname, '..', 'lib', 'window-layers.swift'), String(process.pid)], { encoding: 'utf8' })
+  .trim().split('\n').map((l) => { const m = l.match(/\| layer (-?\d+) \| (\S+) (\S+) (\d+)x(\d+)$/); return m ? { layer: +m[1], x: +m[2], y: +m[3], w: +m[4], h: +m[5] } : null; }).filter(Boolean);
 require(path.join(__dirname, '..', '..', 'main.js'));
-setTimeout(() => { console.log('WATCHDOG'); app.exit(2); }, 150000);
+setTimeout(() => { console.log('WATCHDOG'); app.exit(2); }, 220000);
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 let fails = 0; const check = (l, ok, d) => { if (!ok) fails++; console.log((ok ? '  PASS ' : '  FAIL ') + l + (d ? '   ' + String(d).slice(0, 400) : '')); };
 // CPU of Winify's processes over a stretch, in % of one core (app.getAppMetrics reports since the last call).
@@ -114,7 +122,46 @@ app.whenReady().then(async () => {
   check('drawing resumes when restored', !capturing || b1 - b0 > 30, (b1 - b0) + ' frames/s');
   check('Milkdrop sent nothing to Spotify', spotifySeen.slice(apiBefore).every((r) => /\/me\/player/.test(r)), spotifySeen.slice(apiBefore).filter((r) => !/\/me\/player/.test(r)).join(', ') || 'only the usual playback-state polls');
 
+  console.log('4. Desktop mode: Milkdrop as a live wallpaper');
+  // The wallpaper window (opened by the page: Electron reports no address for it, so by its title).
+  const wallpaper = () => BrowserWindow.getAllWindows().find((w) => !w.isDestroyed() && w !== win && w.getTitle() === 'Milkdrop');
+  // The Milkdrop window open, to use its right-click menu.
+  if (!(await js('WinifyMilkdrop.state().open'))) { await js('WinifyMilkdrop.toggle()'); await wait(1200); }
+  check('the right-click menu offers "Desktop mode"', await js(`(() => { const c = document.querySelector('#webamp .gen-window:not(.winify-frame) canvas'); const r = c.getBoundingClientRect();
+    c.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: r.left + 20, clientY: r.top + 20 })); return true; })()`) && !!(await (async () => { await wait(400); return js(`[...document.querySelectorAll('#webamp-context-menu li')].some((l) => /^Desktop mode/.test(l.textContent.trim()))`); })()));
+  await js(`(() => { const li = [...document.querySelectorAll('#webamp-context-menu li')].find((l) => /^Desktop mode/.test(l.textContent.trim())); li.click(); return true; })()`);
+  let d = null;
+  for (let i = 0; i < 80; i++) { d = await js('WinifyMilkdrop.desktop()'); if (d.drawing) break; await wait(150); }
+  const wp = wallpaper();
+  const primary = require('electron').screen.getPrimaryDisplay().bounds;
+  check('on: a wallpaper window over the whole main display, drawing at its size; the Milkdrop window closed', d.on && d.drawing && !!wp && JSON.stringify(wp.getBounds()) === JSON.stringify(primary) && !(await js('WinifyMilkdrop.state().open')) && d.size[0] >= primary.width,
+    JSON.stringify({ d, bounds: wp && wp.getBounds(), primary }));
+  // Read until macOS lists it (a busy moment can miss it).
+  let own = [], wl = null;
+  for (let i = 0; i < 16 && !wl; i++) { own = layers(); wl = own.find((r) => r.w === primary.width && r.h === primary.height && r.y === primary.y); if (!wl) await wait(250); }
+  check('...at macOS\'s desktop level (behind the desktop icons and every window); it takes no clicks', !!wl && wl.layer < -2147483603 && wp.isFocusable() === false, JSON.stringify({ wallpaper: wl, all: own.map((r) => r.layer) }));
+  const d0 = (await js('WinifyMilkdrop.desktop()')).renders; const onDesktop = await cpu(8000); const d1 = (await js('WinifyMilkdrop.desktop()')).renders;
+  check('...drawing steadily', !capturing || (d1 - d0) / 8 > 30, Math.round((d1 - d0) / 8) + ' frames/s');
+  check('...following the presets: Next changes it there too', await (async () => { const i0 = (await js('WinifyMilkdrop.state()')).index; await js('WinifyMilkdrop.next()'); await wait(300); return (await js('WinifyMilkdrop.state()')).index !== i0; })());
+  check('menu-bar menu: "Milkdrop desktop mode" ticked', !!trayItem('Milkdrop desktop mode') && trayItem('Milkdrop desktop mode').checked);
+  win.minimize(); await wait(4000);
+  const m0 = (await js('WinifyMilkdrop.desktop()')).renders; await wait(2000); const m1 = (await js('WinifyMilkdrop.desktop()')).renders;
+  check('Winify minimized: the wallpaper window goes and nothing is drawn', !wallpaper() && m1 === m0 && (await js('WinifyMilkdrop.desktop()')).on, JSON.stringify({ frames: m1 - m0, d: await js('WinifyMilkdrop.desktop()') }));
+  win.restore(); 
+  for (let i = 0; i < 60 && !(await js('WinifyMilkdrop.desktop().drawing')); i++) await wait(150);
+  check('restored: back, drawing', !!wallpaper() && (await js('WinifyMilkdrop.desktop().drawing')));
+  await js('WinifyMilkdrop.toggle()'); await wait(800);
+  check('opening the Milkdrop window ends desktop mode (wallpaper gone, the window back)', !wallpaper() && !(await js('WinifyMilkdrop.desktop().on')) && (await js('WinifyMilkdrop.state().open')) && !trayItem('Milkdrop desktop mode').checked);
+  trayItem('Milkdrop desktop mode').click();
+  for (let i = 0; i < 60 && !(await js('WinifyMilkdrop.desktop().drawing')); i++) await wait(150);
+  check('menu-bar item: on again', !!wallpaper() && (await js('WinifyMilkdrop.desktop().drawing')));
+  trayItem('Milkdrop desktop mode').click(); await wait(800);
+  const after = await js('WinifyMilkdrop.desktop()');
+  check('...and off: the wallpaper window closed, its drawing and audio connection let go', !wallpaper() && !after.on && !after.open && !after.drawing, JSON.stringify(after));
+  check('no page errors in desktop mode', !logs.some((m) => /Uncaught|desktop mode: frame failed/.test(m)), logs.filter((m) => /Uncaught|frame failed/.test(m)).slice(0, 2).join(' | '));
+
   console.log('CPU, % of one core, per process type (8-10 s each, ' + (capturing ? 'capture running' : 'no capture') + '):');
+  console.log('   desktop mode:       ' + JSON.stringify(onDesktop));
   console.log('   Milkdrop closed:    ' + JSON.stringify(closed));
   console.log('   Milkdrop open:      ' + JSON.stringify(open));
   console.log('   open, full screen:  ' + JSON.stringify(full));

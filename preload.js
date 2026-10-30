@@ -43,6 +43,7 @@ contextBridge.exposeInMainWorld('spotify', {
   audioStateChanged: (capturing) => ipcRenderer.send('audio-state', capturing),
   webampStateChanged: (doubled) => ipcRenderer.send('webamp-state', doubled),
   milkdropStateChanged: (open) => ipcRenderer.send('milkdrop-state', open),
+  milkdropDesktopChanged: (on) => ipcRenderer.send('milkdrop-desktop', on),
   choosePresetFiles: () => ipcRenderer.invoke('milkdrop:choose-presets'),
   // The Winify panel's lights (and Webamp's Exit) act on the Winify window.
   windowCommand: (command) => ipcRenderer.send('window-command', command),

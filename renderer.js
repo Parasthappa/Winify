@@ -62,6 +62,9 @@ window.spotify.onCommand(async (command) => {
     case 'toggle-milkdrop':
       if (window.WinifyMilkdrop) window.WinifyMilkdrop.toggle();
       break;
+    case 'toggle-milkdrop-desktop':
+      if (window.WinifyMilkdrop) window.WinifyMilkdrop.setDesktop(!window.WinifyMilkdrop.desktop().on);
+      break;
     case 'toggle-doublesize':
       window.spotify.webampStateChanged(window.WinifyWebamp.toggleDoubleSize());
       break;

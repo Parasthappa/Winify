@@ -185,7 +185,7 @@ h.open().then(async ({ win, js }) => {
     if (!r) return false; win.webContents.sendInputEvent({ type: 'mouseDown', x: r.x, y: r.y, button: 'left', clickCount: 1 }); win.webContents.sendInputEvent({ type: 'mouseUp', x: r.x, y: r.y, button: 'left', clickCount: 1 }); await h.wait(400); return true; };
   await rightClick();
   let items = await menu();
-  check('Webamp\'s menu, extended, with shortcuts: full screen, next/previous/random, auto-cycle (checked), load presets; its Quit kept', JSON.stringify(items) === JSON.stringify(['Full screen | F', '---', 'Next preset | Space', 'Previous preset | Backspace', 'Random preset | R', '---', '[x] Auto-cycle | C', '---', 'Load presets… | O', '---', 'Quit | undefined']), JSON.stringify(items));
+  check('Webamp\'s menu, extended, with shortcuts: full screen, next/previous/random, auto-cycle (checked), load presets, desktop mode; its Quit kept', JSON.stringify(items) === JSON.stringify(['Full screen | F', '---', 'Next preset | Space', 'Previous preset | Backspace', 'Random preset | R', '---', '[x] Auto-cycle | C', '---', 'Load presets… | O', '---', 'Desktop mode | ', '---', 'Quit | undefined']), JSON.stringify(items));
   check('...one menu (Webamp\'s own); its Fullscreen (no keys shown) and Desktop Mode hidden', (await js(`document.querySelectorAll('#webamp-context-menu').length`)) === 1 && (await js(`[...document.querySelectorAll('#webamp-context-menu li')].filter((l) => /^(Fullscreen|Desktop Mode)$/.test(l.textContent.trim())).every((l) => getComputedStyle(l).display === 'none')`)));
   let before2 = (await S()).index;
   await pick('Random preset');

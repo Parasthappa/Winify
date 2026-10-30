@@ -174,6 +174,7 @@ chassis, the Webamp windows and Winify's own windows are drawn in it.
 | `webamp-vis.js` | Feeds Webamp's visualizer from the audio capture |
 | `webamp-milkdrop.js` | Webamp's Milkdrop window, drawn by Butterchurn from the audio capture; its menu, keys and the VIZ button |
 | `webamp-milkdrop-presets.js` | Presets you add: converted, test-loaded, kept in IndexedDB |
+| `milkdrop-desktop.html` | Milkdrop's desktop mode: the wallpaper window's page (drawn into from webamp-milkdrop.js) |
 | `milkdrop-convert-worker.js` | Turns .milk and .json files into Butterchurn presets, off the page |
 | `drm-debug.js` | DRM diagnostics, inactive unless `--drm-debug` |
 | `drm-redact.js` | Keeps tokens and signed links out of the DRM diagnostics |
