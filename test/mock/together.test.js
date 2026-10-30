@@ -76,7 +76,11 @@ h.open().then(async ({ win, js }) => {
   check('the index now holds them', idx.lists === 4, JSON.stringify(idx));
 
   console.log('3. Now indexed: no requests; playlist after playlist; all of a short one');
-  await click('Alpha'); await click('Bravo', ['meta']); await click('Charlie', ['meta']);
+  await click('Charlie'); await click('Alpha', ['meta']);
+  const mp = await js(`(() => { const r = document.querySelector('.winify-picker .wp-row[data-mix]'); const b = r.getBoundingClientRect(); return { x: Math.round(b.left + 30), y: Math.round(b.top + b.height / 2) }; })()`);
+  press(mp.x, mp.y, ['meta']); await h.wait(100);
+  check('a "Winify mixes" row cannot be chosen along with playlists (still 2 chosen, the mix not lit)', (await js('WinifyPicker.state().chosen')) === 2 && !(await lit()).some((n) => !/^(Charlie|Alpha)$/.test(n)), JSON.stringify(await lit()));
+  await click('Bravo', ['meta']);      // chosen in this order, not the list's
   await key('Return'); await key('Right'); await key('Right'); await key('Space');       // 50 each, not shuffled together
   const off = await js(`document.querySelector('.winify-picker-prompt .wq-btn[aria-checked]').getAttribute('aria-checked')`);
   check('50 chosen and "shuffle together" off', off === 'false' && (await js(`document.querySelectorAll('.winify-picker-prompt .wq-btn[aria-pressed="true"]').length`)) === 1);
@@ -85,8 +89,9 @@ h.open().then(async ({ win, js }) => {
   cs = await take(); body = plays(cs)[0];
   check('not one request to Spotify to build it (only the play)', reads(cs).length === 0 && cs.filter((c) => /^api:/.test(c[0]) && c[0] !== 'api:play').length === 0, JSON.stringify(cs.filter((c) => /^api:/.test(c[0]))));
   const u3 = body.uris.map(id);
-  check('Alpha 30, Bravo 5, and 50 of Charlie\'s 57 not already in (its 3 shared songs left out): 85 songs, no duplicates', u3.length === 85 && new Set(u3).size === 85 && !u3.slice(35).some((n) => n < 8203), u3.length);
-  check('playlist after playlist, in the order chosen', u3.slice(0, 30).every((n) => n >= 8000 && n < 8030) && u3.slice(30, 35).every((n) => n >= 8100 && n < 8105) && u3.slice(35).every((n) => n >= 8203 && n < 8260), JSON.stringify(u3.slice(28, 37)));
+  const inC = (n) => n >= 8200 && n < 8260, inA = (n) => n >= 8000 && n < 8030, inB = (n) => n >= 8100 && n < 8105;
+  check('50 of Charlie\'s 60, then the rest of Alpha not already in, then all 5 of Bravo: no duplicates', u3.length >= 82 && u3.length <= 85 && new Set(u3).size === u3.length && u3.slice(0, 50).every((n) => inC(n) || [8000, 8001, 8002].includes(n)), u3.length);
+  check('playlist after playlist, in the order chosen (Charlie, Alpha, Bravo), not the list\'s', u3.slice(50, u3.length - 5).every(inA) && u3.slice(-5).every(inB), JSON.stringify(u3.slice(46, 56)));
   await until(`WinifyPlaylist.state().header === '\u2014 3 PLAYLISTS \u00b7 50 each \u2014'`, 6000);
   check('header says 3 playlists, 50 each', (await js('WinifyPlaylist.state().header')) === '— 3 PLAYLISTS · 50 each —', await js('WinifyPlaylist.state().header'));
 

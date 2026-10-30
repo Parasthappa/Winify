@@ -597,7 +597,8 @@ function closePrompt() {
 
 // Asks how many from each, and whether to shuffle together; plays the mix.
 function playTogether() {
-  const chosen = shown.filter((r) => choosable(r) && picked.has(r.uri));
+  // In the order they were chosen (a Set keeps it), not the list's.
+  const chosen = [...picked].map((uri) => rows.find((r) => r.uri === uri)).filter(choosable);
   if (chosen.length < 2) return;
   closePrompt();
   const st = skinStyle();
