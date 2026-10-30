@@ -4,7 +4,7 @@
  * Kept on this Mac (IndexedDB), never sent anywhere.
  *
  * Built slowly in the background: one request at a time, at most one every
- * 3 s, waiting out Spotify's Retry-After on a 429. Progress is saved after
+ * 1 s, waiting out Spotify's Retry-After on a 429. Progress is saved after
  * every page, so quitting part-way loses nothing. Which playlists there are
  * comes from the playlist picker's saved list (its snapshot_id says whether
  * a playlist changed); it is checked again only when the picker reads that
@@ -20,7 +20,7 @@ import * as picker from './webamp-picker.js';
 const DB_NAME = 'winify-index';
 const STORE = 'lists';
 const PAGE = 50;                     // the Web API maximum for both endpoints
-const GAP_MS = 3000;                 // at most one request every 3 s
+const GAP_MS = 1000;                 // at most one request every second
 const RETRY_MS = 60 * 1000;          // after a network error
 const MAX_RESULTS = 300;
 // Set by the smoke test and the mock pages: no index requests.
@@ -107,11 +107,18 @@ function plan(src) {
 // ---- Reading ------------------------------------------------------------------------
 
 let lastRequestAt = 0;
+let turns = Promise.resolve();       // requests take turns: the build and ensure() share the pace
 const sleep = (ms) => new Promise((resolve) => { waking = resolve; setTimeout(resolve, ms); });
 
 // One request, no sooner than gapMs after the last; a 429 waits out its
 // Retry-After and asks again.
-async function paced(path, g) {
+function paced(path, g) {
+  const mine = turns.then(() => pacedNow(path, g));
+  turns = mine.catch(() => {});
+  return mine;
+}
+
+async function pacedNow(path, g) {
   for (;;) {
     for (let wait; (wait = lastRequestAt + gapMs - Date.now()) > 0; ) {
       await sleep(wait);
@@ -168,6 +175,8 @@ async function readList(uri, g) {
   }
 }
 
+let reading = null;                  // the playlist the background build is reading now
+
 async function run() {
   // Already running for this start: it picks up the new plan. One left over
   // from an older start is on its way out.
@@ -178,6 +187,7 @@ async function run() {
   try {
     while (pending.length && g === gen) {
       const uri = pending[0];
+      reading = uri;
       try {
         await readList(uri, g);
       } catch (err) {
@@ -190,6 +200,7 @@ async function run() {
         // Deleted, or no longer readable: passed over until it changes.
         ctx.warn('index: could not read', uri, '-', err.message);
       }
+      reading = null;
       if (g !== gen) return;
       if (pending[0] === uri) pending.shift();
       round.done++;
@@ -234,6 +245,35 @@ const songCount = () => (table || (table = buildTable())).length;
 
 // Songs whose title, artist or album hold every word typed; titles that
 // start with the first word come first.
+// A playlist's songs as the index holds them, in playlist order, or null when
+// it is not (completely) indexed: { uri, name, durationMs, playable }.
+export function songsOf(uri) {
+  const rec = lists.get(uri);
+  if (!rec || !rec.complete || pending.includes(uri)) return null;
+  return rec.songs.filter(Boolean).map((s) => ({ uri: s[0], name: (s[2] ? s[2] + ' - ' : '') + s[1], durationMs: s[4], playable: s[5] }));
+}
+
+// Like songsOf, but reads just this playlist first if it is not indexed yet
+// ({ uri, name, snapshot } from the picker's list). Null if it cannot be read.
+export async function ensure(entry) {
+  const have = songsOf(entry.uri);
+  if (have || !ctx) return have;
+  const g = gen;
+  // The background build is on it already: wait for that.
+  while (reading === entry.uri && g === gen) await new Promise((r) => setTimeout(r, 250));
+  if (g !== gen) return null;
+  if (!wanted.some((w) => w.uri === entry.uri)) wanted.push({ uri: entry.uri, name: entry.name, snapshot: entry.snapshot });
+  try {
+    await readList(entry.uri, g);
+  } catch (err) {
+    ctx && ctx.warn('index: could not read', entry.uri, '-', err.message);
+    return null;
+  }
+  pending = pending.filter((u) => u !== entry.uri);
+  changed();
+  return songsOf(entry.uri);
+}
+
 export function search(query) {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return [];

@@ -80,12 +80,23 @@ function describe(err) {
 
 const MODES = { mine: 'my playlists', spotify: 'all of spotify' };
 
+const TAB_HINT = 'Press Tab to search all of Spotify';
+
+// What My playlists says when it has nothing to list: why, and what to do.
+// Lines are separate rows. `typed`: a search found nothing.
+function indexNote(typed) {
+  const st = index.status();
+  if (st.building) {
+    return index.progressNote() + (st.songs ? ' (' + st.songs + ' songs so far)' : '') + '\n' +
+      (typed ? 'Nothing found yet - the rest is still being read' : 'Type to search what is in already') + '\n' + TAB_HINT;
+  }
+  if (!st.songs) return 'Index not built yet: it starts once your playlists are listed\n' + TAB_HINT;
+  return typed ? 'No results in your playlists\n' + TAB_HINT : 'Type to search your playlists (' + st.songs + ' songs)\nTab: all of Spotify';
+}
+
 // What the list says with nothing typed.
 function prompt() {
-  if (mode === 'spotify') return 'Type to search Spotify';
-  const st = index.status();
-  if (st.building) return index.progressNote() + (st.songs ? ' - type to search what is in' : '');
-  return st.songs ? 'Type to search your playlists' : 'Your playlists are not indexed yet';
+  return mode === 'spotify' ? 'Type to search Spotify' : indexNote(false);
 }
 
 // My playlists: at once, from the index. `keep` holds on to the selected song
@@ -98,7 +109,7 @@ function searchMine(query, keep) {
     const at = r.places.findIndex((p) => p.uri === chosen.get(r.uri));
     return Object.assign({ chosen: Math.max(0, at) }, r);
   }) : [];
-  status = !query ? prompt() : results.length ? null : 'No results in your playlists';
+  status = !query ? prompt() : results.length ? null : indexNote(true);
   const at = was ? results.findIndex((r) => r.uri === was) : -1;
   selected = at >= 0 ? at : 0;
   if (at < 0) scroll = 0;
@@ -229,7 +240,7 @@ const primary = (r) => (mode === 'mine' ? playInPlaylist(r) : play(r));
 const secondary = queueRow;
 
 const TITLE = 'Jump to track';
-const HINT = 'tab: mode  enter: play  shift+enter: queue  right-click: more';
+const HINT = 'tab: mode  enter: play  shift+enter: queue  right-click';
 
 // A song's playlists, the one Enter plays in bracketed (when there is a choice).
 const placesText = (r) => r.places.map((p, i) => (r.places.length > 1 && i === r.chosen ? '[' + p.name + ']' : p.name)).join(', ');
@@ -274,7 +285,7 @@ function injectStyles() {
     #webamp .winify-search .ws-scroll { flex: none; width: 8px; position: relative; }
     #webamp .winify-search .ws-handle { position: absolute; left: 0; width: 8px; height: 18px; }
     #webamp .winify-search .ws-info { flex: none; height: 13px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 3px; min-width: 0; overflow: hidden; white-space: nowrap; }
-    #webamp .winify-search .winify-search-chars { display: inline-flex; line-height: 0; }
+    #webamp .winify-search .winify-search-chars { display: inline-flex; line-height: 0; min-width: 0; overflow: hidden; }
     #webamp .winify-search .character { display: inline-block; width: 5px; height: 6px; }
     #webamp .winify-search .ws-body { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
     #webamp .winify-search .ws-query { height: 13px; box-sizing: border-box; border: 0; border-bottom: 1px solid; outline: none; padding: 0 2px; font-size: 9px; width: 100%; }
@@ -312,11 +323,13 @@ function render() {
   const list = el.querySelector('.ws-list');
   list.textContent = '';
   if (status) {
-    const row = document.createElement('div');
-    row.className = 'ws-row ws-status';
-    row.style.color = st.normal;
-    row.textContent = status;
-    list.appendChild(row);
+    for (const line of status.split('\n')) {
+      const row = document.createElement('div');
+      row.className = 'ws-row ws-status';
+      row.style.color = st.normal;
+      row.textContent = line;
+      list.appendChild(row);
+    }
   } else {
     results.slice(scroll, scroll + VISIBLE_ROWS).forEach((r, i) => {
       const index = scroll + i;

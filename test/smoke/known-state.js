@@ -5,7 +5,8 @@
 // smoke.js puts them back at the end. If a run dies half-way, the next run restores them instead of
 // setting aside the defaults.
 if (location.origin === 'http://127.0.0.1:8899') {
-  const KEYS = ['winify.layout.v2', 'winify.panels.v1', 'winify.lyrics.open', 'winify.chassis.v1', 'winify.mixes.v1'];
+  // 'winify.index.paused': the My playlists index (a build is hundreds of requests) sends none during the run.
+  const KEYS = ['winify.layout.v2', 'winify.panels.v1', 'winify.lyrics.open', 'winify.chassis.v1', 'winify.mixes.v1', 'winify.index.paused'];
   const SAVED = 'winify.smoke.saved';
   try {
     if (localStorage.getItem(SAVED) == null) {
@@ -14,5 +15,6 @@ if (location.origin === 'http://127.0.0.1:8899') {
       localStorage.setItem(SAVED, JSON.stringify(snap));
     }
     KEYS.forEach((k) => localStorage.removeItem(k));
+    localStorage.setItem('winify.index.paused', '1');
   } catch (e) { /* storage unavailable */ }
 }

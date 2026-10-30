@@ -18,6 +18,11 @@
  * hours is refreshed the same way in the background, and REFRESH in the
  * bottom bar does it now (its first page at once, so a new playlist shows up
  * straight away).
+ *
+ * Several playlists can be chosen at once: Cmd-click adds or removes one,
+ * Shift-click chooses a range (all drawn highlighted). Enter or a double-click
+ * then asks how many songs from each (10, 20 or 50) and whether to shuffle
+ * them together, and plays a mix of them (webamp-mix.js, makeFrom).
  */
 
 import { makeDraggable, makeResizable, attachTooltips, hideTooltip } from './webamp-dialog.js';
@@ -56,6 +61,9 @@ let rows = [];                      // all entries
 let shown = [];                     // entries matching the filter
 let selected = 0;
 let scroll = 0;
+const picked = new Set();           // uris of the playlists chosen together (two or more)
+let anchor = 0;                     // where a Shift-click range starts
+let collapseTimer = null;
 
 // ---- Data ----------------------------------------------------------------------
 
@@ -74,7 +82,8 @@ function listFrom(l) {
   const top = saved.length ? [{ label: true, name: 'Winify mixes', uri: 'winify:label:mixes' }].concat(saved,
     [{ label: true, name: 'Your Spotify playlists', uri: 'winify:label:spotify' }]) : [];
   if (!l) return top;
-  return top.concat([{ name: 'Liked Songs', uri: 'spotify:user:' + l.meId + ':collection', count: l.liked }], l.entries);
+  return top.concat([{ name: 'Liked Songs', uri: 'spotify:user:' + l.meId + ':collection', count: l.liked,
+    snapshot: l.liked + '|' + (l.likedNewest || '') }], l.entries);
 }
 
 // The rows matching a filter; a section label stays when anything under it does.
@@ -277,6 +286,13 @@ function injectStyles() {
     #webamp .winify-picker .wp-refresh:hover { border-color: currentColor; }
     #webamp .winify-picker .wp-refresh.wp-busy { opacity: .45; cursor: default; }
     #webamp .winify-picker .wp-row.wp-label { opacity: .6; font-size: 8px; letter-spacing: 1px; justify-content: center; }
+    #webamp .winify-picker .wp-sel { margin-left: auto; }
+    #webamp .winify-picker-prompt { z-index: 100002; }
+    #webamp .winify-picker-prompt .wq-body { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 7px; padding: 4px 8px; font-size: 9px; }
+    #webamp .winify-picker-prompt .wq-line { display: flex; align-items: center; gap: 5px; }
+    #webamp .winify-picker-prompt .wq-btn { cursor: pointer; padding: 3px 5px; border: 1px solid; line-height: 0; user-select: none; }
+    #webamp .winify-picker-prompt .winify-picker-chars { display: inline-flex; line-height: 0; }
+    #webamp .winify-picker-prompt .character { display: inline-block; width: 5px; height: 6px; }
     #webamp .winify-picker .wp-rename { flex: 1; height: 11px; box-sizing: border-box; border: 1px solid; outline: none; padding: 0 2px; font-size: 9px; }
     ${FRAME_CSS}
   `;
@@ -292,8 +308,22 @@ let drawnKey = null;
 function paintSelection() {
   const st = skinStyle();
   el.querySelectorAll('.wp-list .wp-row[data-index]').forEach((row) => {
-    row.style.background = Number(row.dataset.index) === selected ? st.selectedbg : '';
+    const i = Number(row.dataset.index);
+    row.style.background = i === selected || (picked.size > 1 && shown[i] && picked.has(shown[i].uri)) ? st.selectedbg : '';
   });
+  selectionNote();
+}
+
+// "3 chosen" in the bottom bar while several are chosen.
+function selectionNote() {
+  const bar = el && el.querySelector('.wp-info');
+  if (!bar) return;
+  const old = bar.querySelector('.wp-sel');
+  if (old) old.remove();
+  if (picked.size < 2) return;
+  const note = skinText(picked.size + ' chosen: enter to play together');
+  note.classList.add('wp-sel');
+  bar.appendChild(note);
 }
 
 function renderList() {
@@ -326,7 +356,7 @@ function renderList() {
     const isCurrent = !!currentUri && (r.uri === currentUri ||
       (/:collection/.test(r.uri) && /:collection/.test(currentUri)));
     row.style.color = isCurrent ? st.current : st.normal;
-    if (index === selected) row.style.background = st.selectedbg;
+    if (index === selected || (picked.size > 1 && picked.has(r.uri))) row.style.background = st.selectedbg;
     const name = document.createElement('span');
     name.className = 'wp-name';
     name.textContent = numbers[index] + '. ' + r.name;
@@ -368,6 +398,7 @@ function renderList() {
   if (building.building) bar.appendChild(skinText('indexing ' + building.done + '/' + building.total));
   // Scrolled near the end of what is in: hurry the rest.
   if (loading && scroll + VISIBLE_ROWS >= shown.length - 4) hurry();
+  selectionNote();
 }
 
 function select(index, dir = Math.sign(index - selected) || 1) {
@@ -379,6 +410,8 @@ function select(index, dir = Math.sign(index - selected) || 1) {
   if (!shown[i]) { i = Math.max(0, Math.min(shown.length - 1, index)); while (shown[i] && shown[i].label) i -= dir; }
   if (!shown[i]) return;
   selected = i;
+  anchor = i;
+  picked.clear();
   if (selected < scroll) scroll = selected;
   if (selected >= scroll + VISIBLE_ROWS) scroll = selected - VISIBLE_ROWS + 1;
   renderList();
@@ -428,7 +461,22 @@ function build(spot) {
   const list = p.querySelector('.wp-list');
   list.addEventListener('click', (e) => {
     const row = e.target.closest('.wp-row');
-    if (row && row.dataset.index && !row.classList.contains('wp-label')) select(Number(row.dataset.index));
+    if (!row || !row.dataset.index || row.classList.contains('wp-label')) return;
+    const i = Number(row.dataset.index);
+    filter.focus();                      // so Enter and the arrows keep working after a click
+    if (e.metaKey || e.ctrlKey) { toggleChosen(i); return; }
+    if (e.shiftKey) { chooseRange(i); return; }
+    // A click on one of several chosen: a double-click plays them together,
+    // so a single click only narrows the choice if no second one follows.
+    if (picked.size > 1 && picked.has(shown[i].uri)) {
+      if (e.detail > 1) return;
+      selected = i; anchor = i;
+      clearTimeout(collapseTimer);
+      collapseTimer = setTimeout(() => { if (el) select(i); }, 350);
+      renderList();
+      return;
+    }
+    select(i);
   });
   // A Winify mix: rename or delete it (on this Mac only).
   list.addEventListener('contextmenu', (e) => {
@@ -443,7 +491,10 @@ function build(spot) {
     ]);
   });
   list.addEventListener('dblclick', (e) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey) return;
+    clearTimeout(collapseTimer);
     const row = e.target.closest('.wp-row');
+    if (picked.size > 1 && row && row.dataset.index && picked.has(shown[Number(row.dataset.index)].uri)) { playTogether(); return; }
     if (row && row.dataset.index) pick(shown[Number(row.dataset.index)]);
   });
   list.addEventListener('wheel', (e) => {
@@ -492,7 +543,7 @@ function onKey(e) {
     ArrowUp: () => select(selected - 1),
     PageDown: () => select(selected + visibleRows()),
     PageUp: () => select(selected - visibleRows()),
-    Enter: () => pick(shown[selected]),
+    Enter: () => (picked.size > 1 ? playTogether() : pick(shown[selected])),
     Escape: () => close(),
   };
   if (keys[e.key]) {
@@ -500,6 +551,126 @@ function onKey(e) {
     e.stopPropagation();
     keys[e.key]();
   }
+}
+
+// ---- Several playlists at once -----------------------------------------------------
+
+// A row that can be chosen together with others: a playlist or Liked Songs,
+// not a section label or a saved mix.
+const choosable = (r) => !!r && !r.label && !r.mixId;
+
+// Cmd-click: add or remove one. The row the cursor is on joins first.
+function toggleChosen(i) {
+  if (!choosable(shown[i])) return;
+  if (!picked.size && choosable(shown[selected])) picked.add(shown[selected].uri);
+  const uri = shown[i].uri;
+  if (picked.has(uri)) picked.delete(uri); else picked.add(uri);
+  selected = i;
+  anchor = i;
+  if (picked.size === 1) {                 // one left is just a selection
+    const only = shown.findIndex((r) => r.uri === [...picked][0]);
+    picked.clear();
+    if (only >= 0) selected = only;
+  }
+  renderList();
+}
+
+// Shift-click: everything from where the last click was to this row.
+function chooseRange(i) {
+  if (!choosable(shown[i])) return;
+  const [a, b] = anchor <= i ? [anchor, i] : [i, anchor];
+  picked.clear();
+  for (let k = a; k <= b; k++) if (choosable(shown[k])) picked.add(shown[k].uri);
+  selected = i;
+  if (picked.size === 1) picked.clear();
+  renderList();
+}
+
+let prompt = null;                  // the "Play together" window
+
+function closePrompt() {
+  if (!prompt) return;
+  document.removeEventListener('keydown', prompt.onKey, true);
+  prompt.root.remove();
+  prompt = null;
+}
+
+// Asks how many from each, and whether to shuffle together; plays the mix.
+function playTogether() {
+  const chosen = shown.filter((r) => choosable(r) && picked.has(r.uri));
+  if (chosen.length < 2) return;
+  closePrompt();
+  const st = skinStyle();
+  const frame = makeFrame({ title: 'Play together', cls: 'winify-picker-prompt', prefix: 'wq' });
+  frame.root.querySelector('.winify-resize').style.display = 'none';
+  frame.root.setAttribute('aria-label', 'Play ' + chosen.length + ' playlists together');
+  let per = 20;
+  let together = true;
+  const body = document.createElement('div');
+  body.className = 'wq-body';
+  body.style.background = st.normalbg;
+  body.style.color = st.normal;
+  const line = () => { const d = document.createElement('div'); d.className = 'wq-line'; body.appendChild(d); return d; };
+  const button = (parent, text, on) => {
+    const b = document.createElement('span');
+    b.className = 'wq-btn';
+    b.setAttribute('role', 'button');
+    b.style.borderColor = st.normal;
+    b.appendChild(skinText(text));
+    b.addEventListener('click', on);
+    parent.appendChild(b);
+    return b;
+  };
+  const head = line();
+  head.appendChild(skinText(chosen.length + ' playlists, songs from each:'));
+  const amounts = line();
+  const amountBtns = [10, 20, 50].map((n) => button(amounts, String(n), () => { per = n; paint(); }));
+  const shuffleLine = line();
+  const shuffleBtn = button(shuffleLine, '', () => { together = !together; paint(); });
+  shuffleLine.appendChild(skinText('shuffle together'));
+  const actions = line();
+  button(actions, 'play', () => go());
+  button(actions, 'cancel', () => closePrompt());
+  function paint() {
+    [10, 20, 50].forEach((n, k) => {
+      amountBtns[k].style.background = n === per ? st.selectedbg : '';
+      amountBtns[k].style.color = n === per ? st.current : st.normal;
+      amountBtns[k].setAttribute('aria-pressed', String(n === per));
+    });
+    shuffleBtn.textContent = '';
+    shuffleBtn.appendChild(skinText(together ? 'x' : ' '));
+    shuffleBtn.setAttribute('aria-checked', String(together));
+  }
+  function go() {
+    closePrompt();
+    picked.clear();
+    renderList();
+    mixes.makeFrom(chosen, per, together);
+  }
+  frame.content.appendChild(body);
+  frame.close.addEventListener('click', closePrompt);
+  const keys = {
+    Enter: go,
+    Escape: closePrompt,
+    ArrowLeft: () => { per = [10, 20, 50][Math.max(0, [10, 20, 50].indexOf(per) - 1)]; paint(); },
+    ArrowRight: () => { per = [10, 20, 50][Math.min(2, [10, 20, 50].indexOf(per) + 1)]; paint(); },
+    ' ': () => { together = !together; paint(); },
+  };
+  const onKey = (e) => {
+    if (!keys[e.key]) return;
+    e.preventDefault();
+    e.stopPropagation();
+    keys[e.key]();
+  };
+  document.addEventListener('keydown', onKey, true);
+  frame.root.addEventListener('pointerdown', (e) => e.stopPropagation());
+  // Centred over the picker.
+  const w = 230, h = 124;
+  Object.assign(frame.root.style, { width: w + 'px', height: h + 'px',
+    left: Math.max(0, el.offsetLeft + (el.offsetWidth - w) / 2) + 'px', top: Math.max(0, el.offsetTop + (el.offsetHeight - h) / 2) + 'px' });
+  document.querySelector('#webamp').append(frame.root);
+  prompt = { root: frame.root, onKey };
+  paint();
 }
 
 // ---- Open / close / pick ---------------------------------------------------------
@@ -534,6 +705,9 @@ export async function open() {
 // keepRecord: signing out (the picker is still remembered as open).
 export function close({ keepRecord = false } = {}) {
   if (!el) return;
+  closePrompt();
+  clearTimeout(collapseTimer);
+  picked.clear();
   hideTooltip();
   el.remove();
   el = null;
@@ -656,4 +830,5 @@ export function reset() {
 // For inspection from DevTools and tests.
 window.WinifyPicker = { open, close, toggle, isOpen, refresh: () => read(true),
   state: () => ({ open: !!el, rows: rows.length, shown: shown.length, selected, scroll, loading: !!loading,
+    chosen: picked.size, prompt: !!prompt,
     complete: !!(lib && lib.complete), at: lib ? lib.at : null }) };

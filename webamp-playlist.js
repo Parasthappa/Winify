@@ -51,6 +51,10 @@
  */
 
 const PAGE = 50;                    // the Web API maximum for both endpoints
+// A mix is sent to Spotify as a window of this many songs (starting where it
+// plays from), not whole: a big mix would be one huge request. The order
+// queues each next song itself, so Spotify never needs the rest.
+const MIX_BATCH = 100;
 // A big list comes in a page at a time: the first at once, the rest in the
 // background at this pace, sooner when scrolled near the end of what is in,
 // and without pause when shuffle or the playing track needs the rest.
@@ -160,7 +164,7 @@ function headerFor(newMode, contextUri, name, label) {
   const k = kind(contextUri);
   if (k === 'album') return { prefix: 'ALBUM \u00b7 ', name: name || '' };
   if (k === 'collection') return { prefix: '', name: 'LIKED SONGS' };
-  if (k === 'mix') return { prefix: 'MIX \u00b7 ', name: name || '' };
+  if (k === 'mix') return mix && mix.uri === contextUri && mix.header ? mix.header : { prefix: 'MIX \u00b7 ', name: name || '' };
   if (k === 'playlist' && (name || contextNames[contextUri])) return { prefix: '', name: name || contextNames[contextUri] };
   return { prefix: '', name: 'UP NEXT' };
 }
@@ -1255,7 +1259,12 @@ const contextNow = () => mixContext() || ctx.now.contextUri;
 // What to send to play the list's source from `position`.
 function playBody(position, extra) {
   if (kind(listContext) !== 'mix') return Object.assign({ context_uri: listContext, offset: { position } }, extra);
-  return Object.assign({ uris: mix.tracks.map((t) => t.uri), offset: { position } }, extra);
+  return Object.assign(mixBody(mix.tracks, position), extra);
+}
+
+// The play request for a mix from `position`: a window of its songs.
+export function mixBody(tracks, position) {
+  return { uris: tracks.slice(position, position + MIX_BATCH).map((t) => t.uri), offset: { position: 0 } };
 }
 
 function mixRows(m) {
@@ -1268,7 +1277,7 @@ export function expectMix(m) {
   singleTrackUri = null;
   clearTimeout(finishTimer);
   const again = activeMixUri() === 'winify:mix:' + m.id;
-  mix = { uri: 'winify:mix:' + m.id, name: m.name, tracks: m.tracks, started: false, done: false };
+  mix = { uri: 'winify:mix:' + m.id, name: m.name, tracks: m.tracks, header: m.header || null, started: false, done: false };
   contextList = { uri: mix.uri, list: mixRows(m), name: m.name };
   finalLeftMs = Infinity;
   if (again) seenContext = undefined;                    // the same mix again starts over
@@ -1279,7 +1288,7 @@ export const activeMixUri = () => (mix && !mix.done && mix.started ? mix.uri : n
 export function renamedMix(uri, name) {
   if (mix && mix.uri === uri) mix.name = name;
   if (contextList && contextList.uri === uri) contextList.name = name;
-  if (listContext === uri && hasHeader()) {
+  if (listContext === uri && hasHeader() && !(mix && mix.header)) {
     listName = name;
     entries[0].headerName = name;
     entries[0].name = '— ' + entries[0].headerPrefix + name + ' —';

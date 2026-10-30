@@ -33,6 +33,16 @@ h.open().then(async ({ win, js }) => {
   await h.wait(1500);
   await js('(mock.active = "winify", mock.setContext("spotify:playlist:big", 0), mock.setPaused(false))'); await h.wait(1500);
 
+  console.log('0. Nothing indexed yet: the window says so, and what to do');
+  await h.click(win, js, '#title-bar', 0.3, 0.5); await h.wait(150);
+  await key('J'); await h.wait(400);
+  let said = await rowsText();
+  check('empty list says "Index not built yet" and offers Tab', /^Index not built yet/.test(said[0]) && said[1] === 'Press Tab to search all of Spotify', JSON.stringify(said));
+  await type('road'); await h.wait(150);
+  said = await rowsText();
+  check('a search that finds nothing says the same, not a bare empty list', (await S()).results === 0 && /^Index not built yet/.test(said[0]) && said.length === 2, JSON.stringify(said));
+  await key('Escape'); await h.wait(200);
+
   console.log('1. Paused (as in every other suite): no requests');
   await take(); await h.wait(1500);
   check('no index requests while paused', indexReads(await take()).length === 0);
@@ -40,7 +50,12 @@ h.open().then(async ({ win, js }) => {
 
   console.log('2. The first build: your playlists and Liked Songs, nothing else');
   await js(`localStorage.removeItem('winify.index.paused')`); await take();
-  await js('WinifyIndex.restart({ gapMs: 40 })');
+  await js('WinifyIndex.restart({ gapMs: 500 })');
+  await until('WinifyIndex.status().building', 8000);
+  await js('WinifySearch.open()'); await h.wait(150);
+  said = await rowsText();
+  check('while it builds: "Indexing playlists: n of 3" and the Tab hint', /^Indexing playlists: \d of 3/.test(said[0]) && said[said.length - 1] === 'Press Tab to search all of Spotify', JSON.stringify(said));
+  await js('WinifySearch.close()');
   await until('!WinifyIndex.status().building && WinifyIndex.status().lists === 3', 15000);
   let cs = await take(); let reads = indexReads(cs);
   check('read: Liked Songs, Road Trip, Gym - one page each, not "Theirs" or the empty one',
@@ -57,11 +72,12 @@ h.open().then(async ({ win, js }) => {
   await type('7003'); await h.wait(150);
   s = await S(); let rows = await rowsText();
   check('results as you type: song 7003, with both its playlists, the first bracketed', s.results === 1 && /^1\. Song 7003 \| Artist 7003 \| \[Road Trip\], Gym \| 3:20$/.test(rows[0]), JSON.stringify(rows));
-  check('no requests at all while searching', (await take()).filter((c) => /^api:/.test(c[0])).length === 0);
+  const sent3 = (await take()).filter((c) => /^api:/.test(c[0]) && !(c[0] === 'api:playlistItems' && c[1] === 'big'));   // not the playlist window's own paging
+  check('no requests at all while searching', sent3.length === 0, JSON.stringify(sent3));
   await clear(); await type('artist 700'); await h.wait(150);
   check('several words, artist too: all five songs', (await S()).results === 5, JSON.stringify(await S()));
   await clear(); await type('zzz'); await h.wait(150);
-  check('nothing found: said quietly', (await S()).status === 'No results in your playlists', JSON.stringify(await S()));
+  check('nothing found: said quietly, with the way out', (await S()).status === 'No results in your playlists\nPress Tab to search all of Spotify', JSON.stringify(await S()));
 
   console.log('4. Enter plays within the playlist; Left/Right picks which');
   await clear(); await type('7003'); await h.wait(150); await take();
@@ -103,7 +119,7 @@ h.open().then(async ({ win, js }) => {
   check('Tab again: My playlists, instant, no requests', s.mode === 'mine' && s.results === 1 && (await take()).filter((c) => /^api:/.test(c[0])).length === 0, JSON.stringify(s));
   await key('Escape'); await h.wait(200);
 
-  console.log('7. Kept current: the picker\'s refresh re-reads only what changed, one request every 3 s');
+  console.log('7. Kept current: the picker\'s refresh re-reads only what changed, one request a second');
   await js('WinifyIndex.restart()'); await h.wait(300);          // the real pace
   await js(`(() => {
     PLAYLISTS[0].snapshot_id = 'a2'; CONTEXTS['spotify:playlist:pa'] = [7001, 7006];
@@ -129,7 +145,7 @@ h.open().then(async ({ win, js }) => {
     await h.wait(100);
   }
   check('re-read: Liked Songs and Road Trip (changed), nothing else', JSON.stringify(times.map((t) => t.what)) === JSON.stringify(['liked', 'pa']), JSON.stringify(times));
-  check('at least 3 s apart', times.length === 2 && times[1].at - times[0].at >= 2800, times.length === 2 ? (times[1].at - times[0].at) + ' ms' : '');
+  check('at least 1 s apart', times.length === 2 && times[1].at - times[0].at >= 900, times.length === 2 ? (times[1].at - times[0].at) + ' ms' : '');
   check('progress note while it builds: "Indexing playlists: 0 of 2"', /^Indexing playlists: [01] of 2$/.test(note || ''), note);
   check('...in Jump to track\'s bottom bar and the picker\'s', /^my playlists: indexing [01]\/2/.test(searchBar || '') && /indexing [01]\/2/.test(pickerBar || ''), JSON.stringify([searchBar, pickerBar]));
   const found = await js(`['7006', '7004', '7007', '7003'].map((q) => WinifyIndex.search(q).map((r) => r.places.map((p) => p.name).join('+')).join(','))`);

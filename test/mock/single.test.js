@@ -16,7 +16,7 @@ h.open().then(async ({ win, js }) => {
   // Search, move down to a row, Enter (= Play track).
   const playRow = async (i) => {
     // J opens or closes Jump to track: closed first, so J opens a fresh search.
-    await js('WinifySearch.close()'); await h.click(win, js, '#title-bar', 0.3, 0.5); await h.wait(150); await key('J'); await h.wait(400); await type('road'); await h.wait(900);
+    await js('WinifySearch.close()'); await h.click(win, js, '#title-bar', 0.3, 0.5); await h.wait(150); await key('J'); await h.wait(400); await key('Tab'); await type('road'); await h.wait(900);
     for (let k = 0; k < i; k++) await key('Down');
     await take(); await key('Return'); await h.wait(600);
   };

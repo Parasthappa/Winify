@@ -11,6 +11,15 @@
  * (webamp-playlist.js treats it as a source, so its play order, skipping,
  * reordering, queue and shuffle work as usual).
  *
+ * Songs come from the local playlist index (webamp-library-index.js) when
+ * the playlist is in it: then the picks are random across the whole playlist,
+ * with no request. A playlist not indexed yet is read as above.
+ *
+ * Playlists chosen together in the picker (makeFrom) are mixed from the
+ * index too: N random songs from each (all of a short one), no duplicates,
+ * shuffled together or playlist after playlist; a playlist not indexed yet
+ * is read, just that one.
+ *
  * Saved on this Mac only (localStorage), never on Spotify: the 10 newest,
  * listed in the playlist picker under "Winify mixes", where one can be
  * played again exactly, renamed or deleted.
@@ -18,6 +27,7 @@
 
 import * as picker from './webamp-picker.js';
 import * as playlist from './webamp-playlist.js';
+import * as index from './webamp-library-index.js';
 
 const STORE_KEY = 'winify.mixes.v1';
 const KEEP = 10;                     // saved mixes
@@ -76,9 +86,24 @@ const shuffled = (list) => {
 
 const artistsOf = (t) => (t.artists || []).map((a) => a.name).join(', ');
 
+// Up to `n` random songs from a playlist's indexed songs, not already in the
+// mix (`seen`): playable Spotify songs only.
+function pick(songs, n, seen, from) {
+  const take = [];
+  for (const t of shuffled(songs.filter((x) => x.playable))) {
+    if (take.length >= n) break;
+    if (seen.has(t.uri)) continue;
+    seen.add(t.uri);
+    take.push({ uri: t.uri, name: t.name, durationMs: t.durationMs, from });
+  }
+  return take;
+}
+
 // Up to PER_PLAYLIST songs from one playlist, from a page at a random offset
 // (and once more at another, if it came up short). Counts its requests.
 async function fromPlaylist(p, seen, count) {
+  const indexed = index.songsOf(p.uri);
+  if (indexed) return pick(indexed, PER_PLAYLIST, seen, p.name);
   const take = [];
   const id = p.uri.split(':').pop();
   let total = p.count || 0;                            // as the picker last saw it
@@ -148,6 +173,37 @@ export async function make({ playlists = PLAYLISTS } = {}) {
   }
 }
 
+// Playlists chosen together in the picker: `chosen` are its rows ({ name, uri,
+// snapshot }), `perList` songs from each, `together` shuffles them all.
+export async function makeFrom(chosen, perList, together) {
+  if (!ctx || busy || chosen.length < 2) return null;
+  busy = true;
+  try {
+    ctx.say('Mixing ' + chosen.length + ' playlists...');
+    const before = index.status().requests;
+    const seen = new Set();
+    let groups = [];
+    for (const p of chosen) {
+      const songs = await index.ensure(p);
+      if (!songs) { ctx.warn('mix: could not read', '"' + p.name + '"'); continue; }
+      groups.push(pick(songs, perList, seen, p.name));
+    }
+    const tracks = groups.flat();
+    if (!tracks.length) { ctx.say('No songs found for a mix'); return null; }
+    const date = new Date();
+    const mix = { id: String(date.getTime()), name: nameFor(date), at: date.getTime(), playlists: groups.length,
+      tracks: together ? shuffled(tracks) : tracks, header: { prefix: '', name: groups.length + ' PLAYLISTS \u00b7 ' + perList + ' each' } };
+    keep([mix].concat(saved()));
+    const played = await play(mix);
+    const requests = index.status().requests - before + (played ? 1 : 0);
+    last = { id: mix.id, playlists: groups.length, songs: tracks.length, requests };
+    ctx.log('mix:', '"' + mix.name + '" -', tracks.length, 'songs from', groups.length, 'playlists (' + perList + ' each),', requests, 'requests');
+    return mix;
+  } finally {
+    busy = false;
+  }
+}
+
 // Play a mix from its first song, as Winify's own list.
 async function play(mix) {
   const deviceId = ctx.deviceId();
@@ -155,7 +211,7 @@ async function play(mix) {
   playlist.expectMix(mix);
   try {
     await ctx.api('PUT', '/me/player/play?device_id=' + encodeURIComponent(deviceId),
-      { uris: mix.tracks.map((t) => t.uri), offset: { position: 0 } });
+      playlist.mixBody(mix.tracks, 0));
   } catch (err) {
     ctx.warn('mix: could not play -', err.message);
     ctx.say(err.note || 'Could not play the mix');
@@ -204,4 +260,4 @@ export function reset() {
   busy = false;
 }
 
-window.WinifyMix = { make, saved, playSaved, rename, remove, state: () => ({ busy, last, current: currentUri() }) };
+window.WinifyMix = { make, makeFrom, saved, playSaved, rename, remove, state: () => ({ busy, last, current: currentUri() }) };

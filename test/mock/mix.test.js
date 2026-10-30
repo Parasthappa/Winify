@@ -75,7 +75,7 @@ h.open().then(async ({ win, js }) => {
   await take(); await h.click(win, js, '#webamp #next');
   p = await until((v) => v.cur === 1 && id(v.track) === id(uris[1]));
   cs = await take();
-  check('Next plays song 2 of the mix (the list from there, not a context)', plays(cs).length === 1 && plays(cs)[0].uris && plays(cs)[0].offset.position === 1 && p.state.mix.started, JSON.stringify(plays(cs).map((b) => b.offset)) + show(p));
+  check('Next plays song 2 of the mix (a window of the list from there, not a context)', plays(cs).length === 1 && plays(cs)[0].uris && plays(cs)[0].uris[0] === uris[1] && plays(cs)[0].offset.position === 0 && p.state.mix.started, JSON.stringify(plays(cs).map((b) => b.offset)) + show(p));
   await h.wait(1200); await take();
   await nearEnd(25000);
   await h.wait(1500); cs = await take();

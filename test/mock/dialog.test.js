@@ -46,7 +46,7 @@ h.open().then(async ({ win, js }) => {
     check('reopens where it was left', d.x === placed.x && d.y === placed.y, JSON.stringify({ placed, d }));
 
     console.log('3. Tooltips keep clear of the title bar');
-    await type('road');
+    await key('Tab'); await type('road');
     // Wait for the results, then for the tooltip (its own delay is 0.5 s); fixed
     // waits were too short when suites run side by side.
     for (let i = 0; i < 40 && !(await js(`!!document.querySelector('.winify-search .ws-row:nth-child(4) .ws-album-col')`)); i++) await h.wait(100);

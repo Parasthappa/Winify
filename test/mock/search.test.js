@@ -100,7 +100,7 @@ h.open().then(async ({ win, js }) => {
   await h.click(win, js, '#playlist-add-menu'); await h.wait(500);
   s = await S();
   const viaAdd = { title: await titleOf(), hint: await hintOf() };
-  check('ADD opens it titled JUMP TO TRACK, same title and hint bar as J', s.open && viaAdd.title === 'jump to track' && JSON.stringify(viaAdd) === JSON.stringify(viaJ) && /^my playliststab: mode  enter: play  shift\+enter: queue  right-click: more$/.test(viaAdd.hint), JSON.stringify([viaJ, viaAdd]));
+  check('ADD opens it titled JUMP TO TRACK, same title and hint bar as J', s.open && viaAdd.title === 'jump to track' && JSON.stringify(viaAdd) === JSON.stringify(viaJ) && /^my playliststab: mode  enter: play  shift\+enter: queue  right-click$/.test(viaAdd.hint), JSON.stringify([viaJ, viaAdd]));
   check('it opens in My playlists mode, as J does', s.mode === 'mine', JSON.stringify(s));
   check('Webamp\'s URL / DIR / FILE menu does not open', !(await js(`!!document.querySelector('#playlist-add-menu .add-url')`)));
   await key('Tab'); await type('road'); await h.wait(900); await take();

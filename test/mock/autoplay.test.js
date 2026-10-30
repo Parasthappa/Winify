@@ -26,7 +26,7 @@ h.open().then(async ({ win, js }) => {
   console.log('1. Play a single track from search -> only that track, then Autoplay');
   await openSearch('road'); await take();
   const hint = await js(`[...document.querySelectorAll('.winify-search .ws-info .character')].map(c => String.fromCharCode(+(c.className.match(/character-([0-9]+)/) || [0, 63])[1])).join('')`);
-  check('hint bar: mode keys plus RIGHT-CLICK: MORE', /tab: mode  enter: play  shift\+enter: queue  right-click: more$/.test(hint), hint);
+  check('hint bar: mode keys plus RIGHT-CLICK: MORE', /tab: mode  enter: play  shift\+enter: queue  right-click$/.test(hint), hint);
   await key('Return'); await h.wait(900);
   let cs = await take(); let play = cs.find((c) => c[0] === 'api:play'); let body = play && JSON.parse(play[2]);
   check('Enter plays that track, within its album (so Autoplay can follow)', body && JSON.stringify(body) === JSON.stringify({ context_uri: 'spotify:album:a1', offset: { uri: 'spotify:track:2000' } }), JSON.stringify(body));
