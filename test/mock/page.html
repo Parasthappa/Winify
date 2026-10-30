@@ -1,6 +1,9 @@
 <!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="/__webamp.css"><style>html,body{margin:0;height:100%;background:#08090b}#webamp-root{position:fixed;inset:0;z-index:1}</style></head>
 <body><div id="webamp-root"></div>
 <script>
+// The My playlists index stays off (its background requests would show up in
+// every suite's request counts); test/mock/library-index turns it on.
+try { localStorage.setItem('winify.index.paused', '1'); } catch (e) { /* storage unavailable */ }
 // ---- Mock Spotify: one account, devices 'winify-dev' and 'phone' ----
 window.calls = [];
 const rec = (name, ...args) => { calls.push([name, ...args]); };

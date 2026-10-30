@@ -25,6 +25,7 @@ import { makeFrame, FRAME_CSS } from './webamp-frame.js';
 import * as panels from './webamp-panels.js';
 import * as mixes from './webamp-mix.js';
 import { showMenu } from './webamp-search.js';
+import * as index from './webamp-library-index.js';
 
 const PAGE = 50;                    // the /me/playlists maximum
 const PAGE_GAP_MS = 2000;           // background pace: one page every 2 s
@@ -44,8 +45,9 @@ const INCLUDE_COLLABORATIVE = true;
 const UNTITLED = 'Untitled playlist';  // Spotify allows a playlist with no name
 
 let ctx = null;                     // { webamp, api, say, log, warn, deviceId, refreshSoon, now }
-// The list as last read: { meId, at, liked, entries: [{ name, uri, count }],
-// total, nextOffset, complete }. Remembered between launches.
+// The list as last read: { meId, at, liked, likedNewest, entries: [{ name,
+// uri, count, mine, snapshot }], total, nextOffset, complete }. Remembered
+// between launches.
 let lib = null;
 let loading = null;                 // the read in progress: { gen, wake }
 let loadGen = 0;
@@ -109,6 +111,16 @@ export async function ownPlaylists() {
   return lib ? lib.entries.filter((e) => e.mine !== false && e.count > 0) : [];
 }
 
+// The saved list for the My playlists index (webamp-library-index.js),
+// without hurrying: read first if there is none, or it is from before it kept
+// each playlist's snapshot and Liked Songs' newest addition.
+export async function listForIndex() {
+  if (!lib) lib = recall();
+  while (loading) await new Promise((r) => setTimeout(r, 500));
+  if (!lib || !lib.complete || !('likedNewest' in lib) || lib.entries.some((e) => !('snapshot' in e))) await read(true);
+  return lib && lib.complete ? lib : null;
+}
+
 // Mixes changed (made, renamed, deleted): the open picker shows it.
 export function mixesChanged() {
   if (!el) return;
@@ -122,7 +134,7 @@ function entryOf(p, meId) {
   if (!mine && !(INCLUDE_COLLABORATIVE && p.collaborative)) return null;
   // February 2026: the track count moved from `tracks` to `items`.
   const count = p.items && typeof p.items.total === 'number' ? p.items.total : null;
-  return { name: (p.name || '').trim() || UNTITLED, uri: p.uri, count, mine };
+  return { name: (p.name || '').trim() || UNTITLED, uri: p.uri, count, mine, snapshot: p.snapshot_id || null };
 }
 
 // While a refresh is under way: what it has read so far, then whatever the
@@ -154,10 +166,11 @@ async function read(fromStart) {
     const same = old && old.meId === meId;            // not another account
     const startAt = fromStart || !same || old.complete ? 0 : old.nextOffset;
     let liked = same ? old.liked : null;
+    let likedNewest = same ? old.likedNewest : null;   // Liked Songs' newest addition, for the index
     if (startAt === 0) {
       const t = await ctx.api('GET', '/me/tracks?limit=1').catch(() => null);
       if (gen !== loadGen) return;
-      if (t) liked = t.total;
+      if (t) { liked = t.total; likedNewest = (t.items && t.items[0] && t.items[0].added_at) || null; }
     }
     let fresh = [];
     for (let offset = startAt; ; ) {
@@ -177,12 +190,14 @@ async function read(fromStart) {
       } else {
         entries = lib.entries.concat(got);
       }
-      lib = { meId, liked, entries, total: page.total, nextOffset: offset, complete,
+      lib = { meId, liked, likedNewest, entries, total: page.total, nextOffset: offset, complete,
         at: complete ? Date.now() : (same ? old.at : 0) };
       remember();
       showList();
       if (complete) break;
     }
+    // A whole list read: the index re-reads whatever playlists changed.
+    index.listRead(lib);
     ctx.log('picker:', lib.entries.length, 'of', lib.total, 'playlists (yours',
       INCLUDE_COLLABORATIVE ? 'and collaborative)' : 'only)', '+ Liked Songs');
   } catch (err) {
@@ -348,6 +363,9 @@ function renderList() {
   bar.appendChild(refresh);
   // ".." while more is on its way.
   if (rows.length) bar.appendChild(skinText(shown.length + '/' + rows.length + (loading ? '..' : '')));
+  // The My playlists index, while it builds: "indexing 40/97".
+  const building = index.status();
+  if (building.building) bar.appendChild(skinText('indexing ' + building.done + '/' + building.total));
   // Scrolled near the end of what is in: hurry the rest.
   if (loading && scroll + VISIBLE_ROWS >= shown.length - 4) hurry();
 }
@@ -605,8 +623,11 @@ function onKeyDown(e) {
   toggle();
 }
 
+let stopIndexNote = null;
+
 export function init(c) {
   ctx = c;
+  stopIndexNote = index.onChange(() => { if (el) renderList(); });
   panels.register('picker', {
     defaultWidth: WIDTH,
     open, close: () => close(), isOpen,
@@ -620,6 +641,8 @@ export function init(c) {
 
 export function reset() {
   close({ keepRecord: true });
+  if (stopIndexNote) stopIndexNote();
+  stopIndexNote = null;
   document.removeEventListener('click', onClickCapture, true);
   document.removeEventListener('keydown', onKeyDown);
   ctx = null;

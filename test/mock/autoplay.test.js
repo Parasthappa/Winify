@@ -14,7 +14,7 @@ h.open().then(async ({ win, js }) => {
   const until = async (fn, ms = 7000) => { const t0 = Date.now(); let v; while (Date.now() - t0 < ms) { v = await PL(); if (fn(v)) return v; await h.wait(150); } return v; };
   const N = (n) => 'Artist ' + n + ' - Song ' + n;
   // J opens or closes Jump to track: closed first, so J opens a fresh search.
-  const openSearch = async (q) => { await js('WinifySearch.close()'); await h.click(win, js, '#title-bar', 0.3, 0.5); await h.wait(150); await key('J'); await h.wait(400); await type(q); await h.wait(900); };
+  const openSearch = async (q) => { await js('WinifySearch.close()'); await h.click(win, js, '#title-bar', 0.3, 0.5); await h.wait(150); await key('J'); await h.wait(400); await key('Tab'); await type(q); await h.wait(900); };
   const menuPick = async (rowIndex, label) => {
     const r = await centre('.winify-search .ws-row', rowIndex); press(r.x, r.y, 'right'); await h.wait(300);
     const items = await js(`[...document.querySelectorAll('#webamp-context-menu li')].map(l => l.firstChild.textContent)`);
@@ -26,7 +26,7 @@ h.open().then(async ({ win, js }) => {
   console.log('1. Play a single track from search -> only that track, then Autoplay');
   await openSearch('road'); await take();
   const hint = await js(`[...document.querySelectorAll('.winify-search .ws-info .character')].map(c => String.fromCharCode(+(c.className.match(/character-([0-9]+)/) || [0, 63])[1])).join('')`);
-  check('hint bar: mode keys plus RIGHT-CLICK: MORE', /enter: play   shift\+enter: queue   right-click: more$/.test(hint), hint);
+  check('hint bar: mode keys plus RIGHT-CLICK: MORE', /tab: mode  enter: play  shift\+enter: queue  right-click: more$/.test(hint), hint);
   await key('Return'); await h.wait(900);
   let cs = await take(); let play = cs.find((c) => c[0] === 'api:play'); let body = play && JSON.parse(play[2]);
   check('Enter plays that track, within its album (so Autoplay can follow)', body && JSON.stringify(body) === JSON.stringify({ context_uri: 'spotify:album:a1', offset: { uri: 'spotify:track:2000' } }), JSON.stringify(body));

@@ -1,5 +1,13 @@
-/* Jump to track: search Spotify and play or queue a track, styled like
- * classic Winamp's "Jump to file".
+/* Jump to track: search your own playlists or all of Spotify, and play or
+ * queue a track, styled like classic Winamp's "Jump to file".
+ *
+ * Two modes, switched with Tab and shown in the bottom bar. My playlists
+ * (the default) searches the local index of your playlists and Liked Songs
+ * (webamp-library-index.js) as you type, with no requests: each song lists
+ * every playlist it is in (Left/Right picks which, shown in brackets), Enter
+ * plays it within that playlist (so the playlist carries on after it),
+ * Shift+Enter queues it, and right-click also offers the playlist from the
+ * top. All of Spotify searches Spotify, as below.
  *
  * Opened by J, the main window's Play > Jump to track..., the menu bar, and
  * the playlist window's ADD button, all alike: Enter or double-click plays
@@ -16,6 +24,7 @@
 import { makeDraggable, makeResizable, attachTooltips, hideTooltip } from './webamp-dialog.js';
 import { makeFrame, FRAME_CSS } from './webamp-frame.js';
 import * as panels from './webamp-panels.js';
+import * as index from './webamp-library-index.js';
 
 const RESULTS_PER_REQUEST = 10;     // Spotify's search maximum since February 2026
 const PAGES = 3;                    // about 30 results
@@ -36,7 +45,10 @@ let opening = false;
 let results = [];
 let selected = 0;
 let scroll = 0;
-let status = 'Type to search Spotify';
+let status = null;
+let mode = 'mine';                  // 'mine' (My playlists) | 'spotify' (All of Spotify)
+let chosenSeq = 0;                  // Left/Right changed a row's playlist: redraw
+let stopIndexNote = null;
 let searchSeq = 0;
 let debounceTimer = null;
 let flashTimer = null;
@@ -66,9 +78,43 @@ function describe(err) {
   return 'Search failed (' + err.status + ')';
 }
 
+const MODES = { mine: 'my playlists', spotify: 'all of spotify' };
+
+// What the list says with nothing typed.
+function prompt() {
+  if (mode === 'spotify') return 'Type to search Spotify';
+  const st = index.status();
+  if (st.building) return index.progressNote() + (st.songs ? ' - type to search what is in' : '');
+  return st.songs ? 'Type to search your playlists' : 'Your playlists are not indexed yet';
+}
+
+// My playlists: at once, from the index. `keep` holds on to the selected song
+// (the index grew while results were showing).
+function searchMine(query, keep) {
+  searchSeq++;
+  const was = keep && results[selected] && results[selected].uri;
+  const chosen = keep ? new Map(results.filter((r) => r.chosen).map((r) => [r.uri, r.places[r.chosen].uri])) : new Map();
+  results = query ? index.search(query).map((r) => {
+    const at = r.places.findIndex((p) => p.uri === chosen.get(r.uri));
+    return Object.assign({ chosen: Math.max(0, at) }, r);
+  }) : [];
+  status = !query ? prompt() : results.length ? null : 'No results in your playlists';
+  const at = was ? results.findIndex((r) => r.uri === was) : -1;
+  selected = at >= 0 ? at : 0;
+  if (at < 0) scroll = 0;
+  drawnKey = null;
+  render();
+}
+
+function runQuery(query) {
+  clearTimeout(debounceTimer);
+  if (mode === 'mine') searchMine(query);
+  else search(query);
+}
+
 async function search(query) {
   const seq = ++searchSeq;
-  if (!query) { results = []; status = 'Type to search Spotify'; render(); return; }
+  if (!query) { results = []; status = prompt(); render(); return; }
   status = 'Searching...';
   render();
   const q = encodeURIComponent(query);
@@ -123,6 +169,22 @@ function play(r) {
   return start(r, { context_uri: r.albumUri, offset: { uri: r.uri } }, r.artist + ' - ' + r.title + ' (then Autoplay)');
 }
 
+// My playlists: the song within the playlist picked for it, so that playlist
+// carries on after it. By position (a song can be in a playlist twice) while
+// the index has the playlist as it is; Liked Songs, or a playlist changed
+// since, by the song itself.
+function playInPlaylist(r, place = r && r.places[r.chosen]) {
+  if (!r || !place) return;
+  const byUri = /:collection$/.test(place.uri) || !index.current(place.uri);
+  return start(r, { context_uri: place.uri, offset: byUri ? { uri: r.uri } : { position: place.position } },
+    r.artist + ' - ' + r.title + ' in "' + place.name + '"');
+}
+
+function playPlaylistFromTop(r, place = r && r.places[r.chosen]) {
+  if (!place) return;
+  return start({ playable: true }, { context_uri: place.uri, offset: { position: 0 } }, '"' + place.name + '" from the top');
+}
+
 // The track's album, from this track.
 function playAlbum(r) {
   if (!r || !r.albumUri) return play(r);
@@ -163,11 +225,14 @@ function queueRow(r) {
 }
 
 // What Enter and double-click do, and what Shift+Enter does instead.
-const primary = play;
+const primary = (r) => (mode === 'mine' ? playInPlaylist(r) : play(r));
 const secondary = queueRow;
 
 const TITLE = 'Jump to track';
-const HINT = 'enter: play   shift+enter: queue   right-click: more';
+const HINT = 'tab: mode  enter: play  shift+enter: queue  right-click: more';
+
+// A song's playlists, the one Enter plays in bracketed (when there is a choice).
+const placesText = (r) => r.places.map((p, i) => (r.places.length > 1 && i === r.chosen ? '[' + p.name + ']' : p.name)).join(', ');
 
 // ---- Drawing ------------------------------------------------------------------
 
@@ -240,7 +305,7 @@ function render() {
   // change restyles in place, or a double-click's second click would land on
   // a new element and never register.
   const VISIBLE_ROWS = visibleRows();
-  const key = scroll + '|' + VISIBLE_ROWS + '|' + results.length + '|' + (results[0] && results[0].uri) + '|' + status;
+  const key = mode + '|' + chosenSeq + '|' + scroll + '|' + VISIBLE_ROWS + '|' + results.length + '|' + (results[0] && results[0].uri) + '|' + status;
   if (key === drawnKey) { paintSelection(); return; }
   drawnKey = key;
   const st = skinStyle();
@@ -263,7 +328,7 @@ function render() {
       const cells = [
         ['ws-title-col', (index + 1) + '. ' + r.title],
         ['ws-artist-col', r.artist],
-        ['ws-album-col', r.album],
+        ['ws-album-col', mode === 'mine' ? placesText(r) : r.album],
         ['ws-time-col', mmss(r.durationMs)],
       ];
       for (const [cls, text] of cells) {
@@ -286,7 +351,9 @@ function render() {
 function drawBottom(message) {
   const bar = el.querySelector('.ws-info');
   bar.textContent = '';
-  bar.appendChild(skinText(message || (results.length && !status ? results.length + ' tracks' : '')));
+  const note = mode === 'mine' && index.status().building ? 'indexing ' + index.status().done + '/' + index.status().total
+    : results.length && !status ? results.length + ' tracks' : '';
+  bar.appendChild(skinText(message || (MODES[mode] + (note ? ': ' + note : ''))));
   bar.appendChild(skinText(HINT));
 }
 
@@ -322,7 +389,7 @@ function build(spot) {
   frame.content.innerHTML = `
     <div class="ws-main">
       <div class="ws-body">
-        <input class="ws-query" type="text" spellcheck="false" placeholder="search Spotify" aria-label="Search Spotify tracks">
+        <input class="ws-query" type="text" spellcheck="false">
         <div class="ws-list" role="listbox"></div>
       </div>
       <div class="ws-scroll"><div class="ws-handle playlist-scrollbar-handle"></div></div>
@@ -345,7 +412,8 @@ function build(spot) {
   input.addEventListener('input', () => {
     clearTimeout(debounceTimer);
     const query = input.value.trim();
-    debounceTimer = setTimeout(() => search(query), DEBOUNCE_MS);
+    if (mode === 'mine') searchMine(query);
+    else debounceTimer = setTimeout(() => search(query), DEBOUNCE_MS);
   });
   input.addEventListener('keydown', onKey);
   const list = d.querySelector('.ws-list');
@@ -357,6 +425,14 @@ function build(spot) {
     if (i == null) return;
     select(i);
     const r = results[i];
+    if (mode === 'mine') {
+      showMenu(e.clientX, e.clientY, [
+        { label: 'Play track', hotkey: 'Enter', action: () => playInPlaylist(r), disabled: !r.playable },
+        { label: 'Add to queue', hotkey: 'Shift+Enter', action: () => queueRow(r), disabled: !r.playable },
+        { label: 'Play this playlist from the top', action: () => playPlaylistFromTop(r) },
+      ].concat(r.places.length > 1 ? r.places.map((p) => ({ label: 'Play in ' + p.name, action: () => playInPlaylist(r, p), disabled: !r.playable })) : []));
+      return;
+    }
     showMenu(e.clientX, e.clientY, [
       { label: 'Play track', hotkey: 'Enter', action: () => play(r), disabled: !r.playable },
       { label: 'Add to queue', hotkey: 'Shift+Enter', action: () => queueRow(r), disabled: !r.playable },
@@ -381,9 +457,33 @@ function place(d, r) {
   d.style.height = r.h + 'px';
 }
 
+// The mode, shown in the box and the bottom bar.
+function showMode() {
+  const input = el.querySelector('.ws-query');
+  input.placeholder = mode === 'mine' ? 'search my playlists' : 'search Spotify';
+  input.setAttribute('aria-label', mode === 'mine' ? 'Search your playlists' : 'Search Spotify tracks');
+}
+
+function switchMode() {
+  mode = mode === 'mine' ? 'spotify' : 'mine';
+  results = [];
+  showMode();
+  runQuery(el.querySelector('.ws-query').value.trim());
+}
+
+// Left/Right: which of the song's playlists Enter plays it in.
+function choose(r, step) {
+  r.chosen = (r.chosen + step + r.places.length) % r.places.length;
+  chosenSeq++;
+  render();
+}
+
 function onKey(e) {
   const r = results[selected];
+  const many = mode === 'mine' && !status && r && r.places && r.places.length > 1;
   const keys = {
+    Tab: () => switchMode(),
+    ...(many ? { ArrowRight: () => choose(r, 1), ArrowLeft: () => choose(r, -1) } : {}),
     ArrowDown: () => select(selected + 1),
     ArrowUp: () => select(selected - 1),
     PageDown: () => select(selected + visibleRows()),
@@ -421,8 +521,10 @@ export async function open() {
   results = [];
   selected = 0;
   scroll = 0;
-  status = 'Type to search Spotify';
+  mode = 'mine';
+  status = prompt();
   drawnKey = null;
+  showMode();
   render();
   el.querySelector('.ws-query').focus();
 }
@@ -590,11 +692,18 @@ export function init(c, playlistModule) {
   document.addEventListener('click', onClickCapture, true);
   document.addEventListener('contextmenu', onContextMenu, true);
   menuObserver.observe(document.body, { childList: true });
+  // The index grew or finished: My playlists shows it (keeping the selection).
+  stopIndexNote = index.onChange(() => {
+    if (!el || mode !== 'mine') return;
+    searchMine(el.querySelector('.ws-query').value.trim(), true);
+  });
 }
 
 export function reset() {
   close({ keepRecord: true });
   closeMenu();
+  if (stopIndexNote) stopIndexNote();
+  stopIndexNote = null;
   document.removeEventListener('keydown', onKeyDown);
   document.removeEventListener('click', onClickCapture, true);
   document.removeEventListener('contextmenu', onContextMenu, true);
@@ -603,4 +712,6 @@ export function reset() {
 }
 
 // For the menu bar, DevTools and tests.
-window.WinifySearch = { open, close, toggle, isOpen, state: () => ({ open: !!el, title: TITLE, results: results.length, selected, status }) };
+window.WinifySearch = { open, close, toggle, isOpen,
+  state: () => ({ open: !!el, title: TITLE, mode, results: results.length, selected, status,
+    chosen: results[selected] && results[selected].places ? results[selected].places[results[selected].chosen].name : null }) };

@@ -16,8 +16,10 @@ h.open().then(async ({ win, js }) => {
 
   console.log('1. Opening with J, typing, debounced paged search');
   await take(); await key('J'); await h.wait(400);
-  let s = await S(); check('J opens Jump to track', s.open && s.status === 'Type to search Spotify', JSON.stringify(s));
+  let s = await S(); check('J opens Jump to track, in My playlists mode', s.open && s.mode === 'mine', JSON.stringify(s));
   check('the search box has focus', await js(`document.activeElement === document.querySelector('.winify-search .ws-query')`));
+  await key('Tab'); s = await S();
+  check('Tab switches to All of Spotify', s.mode === 'spotify' && s.status === 'Type to search Spotify', JSON.stringify(s));
   await type('road'); await h.wait(900);
   let cs = await take(); const searches = cs.filter((c) => c[0] === 'api:search');
   s = await S();
@@ -37,7 +39,7 @@ h.open().then(async ({ win, js }) => {
   check('playlist window shows that track highlighted', pls.current === 'Artist 2002 - Song 2002' && pls.mode === 'single' && pls.count === 2, JSON.stringify(pls));
 
   console.log('3. Add to queue (Shift+Enter and right-click), confirmation in the marquee');
-  await key('J'); await h.wait(300); await type('jazz'); await h.wait(900); await take();
+  await key('J'); await h.wait(300); await key('Tab'); await type('jazz'); await h.wait(900); await take();
   await key('Down'); await key('Return', ['shift']); await h.wait(600);
   cs = await take(); let q = cs.find((c) => c[0] === 'api:addToQueue');
   check('Shift+Enter queues track 2 on Winify, nothing else called, dialog stays open', q && q[1] === 'spotify:track:2001' && q[2] === 'winify-dev' && !cs.some((c) => /^(api:play|play|pause|nextTrack)$/.test(c[0])) && (await S()).open, JSON.stringify(cs));
@@ -64,7 +66,7 @@ h.open().then(async ({ win, js }) => {
   press(Math.min(away.x, 1190), away.y); await h.wait(300);
   check('clicking away leaves it open (panels close with their own button or Escape), no change', (await S()).open && (await take()).filter((c) => /^(api:play|api:addToQueue|play|pause)$/.test(c[0])).length === 0);
   await js('WinifySearch.close()'); await h.wait(200);
-  await js('mock.active = "none"'); await h.wait(3500); await key('J'); await h.wait(300); await type('road'); await h.wait(900); await key('Return', ['shift']); await h.wait(600);
+  await js('mock.active = "none"'); await h.wait(3500); await key('J'); await h.wait(300); await key('Tab'); await type('road'); await h.wait(900); await key('Return', ['shift']); await h.wait(600);
   check('queue with nothing playing: told so in the marquee, no pop-up', (await marquee()) === 'Nothing playing - press Play first', await marquee());
   await key('Escape'); await js('(mock.active = "winify", mock.setContext("spotify:playlist:big", 0), mock.setPaused(false))'); await h.wait(3000);
 
@@ -98,10 +100,10 @@ h.open().then(async ({ win, js }) => {
   await h.click(win, js, '#playlist-add-menu'); await h.wait(500);
   s = await S();
   const viaAdd = { title: await titleOf(), hint: await hintOf() };
-  check('ADD opens it titled JUMP TO TRACK, same title and hint bar as J', s.open && viaAdd.title === 'jump to track' && JSON.stringify(viaAdd) === JSON.stringify(viaJ) && /^enter: play   shift\+enter: queue   right-click: more$/.test(viaAdd.hint), JSON.stringify([viaJ, viaAdd]));
-  check('no queue mode in its state any more', !('mode' in s), JSON.stringify(s));
+  check('ADD opens it titled JUMP TO TRACK, same title and hint bar as J', s.open && viaAdd.title === 'jump to track' && JSON.stringify(viaAdd) === JSON.stringify(viaJ) && /^my playliststab: mode  enter: play  shift\+enter: queue  right-click: more$/.test(viaAdd.hint), JSON.stringify([viaJ, viaAdd]));
+  check('it opens in My playlists mode, as J does', s.mode === 'mine', JSON.stringify(s));
   check('Webamp\'s URL / DIR / FILE menu does not open', !(await js(`!!document.querySelector('#playlist-add-menu .add-url')`)));
-  await type('road'); await h.wait(900); await take();
+  await key('Tab'); await type('road'); await h.wait(900); await take();
   await key('Down'); await key('Return', ['shift']); await h.wait(600);
   cs = await take(); q = cs.find((c) => c[0] === 'api:addToQueue');
   check('from ADD, Shift+Enter queues (track 2), window stays open, nothing played', q && q[1] === 'spotify:track:2001' && !cs.some((c) => c[0] === 'api:play') && (await S()).open, JSON.stringify(cs));
@@ -117,7 +119,7 @@ h.open().then(async ({ win, js }) => {
   check('from ADD, double-click plays (track 4, then Autoplay) and stays open', body && body.offset && body.offset.uri === 'spotify:track:2003' && !cs.some((c) => c[0] === 'api:addToQueue') && (await S()).open, JSON.stringify(cs));
   await js('WinifySearch.close()'); await h.wait(200);
   await h.click(win, js, '#playlist-window', 0.5, 0.02); await h.wait(200);
-  await h.click(win, js, '#playlist-add-menu'); await h.wait(500); await type('road'); await h.wait(900); await take();
+  await h.click(win, js, '#playlist-add-menu'); await h.wait(500); await key('Tab'); await type('road'); await h.wait(900); await take();
   await key('Return'); await h.wait(900);
   cs = await take(); play = cs.find((c) => c[0] === 'api:play'); body = play && JSON.parse(play[2]);
   check('from ADD, Enter plays (track 1) and stays open', body && body.offset && body.offset.uri === 'spotify:track:2000' && !cs.some((c) => c[0] === 'api:addToQueue') && (await S()).open, JSON.stringify(cs));

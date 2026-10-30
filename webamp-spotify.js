@@ -29,6 +29,7 @@
 import * as playlist from './webamp-playlist.js';
 import * as picker from './webamp-picker.js';
 import * as search from './webamp-search.js';
+import * as libraryIndex from './webamp-library-index.js';
 import * as lyrics from './webamp-lyrics.js';
 import * as mix from './webamp-mix.js';
 import { analyserHandle } from './webamp-vis.js';
@@ -769,6 +770,8 @@ export function attach(instance) {
     webamp, now, api: apiNotingQueue, say, log, warn, refreshSoon,
     deviceId: winifyDeviceId,
   }, playlist);
+  // My playlists, for Jump to track: built and kept current in the background.
+  libraryIndex.init({ api, log, warn });
   lyrics.init({ webamp, now, api, log, warn });
   mix.init({
     webamp, now, api: apiNotingQueue, say, log, warn, refreshSoon,
@@ -813,6 +816,7 @@ export function detach() {
   playlist.reset();
   picker.reset();
   search.reset();
+  libraryIndex.reset();
   lyrics.reset();
   mix.reset();
   timers.forEach(clearInterval);

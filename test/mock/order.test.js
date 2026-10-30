@@ -80,7 +80,7 @@ h.open().then(async ({ win, js }) => {
   p = await PL();
   check('right-click > Add to queue: 2010 inserted right after the current track', nums(p)[p.cur + 1] === 2010 && p.rows.length === 13 && p.queue.join() === '2010', show(p));
   // ...and one from search (not on this album): Shift+Enter on result 13 (track 6013).
-  await h.click(win, js, '#title-bar', 0.3, 0.5); await h.wait(150); await key('J'); await h.wait(400); await type('road'); await h.wait(900);
+  await h.click(win, js, '#title-bar', 0.3, 0.5); await h.wait(150); await key('J'); await h.wait(400); await key('Tab'); await type('road'); await h.wait(900);
   for (let k = 0; k < 13; k++) await key('Down');
   await key('Return', ['shift']); await h.wait(900); await key('Escape'); await h.wait(200);
   p = await PL();
