@@ -97,16 +97,17 @@ Decisions (25 Oct 2026):
       move with the music), and the default skin showing "WINAMP": no change
       asked for; kept, at the same level, with the README's disclaimer.
 
-## 3. Finish the window magic
+## 3. Finish the window magic: done (30 Oct 2026)
 
 Done means each works, has tests against the mocks, and is in the README:
 
-- [ ] Always on top: Winify can stay above other apps (on or off, remembered).
-- [ ] Behind other apps: Winify can sit on the desktop under other windows
-      (on or off, remembered).
-- [ ] Milkdrop Desktop Mode: Milkdrop can fill the desktop behind
+- [x] Always on top: Winify can stay above other apps (on or off, remembered).
+      The main window's A button (e05f38d).
+- [x] Behind other apps: Winify can sit on the desktop under other windows
+      (on or off, remembered). The menu-bar menu (a2cf6d3).
+- [x] Milkdrop Desktop Mode: Milkdrop can fill the desktop behind
       everything, as Winamp's Desktop Mode did, and leave it again.
-- [ ] Existing window behaviour still works: dragging, clicks passing
+- [x] Existing window behaviour still works: dragging, clicks passing
       through, panels, the sign-in panel's lights, hide and show.
 
 ## 4. Package (for the user's own use)
