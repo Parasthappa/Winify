@@ -120,9 +120,40 @@ anything that differs only when packaged needs this. Run it after
   30 seconds before the current one ends (late queueing leaves a gap).
 - **Autoplay** starts only when an album or playlist runs out, never after a
   lone track; "Play track" therefore plays the track within its album.
-- **Rate limits** are per app and endpoint and can last hours. Winify backs
-  off on HTTP 429 and keeps polling low; tests against a real account should
-  use as few requests as possible.
+- **Rate limits** are per app and endpoint and can last hours (31 Oct 2026:
+  `QUOTA_EXCEEDED`, Retry-After 40966 s, after two copies each built a
+  ~743-request index while the picker re-read 553 playlists). Tests against
+  a real account should use as few requests as possible.
+
+### The request governor
+
+Every Winify Web API request goes through `spotify-governor.js` in the main
+process (the page's via the `spotify-api` route; sign-in's and the status
+read are counted). Caps over both copies together (they share one Client
+ID): everything 30 a minute and 300 an hour; things you do (search, a
+playlist chosen) 24 and 240; background work (the index, the picker's list
+read nobody is waiting for) 10 and 150. Playback (`/me/player...`) and
+sign-in are first in line and wait only for the hard caps; things you do are
+refused with "until when" rather than left waiting over 20 s; background
+work waits for what is left. The picker promotes its queued list requests
+when it is opened. A 429 blocks that endpoint for both copies until its
+Retry-After, also across restarts: nothing is sent there meanwhile, and the
+page says "Spotify asked Winify to wait until 00:25".
+
+What both copies share lives in `Application Support/Winify Shared`
+(`WINIFY_SHARED_DIR` overrides it; the test runner gives each suite its own):
+`requests-dev.json` and `requests-packaged.json` (each copy's last hour),
+`blocks.json` (Spotify's waits), `index/` (the My playlists index, one file
+per playlist) and `index.lock` (the copy building it, renewed before each
+playlist; taken over when that copy quits or stops renewing). The other
+copy reads what is saved and re-reads it when it changes. An index a copy
+built on its own before (its page's IndexedDB) is moved in the first time.
+
+With these caps a first index build of this library (about 756 requests:
+the list, Liked Songs, 297 playlists in pages of 50) takes about five hours
+of Winify running, across as many sessions as it takes (progress is saved
+after every page). Later checks for changes cost a handful (Liked Songs'
+size and the list) every few hours, plus the changed playlists.
 
 ## System audio capture
 
@@ -216,6 +247,7 @@ chassis, the Webamp windows and Winify's own windows are drawn in it.
 |---|---|
 | `main.js` | Main process: sign-in, Client ID, tokens, menu bar, local server, LRCLIB lookups |
 | `preload.js` | The bridge between the main process and the page |
+| `spotify-governor.js` | The request governor: caps, priorities and Spotify's waits, for both copies |
 | `index.html` | The sign-in screen and the player view |
 | `winify.js` | The chassis: sign-in state, rendering, its place on screen |
 | `window-passthrough.js` | Click-through for the see-through window |

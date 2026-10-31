@@ -4,7 +4,11 @@
  * Kept on this Mac (IndexedDB), never sent anywhere.
  *
  * Built slowly in the background: one request at a time, at most one every
- * 3 s, waiting out Spotify's Retry-After on a 429. Progress is saved after
+ * 3 s, as background work for the request governor (spotify-governor.js,
+ * which lets it use only what playback and what you do leave, so a first
+ * build spreads over hours and sessions), waiting out Spotify's Retry-After
+ * on a 429. Kept by the main process in a folder both copies share, so it is
+ * built once; only one copy builds at a time. Progress is saved after
  * every page, so quitting part-way loses nothing. Which playlists there are
  * comes from the playlist picker's list (its snapshot_id says whether a
  * playlist changed); it is checked again whenever the picker reads that
@@ -68,8 +72,63 @@ async function tx(mode, fn) {
   });
 }
 
-const save = (rec) => tx('readwrite', (s) => s.put(rec)).catch((err) => ctx && ctx.warn('index: could not save -', err && err.message));
-const drop = (uri) => tx('readwrite', (s) => s.delete(uri)).catch(() => {});
+// In Winify the index is kept by the main process, in a folder both copies
+// share (window.spotify.index), so it is built once for both. Without it (the
+// test pages), this page's own IndexedDB, as before.
+const shared = () => (window.spotify && window.spotify.index) || null;
+const localAll = () => tx('readonly', (s) => s.getAll()).then((r) => r || []);
+const save = (rec) => (shared() ? shared().put(rec) : tx('readwrite', (s) => s.put(rec)))
+  .catch((err) => ctx && ctx.warn('index: could not save -', err && err.message));
+const drop = (uri) => (shared() ? shared().remove(uri) : tx('readwrite', (s) => s.delete(uri))).catch(() => {});
+
+// Everything saved. The first time with the shared store, an index this
+// copy built on its own before is moved into it rather than built again.
+async function loadAll() {
+  if (!shared()) return localAll();
+  let recs = await shared().load();
+  if (!recs.length) {
+    const old = await localAll().catch(() => []);
+    if (old.length) {
+      for (const r of old) await shared().put(r);
+      ctx.log('index: moved', old.length, 'playlists from this copy\'s own index into the shared one');
+      recs = old;
+    }
+  }
+  return recs;
+}
+
+// Only one copy builds at a time: the one holding the shared lock (renewed
+// as it reads). The other reads what it saves, and takes over when it can.
+let follower = false;
+let followTimer = null;
+let followStamp = 0;
+const FOLLOW_MS = 60 * 1000;
+async function mayBuild() {
+  if (!shared()) return true;
+  const c = await shared().claim().catch(() => ({ builder: true }));
+  if (!c.builder && !follower) ctx.log('index: the other Winify is building it - reading what it saves');
+  follower = !c.builder;
+  if (follower && !followTimer) followTimer = setTimeout(follow, FOLLOW_MS);
+  return c.builder;
+}
+async function follow() {
+  followTimer = null;
+  if (!ctx || !shared()) return;
+  const g = gen;
+  const stamp = await shared().stamp().catch(() => 0);
+  if (g !== gen) return;
+  if (stamp !== followStamp) {
+    followStamp = stamp;
+    const recs = await shared().load().catch(() => null);
+    if (g !== gen || !recs) return;
+    lists = new Map(recs.map((r) => [r.uri, r]));
+    table = null;
+    changed();
+  }
+  // Still the other's? Then look again later; otherwise plan and build here.
+  if (await mayBuild()) { if (planned) { const src = planned; planned = null; plan(src); } }
+  else if (!followTimer) followTimer = setTimeout(follow, FOLLOW_MS);
+}
 
 // ---- What to index ------------------------------------------------------------------
 
@@ -118,13 +177,13 @@ const sleep = (ms) => new Promise((resolve) => { waking = resolve; setTimeout(re
 
 // One request, no sooner than gapMs after the last; a 429 waits out its
 // Retry-After and asks again.
-function paced(path, g) {
-  const mine = turns.then(() => pacedNow(path, g));
+function paced(path, g, priority) {
+  const mine = turns.then(() => pacedNow(path, g, priority));
   turns = mine.catch(() => {});
   return mine;
 }
 
-async function pacedNow(path, g) {
+async function pacedNow(path, g, priority) {
   for (;;) {
     for (let wait; (wait = lastRequestAt + gapMs - Date.now()) > 0; ) {
       await sleep(wait);
@@ -136,7 +195,7 @@ async function pacedNow(path, g) {
     lastRequestAt = Date.now();
     requests++;
     try {
-      return await ctx.api('GET', path);
+      return await ctx.api('GET', path, undefined, priority);
     } catch (err) {
       if (g !== gen) return null;
       if (err.status === 429) {
@@ -160,7 +219,7 @@ function songOf(t, local) {
     t.duration_ms || 0, t.is_playable !== false];
 }
 
-async function readList(uri, g) {
+async function readList(uri, g, priority) {
   const w = wanted.find((x) => x.uri === uri);
   if (!w) return;
   const liked = /:collection$/.test(uri);
@@ -170,7 +229,7 @@ async function readList(uri, g) {
   // Changed since it was read: from the start. Unfinished: where it stopped.
   if (!rec || rec.snapshot !== w.snapshot) rec = { uri, name: w.name, snapshot: w.snapshot, meId, songs: [], next: 0, complete: false };
   while (!rec.complete) {
-    const page = await paced(path + '&limit=' + PAGE + '&offset=' + rec.next, g);
+    const page = await paced(path + '&limit=' + PAGE + '&offset=' + rec.next, g, priority);
     if (g !== gen || !page) return;
     for (const entry of page.items || []) {
       rec.songs.push(liked ? songOf(entry && entry.track) : songOf(entry && entry.item, entry && entry.is_local));
@@ -195,6 +254,8 @@ async function run() {
   const started = Date.now();
   try {
     while (pending.length && g === gen) {
+      // Only while this copy holds the build (renewed before each playlist).
+      if (!(await mayBuild()) || g !== gen) break;
       const uri = pending[0];
       reading = uri;
       try {
@@ -217,7 +278,7 @@ async function run() {
       round.done++;
       changed();
     }
-    if (g === gen) ctx.log('index: up to date -', songCount(), 'songs in', lists.size, 'playlists;', requests,
+    if (g === gen && !pending.length) ctx.log('index: up to date -', songCount(), 'songs in', lists.size, 'playlists;', requests,
       'requests since Winify started (' + Math.round((Date.now() - started) / 1000) + ' s this round)');
   } finally {
     if (runningGen === g) runningGen = 0;
@@ -228,7 +289,7 @@ async function run() {
 function forgetAll() {
   lists = new Map();
   table = null;
-  tx('readwrite', (s) => s.clear()).catch(() => {});
+  (shared() ? shared().clear() : tx('readwrite', (s) => s.clear())).catch(() => {});
 }
 
 // ---- Searching ----------------------------------------------------------------------
@@ -275,7 +336,7 @@ export async function ensure(entry) {
   if (g !== gen) return null;
   if (!wanted.some((w) => w.uri === entry.uri)) wanted.push({ uri: entry.uri, name: entry.name, snapshot: entry.snapshot });
   try {
-    await readList(entry.uri, g);
+    await readList(entry.uri, g, 'user');            // someone is waiting for this one
   } catch (err) {
     ctx && ctx.warn('index: could not read', entry.uri, '-', err.message);
     return null;
@@ -337,7 +398,7 @@ export async function init(c) {
   ctx = c;
   const g = ++gen;
   try {
-    const recs = (await tx('readonly', (s) => s.getAll())) || [];
+    const recs = await loadAll();
     if (g !== gen) return;
     lists = new Map(recs.map((r) => [r.uri, r]));
     meId = recs.length ? recs[0].meId : null;
@@ -360,6 +421,9 @@ export function reset() {
   pending = [];
   planned = null;
   holding = false;
+  follower = false;
+  clearTimeout(followTimer);
+  followTimer = null;
   ctx = null;
 }
 

@@ -166,30 +166,45 @@ function merged(fresh, old) {
 
 // Hurry a background read along (filtering, or scrolling near the end).
 function hurry() {
-  if (loading && loading.wake) loading.wake();
+  if (!loading) return;
+  // Someone is waiting: no longer background work, including a request
+  // already waiting its turn in the main process.
+  if (!loading.user && window.spotify && window.spotify.promote) window.spotify.promote(['/me', '/me/tracks', '/me/playlists']).catch(() => {});
+  loading.user = true;
+  if (loading.wake) loading.wake();
 }
+// Whoever is waiting for the list: the open picker, or nobody (background).
+const priority = () => (loading && loading.user ? undefined : 'background');
 
 // Read the list, page by page: the first at once, the rest at the slow pace
 // unless hurried. A pass from the start (no list yet, a stale one, or
 // REFRESH) builds a fresh list, showing the old one beneath it until it is
 // complete; a pass that resumes an unfinished list appends to it.
-async function read(fromStart) {
-  if (loading && !fromStart) return;
+// A read already under way is never started again: asking again (opening
+// the picker, the index, REFRESH) waits for that one, and hurries it along
+// if someone is looking.
+function read(fromStart) {
+  if (loading) { if (el) hurry(); return loading.promise; }
   const gen = ++loadGen;
-  loading = { gen, wake: null };
+  loading = { gen, wake: null, user: !!el };
+  loading.promise = readList(gen, fromStart);
+  return loading.promise;
+}
+
+async function readList(gen, fromStart) {
   failNote = null;
   const old = lib;
   try {
     // Who you are, for the owner check. A remembered list is always this
     // account's: signing out forgets it.
-    const meId = (old && old.meId) || (await ctx.api('GET', '/me')).id;
+    const meId = (old && old.meId) || (await ctx.api('GET', '/me', undefined, priority())).id;
     if (gen !== loadGen) return;
     const same = old && old.meId === meId;            // not another account
     const startAt = fromStart || !same || old.complete ? 0 : old.nextOffset;
     let liked = same ? old.liked : null;
     let likedNewest = same ? old.likedNewest : null;   // Liked Songs' newest addition, for the index
     if (startAt === 0) {
-      const t = await ctx.api('GET', '/me/tracks?limit=1').catch(() => null);
+      const t = await ctx.api('GET', '/me/tracks?limit=1', undefined, priority()).catch(() => null);
       if (gen !== loadGen) return;
       if (t) { liked = t.total; likedNewest = (t.items && t.items[0] && t.items[0].added_at) || null; }
     }
@@ -199,7 +214,7 @@ async function read(fromStart) {
         await new Promise((resolve) => { loading.wake = resolve; setTimeout(resolve, PAGE_GAP_MS); });
         if (gen !== loadGen) return;
       }
-      const page = await ctx.api('GET', '/me/playlists?limit=' + PAGE + '&offset=' + offset);
+      const page = await ctx.api('GET', '/me/playlists?limit=' + PAGE + '&offset=' + offset, undefined, priority());
       if (gen !== loadGen) return;
       const got = (page.items || []).map((p) => entryOf(p, meId)).filter(Boolean);
       offset += PAGE;

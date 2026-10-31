@@ -109,29 +109,37 @@ function winifyDeviceId() {
 const blockedUntil = {};              // '/me/player', '/playlists/...' -> ms
 const limitKey = (path) => path.split('?')[0].split('/').slice(0, 3).join('/');
 
-function rateLimited(method, path, retryAfterS) {
+// `by`: 'spotify' (Spotify said to wait) or 'winify' (Winify's own request
+// caps, spotify-governor.js). The note says until when, as a clock time.
+const clock = (ms) => { const d = new Date(ms); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
+function rateLimited(method, path, retryAfterS, by = 'spotify') {
   const s = Math.max(1, Math.round(retryAfterS));
-  const h = Math.floor(s / 3600);
-  const m = Math.ceil((s % 3600) / 60);
-  const err = new Error(method + ' ' + path + ' -> 429: rate limited for another ' + s + ' s');
+  const err = new Error(method + ' ' + path + ' -> 429: ' + (by === 'winify' ? 'held back by Winify' : 'rate limited') + ' for another ' + s + ' s');
   err.status = 429;
   err.retryAfter = s;
-  err.note = 'Spotify rate limit - try again in ' + (h ? h + ' h ' + m + ' min' : s >= 60 ? m + ' min' : s + ' s');
+  err.by = by;
+  const when = s >= 60 ? 'until ' + clock(Date.now() + s * 1000) : s + ' s';
+  err.note = by === 'winify' ? 'Winify is pacing its Spotify requests: wait ' + when : 'Spotify asked Winify to wait ' + when;
   return err;
 }
 
-async function api(method, path, body) {
+// `priority` 'background': work nobody is waiting for (the index, the
+// picker's list read in the background), which the main process's governor
+// lets use only what is left.
+async function api(method, path, body, priority) {
   const key = limitKey(path);
   if (blockedUntil[key] > Date.now()) throw rateLimited(method, path, (blockedUntil[key] - Date.now()) / 1000);
   // Sent by the main process: from this page every request would first need
   // a browser preflight, doubling what counts toward Spotify's rate limit.
-  const res = await window.spotify.api(method, path, body);
+  const res = await window.spotify.api(method, path, body, priority);
   if (res.status === 204) return null;
   if (res.status === 429) {
-    const retryAfter = Number(res.retryAfter) || 5;
-    blockedUntil[key] = Date.now() + retryAfter * 1000;
-    warn('Spotify rate limit on', key, '- no requests there for', retryAfter, 's');
-    throw rateLimited(method, path, retryAfter);
+    const retryAfter = res.until ? Math.max(1, (res.until - Date.now()) / 1000) : Number(res.retryAfter) || 5;
+    // Spotify's wait holds for every request there; Winify's own pacing
+    // only for this one (the next may fit).
+    if (res.by !== 'winify') blockedUntil[key] = Date.now() + retryAfter * 1000;
+    warn(res.by === 'winify' ? 'Winify held back' : 'Spotify rate limit on', key, '- for', Math.round(retryAfter), 's');
+    throw rateLimited(method, path, retryAfter, res.by);
   }
   const text = res.text;
   let json = null;
@@ -147,8 +155,8 @@ async function api(method, path, body) {
 
 // Every track added to Spotify's queue, from anywhere in Winify, goes into
 // the running order as "plays next".
-async function apiNotingQueue(method, path, body) {
-  const result = await api(method, path, body);
+async function apiNotingQueue(method, path, body, priority) {
+  const result = await api(method, path, body, priority);
   if (method === 'POST' && path.startsWith('/me/player/queue?')) {
     const uri = new URLSearchParams(path.split('?')[1]).get('uri');
     if (uri) playlist.noteQueued(uri);
@@ -771,7 +779,7 @@ export function attach(instance) {
     deviceId: winifyDeviceId,
   }, playlist);
   // My playlists, for Jump to track: built and kept current in the background.
-  libraryIndex.init({ api, log, warn });
+  libraryIndex.init({ api: (method, path, body) => api(method, path, body, 'background'), log, warn });
   lyrics.init({ webamp, now, api, log, warn });
   mix.init({
     webamp, now, api: apiNotingQueue, say, log, warn, refreshSoon,

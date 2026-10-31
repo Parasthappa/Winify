@@ -22,7 +22,20 @@ contextBridge.exposeInMainWorld('spotify', {
   // Playback support
   getToken: () => ipcRenderer.invoke('get-token'),
   // Web API requests, sent by the main process (no browser preflight).
-  api: (method, path, body) => ipcRenderer.invoke('spotify-api', method, path, body),
+  // `priority` 'background': work nobody is waiting for (the governor in the
+  // main process lets it use only what is left).
+  api: (method, path, body, priority) => ipcRenderer.invoke('spotify-api', method, path, body, priority),
+  // Background requests already waiting there that someone now waits for.
+  promote: (keys) => ipcRenderer.invoke('spotify-api:promote', keys),
+  // The My playlists index, kept by the main process for both copies.
+  index: {
+    load: () => ipcRenderer.invoke('index:load'),
+    put: (rec) => ipcRenderer.invoke('index:put', rec),
+    remove: (uri) => ipcRenderer.invoke('index:delete', uri),
+    clear: () => ipcRenderer.invoke('index:clear'),
+    stamp: () => ipcRenderer.invoke('index:stamp'),
+    claim: () => ipcRenderer.invoke('index:claim'),
+  },
   transferPlayback: (deviceId, startPlaying) =>
     ipcRenderer.invoke('transfer-playback', deviceId, startPlaying),
   // Lyrics lookups on lrclib.net, made by the main process.

@@ -73,7 +73,7 @@ function trackRow(t) {
 
 function describe(err) {
   if (!err || err.status == null) return "Couldn't reach Spotify - check your connection";
-  if (err.status === 429) return 'Spotify asked to slow down - try again in a moment';
+  if (err.status === 429) return err.note || 'Spotify asked to slow down - try again in a moment';
   if (err.status === 401 || err.status === 403) return 'Spotify refused the search';
   return 'Search failed (' + err.status + ')';
 }

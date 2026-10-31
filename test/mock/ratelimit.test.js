@@ -13,7 +13,9 @@ h.open().then(async ({ win, js }) => {
   await h.click(win, js, '#webamp #eject'); await h.wait(600);
   await js(`(() => { const r = document.querySelectorAll('.winify-picker .wp-row')[1]; r.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); })()`); await h.wait(800);
   const msg = await marquee();
-  check('picker: "Spotify rate limit - try again in 5 h 30 min", not "Could not play that playlist"', msg === 'Spotify rate limit - try again in 5 h 30 min', msg);
+  const at = (ms) => { const d = new Date(ms); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
+  const okUntil = [at(Date.now() + 19798e3 - 60e3), at(Date.now() + 19798e3)];   // the clock time, give or take its minute
+  check('picker: "Spotify asked Winify to wait until <the time>", not "Could not play that playlist"', okUntil.some((t) => msg === 'Spotify asked Winify to wait until ' + t), msg + ' (expected ' + okUntil.join(' or ') + ')');
   let cs = await calls();
   const firstHits = cs.filter((c) => c[0] === 'net:player').length;
   await h.wait(10000);

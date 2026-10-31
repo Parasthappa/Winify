@@ -11,6 +11,14 @@ const { redact } = require('./drm-redact');
 const PACKAGED_FOLDER = 'Winify App';
 if (app.isPackaged) app.setPath('userData', path.join(app.getPath('appData'), PACKAGED_FOLDER));
 
+// What both copies share (their other settings stay apart): the Spotify
+// request governor's counts and waits (both use the same Client ID, which
+// Spotify limits as a whole) and the My playlists index (data about your
+// playlists, built once). Tests point it elsewhere (WINIFY_SHARED_DIR).
+const SHARED_DIR = process.env.WINIFY_SHARED_DIR || path.join(app.getPath('appData'), 'Winify Shared');
+const COPY = app.isPackaged ? 'packaged' : 'dev';
+const governor = require('./spotify-governor').create({ dir: SHARED_DIR, copy: COPY, log: (m) => console.log('[governor]', m) });
+
 // Winify ships with no credentials. Every user registers their own Spotify
 // app (Spotify's Development Mode allows no shared one) and pastes its Client
 // ID on the sign-in screen's setup step; it is stored in Winify's settings
@@ -1009,7 +1017,9 @@ function refreshTokens() {
   return refreshInFlight;
 }
 
+// Sign-in's own requests: first in line, never held back, but counted.
 function api(pathname) {
+  governor.count();
   return fetch(`https://api.spotify.com${pathname}`, {
     headers: { Authorization: `Bearer ${tokens.accessToken}` },
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
@@ -1210,7 +1220,7 @@ async function pollCurrentSong() {
       signOut();
     } else if (res.status === 429) {
       // Rate limited (Retry-After can be hours): stop asking until it passes.
-      pollPausedUntil = Date.now() + (Number(res.headers.get('retry-after')) || 30) * 1000;
+      pollPausedUntil = governor.blocked('/me/player/currently-playing', res.headers.get('retry-after') || 30);
       console.log('[auth] Spotify rate limit - status polling paused for', Math.round((pollPausedUntil - Date.now()) / 1000), 's');
     } else {
       setStatus(`Spotify returned an error (${res.status})`);
@@ -1241,20 +1251,74 @@ ipcMain.handle('get-token', accessToken);
 // doubles the requests counting toward Spotify's rate limit; from here there
 // is none. The answer goes back as-is: the page handles errors and 429s.
 const API_METHODS = new Set(['GET', 'PUT', 'POST', 'DELETE']);
-ipcMain.handle('spotify-api', async (_event, method, path, body) => {
+// Every one goes through the governor (spotify-governor.js): `priority`
+// 'background' marks work nobody is waiting for. Not sent: a 429 with
+// `until` and `by` ('spotify': Spotify asked to wait; 'winify': the caps).
+ipcMain.handle('spotify-api', async (_event, method, path, body, priority) => {
   if (!API_METHODS.has(method) || typeof path !== 'string' || !path.startsWith('/')) {
     throw new Error('not a Web API request: ' + method + ' ' + path);
   }
   const token = await accessToken();
   if (!token) throw new Error('no access token');
+  const go = await governor.admit(path, priority);
+  if (!go.ok) return { status: 429, retryAfter: String(Math.max(1, Math.ceil((go.until - Date.now()) / 1000))), until: go.until, by: go.reason, text: '' };
   const res = await fetch('https://api.spotify.com/v1' + path, {
     method,
     headers: Object.assign({ Authorization: 'Bearer ' + token }, body ? { 'Content-Type': 'application/json' } : {}),
     body: body ? JSON.stringify(body) : undefined,
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
+  if (res.status === 429) {
+    const until = governor.blocked(path, res.headers.get('retry-after'));
+    return { status: 429, retryAfter: res.headers.get('retry-after'), until, by: 'spotify', text: await res.text() };
+  }
   return { status: res.status, retryAfter: res.headers.get('retry-after'), text: res.status === 204 ? '' : await res.text() };
 });
+
+ipcMain.handle('spotify-api:promote', (_event, keys) => governor.promote(Array.isArray(keys) ? keys.map(String) : []));
+
+// ---- The My playlists index, shared by both copies -----------------------
+// One file per playlist in the shared folder. Only one copy builds it at a
+// time: the one holding index.lock (renewed while it builds; a lock left by
+// a copy that quit or stopped renewing is taken over).
+const INDEX_DIR = path.join(SHARED_DIR, 'index');
+const INDEX_LOCK = path.join(SHARED_DIR, 'index.lock');
+const LOCK_STALE_MS = 2 * 60 * 1000;
+const indexFile = (uri) => path.join(INDEX_DIR, encodeURIComponent(String(uri)) + '.json');
+ipcMain.handle('index:load', () => {
+  let names = [];
+  try { names = fs.readdirSync(INDEX_DIR).filter((f) => f.endsWith('.json')); } catch (e) { return []; }
+  const recs = [];
+  for (const f of names) { try { recs.push(JSON.parse(fs.readFileSync(path.join(INDEX_DIR, f), 'utf8'))); } catch (e) { /* half-written: read again later */ } }
+  return recs;
+});
+ipcMain.handle('index:put', (_event, rec) => {
+  if (!rec || typeof rec.uri !== 'string') return false;
+  fs.mkdirSync(INDEX_DIR, { recursive: true });
+  const tmp = indexFile(rec.uri) + '.' + process.pid + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(rec));
+  fs.renameSync(tmp, indexFile(rec.uri));
+  return true;
+});
+ipcMain.handle('index:delete', (_event, uri) => { try { fs.rmSync(indexFile(uri), { force: true }); } catch (e) { /* gone */ } return true; });
+ipcMain.handle('index:clear', () => { try { fs.rmSync(INDEX_DIR, { recursive: true, force: true }); } catch (e) { /* gone */ } return true; });
+// The newest change, so a copy that is not building can tell when to read it again.
+ipcMain.handle('index:stamp', () => { try { return fs.statSync(INDEX_DIR).mtimeMs; } catch (e) { return 0; } });
+// May this copy build (and keep building)? Claims or renews the lock.
+ipcMain.handle('index:claim', () => {
+  let lock = null;
+  try { lock = JSON.parse(fs.readFileSync(INDEX_LOCK, 'utf8')); } catch (e) { /* none */ }
+  const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
+  const ours = lock && lock.pid === process.pid;
+  const free = !lock || ours || !alive(lock.pid) || Date.now() - lock.at > LOCK_STALE_MS;
+  if (!free) return { builder: false, by: lock.copy };
+  fs.mkdirSync(SHARED_DIR, { recursive: true });
+  fs.writeFileSync(INDEX_LOCK, JSON.stringify({ pid: process.pid, copy: COPY, at: Date.now() }));
+  return { builder: true };
+});
+function releaseIndexLock() {
+  try { const lock = JSON.parse(fs.readFileSync(INDEX_LOCK, 'utf8')); if (lock.pid === process.pid) fs.rmSync(INDEX_LOCK, { force: true }); } catch (e) { /* none */ }
+}
 
 // Lyrics come from LRCLIB (lrclib.net). The page cannot set a User-Agent, as
 // LRCLIB asks clients to, and its security policy reaches only Spotify, so
@@ -1295,6 +1359,7 @@ ipcMain.on('open-in-spotify', (_event, uri) => {
 ipcMain.handle('transfer-playback', async (_event, deviceId, startPlaying) => {
   if (!tokens || !deviceId) return { ok: false, error: 'not connected' };
   try {
+    governor.count();                     // playback: first in line, counted
     const res = await fetch('https://api.spotify.com/v1/me/player', {
       method: 'PUT',
       headers: {
@@ -1416,6 +1481,8 @@ if (!app.requestSingleInstanceLock()) {
     showWindow();
   });
 }
+
+app.on('will-quit', releaseIndexLock);
 
 app.on('before-quit', () => {
   isQuitting = true;

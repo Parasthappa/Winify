@@ -96,7 +96,7 @@ window.spotify = {
     await new Promise((r) => setTimeout(r, LRC.delay));
     if (LRC.fail.has(q.track_name)) throw new Error("Error invoking remote method 'lrclib': TypeError: fetch failed");
     // LRC.retryAfter: the Retry-After a busy LRCLIB sends (seconds), as main.js passes it on.
-    if (LRC.busy && path === '/api/search') return { status: 503, body: null, retryAfter: LRC.retryAfter == null ? null : String(LRC.retryAfter) };
+    if (LRC.busy && path === '/api/search') return { status: LRC.busyStatus || 429, body: null, retryAfter: LRC.retryAfter == null ? null : String(LRC.retryAfter) };
     if (path === '/api/get') { const r = LRC.get(q); return r ? { status: 200, body: r } : { status: 404, body: null }; }
     return { status: 200, body: LRC.search(q) };
   },

@@ -94,6 +94,7 @@ function bestMatch(results, d) {
 function answered(res, allowNotFound) {
   if (res.status === 200 || (allowNotFound && res.status === 404)) return res;
   const err = new Error('LRCLIB answered ' + res.status);
+  err.status = res.status;
   err.busy = res.status === 429 || res.status === 503;
   throw err;
 }
@@ -308,7 +309,11 @@ async function show(uri) {
   } catch (err) {
     if (seq !== lookupSeq) return;
     warn('lookup failed -', err.message);
-    draw(head, null, (err.busy ? 'LRCLIB is busy.' : 'Couldn’t reach LRCLIB.') + ' Click to try again.',
+    // 429: busy. A 5xx: LRCLIB itself is failing (it answered, so not "couldn't
+    // reach"), with its code. No answer at all: couldn't reach it.
+    draw(head, null, (err.status === 429 ? 'LRCLIB is busy.'
+      : err.status >= 500 ? 'LRCLIB isn’t working right now (error ' + err.status + ').'
+      : 'Couldn’t reach LRCLIB.') + ' Click to try again.',
       () => { if (shownUri === uri) show(uri); });
     return;
   }

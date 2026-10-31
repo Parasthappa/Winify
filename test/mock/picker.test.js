@@ -164,7 +164,7 @@ h.open().then(async ({ win, js }) => {
   await js('WinifyPicker.open()'); await h.wait(1500);
   p = await P();
   const said = await js(`[...document.querySelectorAll('.winify-picker .wp-row')].map((r) => r.textContent)`);
-  check('still open, with no rows, saying how long Spotify asks to wait', p.open && p.rows === 0 && JSON.stringify(said) === JSON.stringify(['Spotify rate limit - try again in 11 h 23 min']), JSON.stringify({ p, said }));
+  check('still open, with no rows, saying until when Spotify asked Winify to wait', p.open && p.rows === 0 && said.length === 1 && /^Spotify asked Winify to wait until \d\d:\d\d$/.test(said[0]), JSON.stringify({ p, said }));
   await js('WinifyPicker.close()');
 
   const loud = JSON.parse(await js('JSON.stringify(loud)')); const errs = JSON.parse(await js('JSON.stringify(errors)'));

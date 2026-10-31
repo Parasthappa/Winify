@@ -51,10 +51,10 @@ h.open().then(async ({ win, js }) => {
   await js('LRC.fail.delete("Song 2004")'); await h.click(win, js, '.winify-lyrics .wl-retry');
   s = await untilL((v) => /Back after a retry/.test(v.text || ''));
   check('...retry works once LRCLIB is back', /Back after a retry/.test(s.text), s.text);
-  // LRCLIB busy (503) on the search: a retryable note, and nothing cached.
+  // LRCLIB busy (429) on the search: a retryable note, and nothing cached.
   await js('LRC.busy = true'); await play(6);
   s = await untilL((v) => /Song 2006/.test(v.text || '') && /busy/.test(v.text || ''));
-  check('LRCLIB busy (503): "LRCLIB is busy. Click to try again." - not "no lyrics"', /LRCLIB is busy\. Click to try again\./.test(s.text) && !/No lyrics found/.test(s.text), s.text);
+  check('LRCLIB busy (429): "LRCLIB is busy. Click to try again." - not "no lyrics"', /LRCLIB is busy\. Click to try again\./.test(s.text) && !/No lyrics found/.test(s.text), s.text);
   check('...and not cached as "no lyrics"', !(await L()).cached.includes('spotify:track:2006'), JSON.stringify((await L()).cached));
   await js('LRC.busy = false'); await h.click(win, js, '.winify-lyrics .wl-retry');
   s = await untilL((v) => /Song 2006/.test(v.text || '') && /No lyrics found/.test(v.text || ''));
@@ -73,6 +73,11 @@ h.open().then(async ({ win, js }) => {
   s = await L();
   check('Retry-After 60 s: no quiet retry; clicking retry meanwhile asks nothing, still "busy"', (await js('LRC.times')).length === n60 && /busy/.test(s.text || ''), JSON.stringify({ n60, now: (await js('LRC.times')).length, text: s.text }));
   await js('(LRC.retryAfter = null, WinifyLyrics.clearBusy())');
+  // LRCLIB itself failing (502, as on 31 Oct): said so, with its code - not "busy", not "couldn't reach".
+  await js('(LRC.busy = true, LRC.busyStatus = 502)'); await play(9);
+  s = await untilL((v) => /Song 2009/.test(v.text || '') && /LRCLIB/.test(v.text || ''), 15000);
+  check('LRCLIB failing (502): "LRCLIB isn\'t working right now (error 502). Click to try again."', /LRCLIB isn’t working right now \(error 502\)\. Click to try again\./.test(s.text || ''), s.text);
+  await js('(LRC.busy = false, LRC.busyStatus = null, WinifyLyrics.clearBusy())');
   // A slow lookup shows that it is looking.
   await js('LRC.delay = 1500'); await play(5);
   s = await untilL((v) => /Song 2005/.test(v.text || ''));

@@ -410,6 +410,9 @@ Winify keeps everything on your Mac:
 - **Your Spotify sign-in**, only if **Remember me** is on. **Disconnect**
   removes it.
 - **Milkdrop presets you add**, in Winify's own storage.
+- **An index of the songs in your playlists**, for Jump to track's "My
+  playlists" (built slowly in the background), in a folder that the Mac app
+  and `npm start` share, so it is built once.
 
 Winify connects only to:
 

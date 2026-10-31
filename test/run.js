@@ -25,7 +25,11 @@ function run(suite, port) {
   return new Promise((resolve) => {
     const started = Date.now();
     const out = [];
-    const child = spawn(electron, [suite.file], { cwd: ROOT, env: Object.assign({}, process.env, { TEST_PORT: String(port) }) });
+    // Each suite its own "shared" folder (the governor's counts, the index):
+    // never the real one both copies of Winify use.
+    const shared = path.join(__dirname, '.profiles', 'shared-' + suite.name.replace('/', '-'));
+    fs.rmSync(shared, { recursive: true, force: true });
+    const child = spawn(electron, [suite.file], { cwd: ROOT, env: Object.assign({}, process.env, { TEST_PORT: String(port), WINIFY_SHARED_DIR: shared }) });
     const timer = setTimeout(() => { out.push('TIMED OUT'); child.kill('SIGKILL'); }, SUITE_TIMEOUT_MS);
     child.stdout.on('data', (d) => out.push(String(d)));
     child.stderr.on('data', (d) => out.push(String(d)));

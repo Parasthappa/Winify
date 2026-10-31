@@ -52,6 +52,8 @@ global.fetch = async (u, o = {}) => {
 let authUrl = null;
 shell.openExternal = async (u) => { authUrl = u; };
 
+// Not the shared folder both copies of Winify use (the governor's counts, the index).
+process.env.WINIFY_SHARED_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'winify-check-shared-'));
 require(path.join(__dirname, '..', '..', 'main.js'));
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'winify-check-'));
 app.setPath('userData', profile);
