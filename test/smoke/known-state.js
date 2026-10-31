@@ -4,7 +4,8 @@
 // Winify's defaults (and a run's own mix is not left behind).
 // smoke.js puts them back at the end. If a run dies half-way, the next run restores them instead of
 // setting aside the defaults.
-if (location.origin === 'http://127.0.0.1:8899') {
+// Winify's page, on whichever port it got (8899-8903; the packaged app 8909-8913).
+if (/^http:\/\/127\.0\.0\.1:\d+$/.test(location.origin)) {
   // 'winify.index.paused': the My playlists index (a build is hundreds of requests) sends none during the run.
   const KEYS = ['winify.layout.v2', 'winify.panels.v1', 'winify.lyrics.open', 'winify.chassis.v1', 'winify.mixes.v1', 'winify.index.paused'];
   const SAVED = 'winify.smoke.saved';

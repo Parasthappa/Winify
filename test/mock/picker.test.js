@@ -155,6 +155,18 @@ h.open().then(async ({ win, js }) => {
   await js('WinifyWebamp.unmount()'); await h.wait(300);
   check('signing out forgets the remembered list', (await js(`localStorage.getItem('winify.picker.v1')`)) === null);
 
+  console.log('7. Spotify refuses the list (a rate limit) with nothing remembered: it stays open and says so');
+  await js('location.reload()'); await h.wait(500);
+  while (!(await js('window.mounted === true').catch(() => false))) await h.wait(100);
+  await js(`(() => { const real = window.fetch; window.fetch = async (u, o) => /\\/me\\/playlists/.test(String(u))
+    ? new Response(JSON.stringify({ error: { status: 429, message: 'Too many requests', reason: 'QUOTA_EXCEEDED' } }), { status: 429, headers: { 'Retry-After': '40966' } })
+    : real(u, o); })()`);
+  await js('WinifyPicker.open()'); await h.wait(1500);
+  p = await P();
+  const said = await js(`[...document.querySelectorAll('.winify-picker .wp-row')].map((r) => r.textContent)`);
+  check('still open, with no rows, saying how long Spotify asks to wait', p.open && p.rows === 0 && JSON.stringify(said) === JSON.stringify(['Spotify rate limit - try again in 11 h 23 min']), JSON.stringify({ p, said }));
+  await js('WinifyPicker.close()');
+
   const loud = JSON.parse(await js('JSON.stringify(loud)')); const errs = JSON.parse(await js('JSON.stringify(errors)'));
   check('no alerts, downloads, file prompts or new windows', loud.length === 0, JSON.stringify(loud));
   check('no page errors', errs.length === 0, JSON.stringify(errs));

@@ -100,6 +100,15 @@ The smoke test then uses the packaged app's own sign-in (open Winify.app,
 sign in with Remember me, quit it first). `test/package/loopback.js` is the
 native system-audio capture retest, run the same way.
 
+`npm run package:check` builds and runs `test/package/check.js`: the
+packaged app's own checks, offline (Spotify and LRCLIB faked inside it):
+its port range, the remembered sign-in, the playlist picker, a lyrics lookup
+through the LRCLIB route with its User-Agent, and sign-in through the 8888
+callback. `npm test` cannot see these: it runs main.js in the development
+Electron, unpackaged (the development copy's ports and settings folder), so
+anything that differs only when packaged needs this. Run it after
+`npm run package`, before handing a build to anyone.
+
 ## Spotify API limits that shape the design
 
 - **Development Mode** (2026): Premium required, one Client ID per developer,

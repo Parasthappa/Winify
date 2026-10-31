@@ -56,6 +56,7 @@ let ctx = null;                     // { webamp, api, say, log, warn, deviceId, 
 let lib = null;
 let loading = null;                 // the read in progress: { gen, wake }
 let loadGen = 0;
+let failNote = null;           // why the list could not be read, shown while there is none
 let el = null;                      // the open picker, or null
 let rows = [];                      // all entries
 let shown = [];                     // entries matching the filter
@@ -170,6 +171,7 @@ async function read(fromStart) {
   if (loading && !fromStart) return;
   const gen = ++loadGen;
   loading = { gen, wake: null };
+  failNote = null;
   const old = lib;
   try {
     // Who you are, for the owner check. A remembered list is always this
@@ -217,8 +219,11 @@ async function read(fromStart) {
     if (gen !== loadGen) return;
     ctx.warn('picker: could not read playlists -', err.message);
     if (el && !rows.length) {
-      close();
-      ctx.say(err.note || (/scope/i.test(err.message) ? 'Sign in again for playlists' : 'Could not list playlists'));
+      // Nothing to show: it stays open and says why in the list (it used to
+      // close, which looked like the picker failing on its own).
+      failNote = err.note || (/scope/i.test(err.message) ? 'Sign in again for playlists' : 'Could not list playlists');
+      drawnKey = null;
+      ctx.say(failNote);
     } else if (el) {
       ctx.say(err.note || 'Could not update the playlists');
     }
@@ -333,7 +338,7 @@ function selectionNote() {
 function renderList() {
   if (!el || renaming) return;
   const VISIBLE_ROWS = visibleRows();
-  const key = scroll + '|' + VISIBLE_ROWS + '|' + shown.length + '|' + (shown[0] && shown[0].uri) + '|' + rows.length;
+  const key = scroll + '|' + VISIBLE_ROWS + '|' + shown.length + '|' + (shown[0] && shown[0].uri) + '|' + rows.length + '|' + failNote;
   if (key === drawnKey) { paintSelection(); return; }
   drawnKey = key;
   const st = skinStyle();
@@ -374,7 +379,7 @@ function renderList() {
     const row = document.createElement('div');
     row.className = 'wp-row';
     row.style.color = st.normal;
-    row.textContent = rows.length ? 'No match' : 'Loading...';
+    row.textContent = rows.length ? 'No match' : (failNote || 'Loading...');
     list.appendChild(row);
   }
   // Scroll handle, in the skin's scrollbar track.

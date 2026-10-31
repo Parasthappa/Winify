@@ -11,7 +11,8 @@
     "start": "electron .",
     "test": "node test/run.js",
     "smoke": "electron test/smoke/smoke.js",
-    "package": "node packaging/build.js"
+    "package": "node packaging/build.js",
+    "package:check": "node packaging/check.js"
   },
   "devDependencies": {
     "electron": "github:castlabs/electron-releases#v44.1.0+wvcus",
