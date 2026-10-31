@@ -1328,6 +1328,21 @@ ipcMain.on('audio-state', (_event, capturing) => {
   buildTray();
 });
 
+// macOS's microphone permission, which reading BlackHole needs. Asked for (and
+// answered) before capture opens: a capture opened while macOS's question is
+// still on screen hears silence for good, even after "Allow". The packaged
+// app is ad-hoc signed, so macOS asks again after every rebuild.
+ipcMain.handle('audio:microphone', async () => {
+  if (process.platform !== 'darwin') return 'granted';
+  let status = systemPreferences.getMediaAccessStatus('microphone');
+  if (status === 'not-determined') {
+    console.log('[audio] asking macOS for microphone access (to read BlackHole)');
+    status = (await systemPreferences.askForMediaAccess('microphone')) ? 'granted' : 'denied';
+  }
+  console.log('[audio] microphone access:', status);
+  return status;
+});
+
 // The setup step: check a pasted Client ID and keep it if Spotify knows it.
 ipcMain.handle('client-id:set', async (_event, raw) => {
   const id = String(raw || '').trim();

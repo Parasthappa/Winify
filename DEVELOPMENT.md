@@ -65,7 +65,12 @@ its own signing is off). `packaging/vmp-verify.js` (afterSign) runs
 `verify-pkg` and `codesign --verify`, and the build fails if either fails.
 No hardened runtime: it would refuse the Widevine module downloaded at first
 launch. Each build is a new ad-hoc signature, so macOS asks for microphone
-(and screen-recording) access again after every build.
+(and screen-recording) access again after every build. Capture waits for
+that answer (`audio:microphone` in `main.js`, asked from `audio-source.js`):
+a BlackHole stream opened while macOS's question is still on screen stays
+silent until Winify restarts, even after "Allow" (31 Oct 2026). To check
+capture in a packaged build without Spotify: `npm run package -- --test
+test/package/capture.js`.
 
 The packaged app keeps its settings in `Application Support/Winify App`
 (`main.js`, `PACKAGED_FOLDER`), apart from the development copy's `winify`

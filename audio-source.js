@@ -97,9 +97,35 @@
 
   // ---- Lifecycle --------------------------------------------------------
 
-  async function start(opts) {
+  var MIC_DENIED_HELP =
+    'macOS has not allowed Winify to use audio input, which reading BlackHole ' +
+    'needs (Winify never listens to the microphone itself). Turn Winify on in ' +
+    'System Settings -> Privacy & Security -> Microphone, then restart Winify.';
+
+  // One start at a time: macOS's microphone question can stay on screen for a
+  // while, and a second start meanwhile would open a second stream.
+  var starting = null;
+
+  function start(opts) {
+    if (!starting) starting = startCapture(opts).finally(function () { starting = null; });
+    return starting;
+  }
+
+  async function startCapture(opts) {
     if (stream) { log('already capturing'); return true; }
     opts = opts || {};
+
+    // macOS's answer first: a capture opened while its question is still on
+    // screen hears silence until Winify restarts, even after "Allow".
+    if (window.spotify && window.spotify.microphoneAccess) {
+      var access = await window.spotify.microphoneAccess().catch(function () { return 'unknown'; });
+      if (access === 'denied' || access === 'restricted') {
+        log('*** MICROPHONE ACCESS ' + access.toUpperCase() + ' - REFUSING TO CAPTURE ***');
+        log(MIC_DENIED_HELP);
+        emit('error', { message: 'microphone access ' + access, help: MIC_DENIED_HELP });
+        return false;
+      }
+    }
 
     var inputs;
     try {

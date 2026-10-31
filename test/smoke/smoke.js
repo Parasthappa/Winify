@@ -2,7 +2,7 @@
 //
 // Runs the real Winify with your own sign-in and checks the core flows end to
 // end: sign-in, a playlist from the picker, Next/Previous, the visualizer
-// hearing the music, Milkdrop drawing it, playing from search, lyrics, and a random mix (its end
+// hearing the music and moving, Milkdrop drawing it, playing from search, lyrics, and a random mix (its end
 // too with SMOKE_MIX_END=1, which needs higher caps). It plays music out loud
 // for about a minute, then pauses.
 //
@@ -23,7 +23,7 @@
 // Songs alone can take 25 requests). That load is not a flow under test here
 // (the picker step loads a small playlist instead), so it is held back: the
 // window shows Spotify's Up Next meanwhile.
-const { app, BrowserWindow, session } = require('electron');
+const { app, BrowserWindow, session, systemPreferences } = require('electron');
 const fs = require('fs'), path = require('path');
 
 // Two budgets: Winify's own Web API calls, and those Spotify's player library
@@ -225,12 +225,19 @@ app.whenReady().then(async () => {
   guard();
   check('Previous: back to track 1', !!n1);
 
-  // 4. The visualizer hears the music
+  // 4. The visualizer hears the music (macOS must allow audio input: reading
+  // BlackHole counts as the microphone)
   await wait(1500);
+  const mic = systemPreferences.getMediaAccessStatus('microphone');
+  check('macOS allows Winify audio input (Privacy & Security > Microphone)', mic === 'granted', mic);
   const level = await js(`(() => { const a = window.WinifyAudio && WinifyAudio.getAnalyser(); if (!a) return -1;
     const b = new Uint8Array(a.fftSize); let peak = 0; for (let k = 0; k < 5; k++) { a.getByteTimeDomainData(b); peak = Math.max(peak, Math.max(...b) - Math.min(...b)); } return peak; })()`);
   check('the visualizer receives the music', level > 10, level < 0 ? 'audio capture not running' : 'signal ' + level +
     (level <= 10 ? ' (silence: is the Multi-Output Device the sound output?)' : ''));
+  // ...and the small visualizer in the main window draws it: its canvas changes.
+  const visFrames = await js(`(async () => { const c = document.querySelector('#webamp #visualizer'); if (!c) return -1;
+    const seen = new Set(); for (let k = 0; k < 10; k++) { seen.add(c.toDataURL()); await new Promise((r) => setTimeout(r, 100)); } return seen.size; })()`);
+  check('the small visualizer moves', visFrames > 3, visFrames < 0 ? 'no visualizer on the main window' : visFrames + ' different pictures in 1 s');
 
   // 4b. Milkdrop draws it (opened and closed again; no requests)
   const mdWasOpen = await js('WinifyMilkdrop.state().open');

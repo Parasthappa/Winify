@@ -296,7 +296,9 @@ Good to know:
 - macOS shows its orange microphone dot while the visualizer listens. Winify
   only listens to your Mac's own sound and records nothing.
 - The first time, macOS asks to allow microphone access. That is how macOS
-  describes listening to BlackHole.
+  describes listening to BlackHole. Winify waits for your answer before it
+  listens. If you chose **Don't Allow**, turn Winify on in **System Settings >
+  Privacy & Security > Microphone**, then quit and reopen Winify.
 - If you hear nothing at all, your speakers are probably not ticked in step 4.
 
 ## Milkdrop
@@ -355,7 +357,7 @@ window is closed, Winify is hidden or minimized, or the music is paused.
 | **SPOTIFY PREMIUM NOT DETECTED** | Winify needs Spotify Premium. |
 | Music skips after a second or two | Do step 3 again. |
 | **Spotify rate limit - try again in ...** | Spotify is limiting your account for a while. Wait the time shown. |
-| The visualizer is empty | Set up the visualizer (above), and check that the Multi-Output Device is your sound output. |
+| The visualizer is empty | Set up the visualizer (above), and check that the Multi-Output Device is your sound output and that Winify is allowed in **System Settings > Privacy & Security > Microphone**. |
 | Sign-in never finishes | Another app may be using the same sign-in connection. Quit other music or developer tools and try again. |
 
 ### If music won't play: the playback log
