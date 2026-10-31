@@ -4,11 +4,11 @@
  * Kept on this Mac (IndexedDB), never sent anywhere.
  *
  * Built slowly in the background: one request at a time, at most one every
- * 1 s, waiting out Spotify's Retry-After on a 429. Progress is saved after
+ * 3 s, waiting out Spotify's Retry-After on a 429. Progress is saved after
  * every page, so quitting part-way loses nothing. Which playlists there are
  * comes from the playlist picker's list (its snapshot_id says whether a
- * playlist changed); it is checked once per launch, and again whenever the
- * picker reads that list (when it is a few hours old, or REFRESH), and only
+ * playlist changed); it is checked again whenever the picker reads that
+ * list (at launch or when opened, if it is a few hours old; REFRESH), and only
  * playlists whose snapshot changed are read again, in full. Liked Songs has
  * no snapshot: its size and newest addition stand in for one. The check is
  * Liked Songs' size and the list in pages of 50; "Indexing" shows only while
@@ -22,7 +22,7 @@ import * as picker from './webamp-picker.js';
 const DB_NAME = 'winify-index';
 const STORE = 'lists';
 const PAGE = 50;                     // the Web API maximum for both endpoints
-const GAP_MS = 1000;                 // at most one request every second
+const GAP_MS = 3000;                 // at most one request every 3 s
 const RETRY_MS = 60 * 1000;          // after a network error
 const MAX_RESULTS = 300;
 // Set by the smoke test and the mock pages: no index requests.

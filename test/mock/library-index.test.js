@@ -145,7 +145,7 @@ h.open().then(async ({ win, js }) => {
     await h.wait(100);
   }
   check('re-read: Liked Songs and Road Trip (changed), nothing else', JSON.stringify(times.map((t) => t.what)) === JSON.stringify(['liked', 'pa']), JSON.stringify(times));
-  check('at least 1 s apart', times.length === 2 && times[1].at - times[0].at >= 900, times.length === 2 ? (times[1].at - times[0].at) + ' ms' : '');
+  check('at least 3 s apart', times.length === 2 && times[1].at - times[0].at >= 2900, times.length === 2 ? (times[1].at - times[0].at) + ' ms' : '');
   check('progress note while it builds: "Indexing playlists: 0 of 2"', /^Indexing playlists: [01] of 2$/.test(note || ''), note);
   check('...in Jump to track\'s bottom bar and the picker\'s', /^my playlists: indexing [01]\/2/.test(searchBar || '') && /indexing [01]\/2/.test(pickerBar || ''), JSON.stringify([searchBar, pickerBar]));
   const found = await js(`['7006', '7004', '7007', '7003'].map((q) => WinifyIndex.search(q).map((r) => r.places.map((p) => p.name).join('+')).join(','))`);
@@ -190,7 +190,7 @@ h.open().then(async ({ win, js }) => {
   const libraryCalls = (cs) => cs.filter((c) => LIBRARY.includes(c[0]) && !(c[0] === 'api:playlistItems' && c[1] === 'big'));
   const summary = (cs) => { const n = {}; for (const c of libraryCalls(cs).sort((a, b) => a[0].localeCompare(b[0]))) n[c[0].slice(4)] = (n[c[0].slice(4)] || 0) + 1; return n; };
   const total = (cs) => libraryCalls(cs).length;
-  const relaunch = async (lib, { fresh = false } = {}) => {
+  const relaunch = async (lib, { fresh = false, hoursLater = false } = {}) => {
     await js('location.reload()'); await h.wait(500);
     while (!(await js('window.mounted === true').catch(() => false))) await h.wait(100);
     await js(lib); await js('(mock.active = "winify", mock.setContext("spotify:playlist:big", 0), mock.setPaused(false))'); await h.wait(1200);
@@ -198,6 +198,8 @@ h.open().then(async ({ win, js }) => {
       await js(`new Promise((res) => { const q = indexedDB.open('winify-index', 1); q.onsuccess = () => { const t = q.result.transaction('lists', 'readwrite'); t.objectStore('lists').clear(); t.oncomplete = () => { q.result.close(); res(); }; }; })`);
       await js(`localStorage.removeItem('winify.picker.v1')`);
     }
+    // The saved list as if read a few hours ago (the picker's refresh age).
+    if (hoursLater) await js(`(() => { const l = JSON.parse(localStorage.getItem('winify.picker.v1')); l.at = Date.now() - 4 * 3600 * 1000; localStorage.setItem('winify.picker.v1', JSON.stringify(l)); })()`);
     await take();
     await js(`localStorage.removeItem('winify.index.paused')`);
     await js('WinifyIndex.restart({ gapMs: 20 })');
@@ -234,24 +236,29 @@ h.open().then(async ({ win, js }) => {
   const resumed = total(cs);
 
   await relaunch(LIB());
+  await settle();
+  cs = await take(); st = await I();
+  check('launched again soon after: no requests at all (the list was checked less than a few hours ago)', total(cs) === 0 && st.lists === 101, JSON.stringify(summary(cs)));
+  const soon = total(cs);
+  await relaunch(LIB(), { hoursLater: true });
   const quick = await settle();
   cs = await take(); st = await I();
-  check('nothing changed: a quick check only (Liked Songs\' size, the list of playlists), no playlist read, in seconds',
-    JSON.stringify(summary(cs)) === JSON.stringify({ myPlaylists: 3, savedTracks: 1 }) && st.lists === 101 && quick.ms < 15000, total(cs) + ' requests in ' + quick.ms + ' ms ' + JSON.stringify(summary(cs)));
+  check('a few hours later, nothing changed: a quick check only (Liked Songs\' size, the list of playlists), no playlist read',
+    JSON.stringify(summary(cs)) === JSON.stringify({ myPlaylists: 3, savedTracks: 1 }) && st.lists === 101, total(cs) + ' requests in ' + quick.ms + ' ms ' + JSON.stringify(summary(cs)));
   check('...and no "Indexing" note during that check', quick.notes.length === 0, JSON.stringify(quick.notes));
   const unchanged = total(cs);
 
-  await relaunch(LIB({ changed: 7 }));
+  await relaunch(LIB({ changed: 7 }), { hoursLater: true });
   const one = await settle();
   cs = await take();
   check('one playlist changed (its snapshot): only it is read again', JSON.stringify(libraryCalls(cs).filter((c) => c[0] === 'api:playlistItems').map((c) => c[1])) === JSON.stringify(['m7', 'm7']), JSON.stringify(summary(cs)));
   check('...with "Indexing 0 of 1" while it reads', one.notes.length === 1 && /of 1$/.test(one.notes[0]), JSON.stringify(one.notes));
-  await relaunch(LIB({ changed: 7, liked: true }));
+  await relaunch(LIB({ changed: 7, liked: true }), { hoursLater: true });
   await settle();
   cs = await take();
   check('a song liked in place of another (same count, newer addition): only Liked Songs is read again', libraryCalls(cs).filter((c) => c[0] === 'api:playlistItems').length === 0 &&
     libraryCalls(cs).filter((c) => c[0] === 'api:savedTracks').length === 1 + 3 && (await js(`WinifyIndex.search('39999').length`)) === 1, JSON.stringify(summary(cs)));
-  console.log('   requests: first build ' + first + ', resumed build ' + resumed + ', nothing changed ' + unchanged);
+  console.log('   requests: first build ' + first + ', resumed build ' + resumed + ', launched again soon after ' + soon + ', a few hours later with nothing changed ' + unchanged);
 
   const loud = JSON.parse(await js('JSON.stringify(loud)')); const errs = JSON.parse(await js('JSON.stringify(errors)'));
   check('no alerts, downloads, file prompts or new windows', loud.length === 0, JSON.stringify(loud));

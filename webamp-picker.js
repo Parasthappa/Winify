@@ -121,19 +121,16 @@ export async function ownPlaylists() {
 }
 
 // The list for the My playlists index (webamp-library-index.js), without
-// hurrying. Read again once per launch, so the index sees what changed since
-// (a few requests: Liked Songs' size and newest addition, and the list in
-// pages of 50 with each playlist's snapshot); also read when there is none,
-// or it is from before it kept those. If that read fails, the saved list.
-let checkedForIndex = false;
+// hurrying. Read again when it is a few hours old, as the picker's own
+// refresh does, so the index sees what changed (Liked Songs' size and newest
+// addition, and the list in pages of 50 with each playlist's snapshot); also
+// when there is none, or it is from before it kept those. If that read
+// fails, the saved list.
 export async function listForIndex() {
   if (!lib) lib = recall();
   while (loading) await new Promise((r) => setTimeout(r, 500));
   const old = !lib || !lib.complete || !('likedNewest' in lib) || lib.entries.some((e) => !('snapshot' in e));
-  if (old || !checkedForIndex) {
-    checkedForIndex = true;
-    await read(true);
-  }
+  if (old || Date.now() - lib.at > STALE_MS) await read(true);
   return lib && lib.complete ? lib : null;
 }
 
