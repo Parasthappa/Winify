@@ -228,8 +228,9 @@ the player, as many at once as you like.
   that panel is always drawn in front, even of a panel you drag onto it.
 - Drag a panel by its title bar (it snaps to the windows around it), or
   resize it from its bottom-right corner, in the same steps as the playlist
-  window so the edges line up. Winify then remembers where you put it and
-  opens it there next time.
+  window. Close to another window's edge, or the screen's, the corner snaps
+  to it, so the panel ends level with its neighbours. Winify then remembers
+  where you put it and opens it there next time.
 - Dragging the main Winamp window takes every panel snapped to it along.
 - Each stays open until you close it with its **x** or **Escape** (Escape
   closes the panel you last clicked or typed in), also after you choose a

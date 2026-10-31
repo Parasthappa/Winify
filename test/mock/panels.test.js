@@ -67,7 +67,7 @@ h.open().then(async ({ win, js }) => {
   win.setContentSize(size[0], 600); await h.wait(800);
   for (const id of ['picker', 'search', 'lyrics', 'milkdrop']) await open(id);
   p = await P(); const h2 = await H();
-  check('second-row panels end at the bottom (to the step), not past it', p.lyrics.b <= h2 && p.lyrics.h > h2 - pl.b - 29 && (p.lyrics.h - 116) % 29 === 0 && p.milkdrop.b <= h2 && p.milkdrop.h >= 116, JSON.stringify({ lyrics: p.lyrics, milkdrop: p.milkdrop, h: h2 }));
+  check('second-row panels end at the bottom (Winify\'s own exactly, Milkdrop to its step), not past it', p.lyrics.b === h2 && p.milkdrop.b <= h2 && p.milkdrop.b > h2 - 29 && p.milkdrop.h >= 116, JSON.stringify({ lyrics: p.lyrics, milkdrop: p.milkdrop, h: h2 }));
   check('...Milkdrop in Webamp\'s 29 px steps', (p.milkdrop.h - 116) % 29 === 0, JSON.stringify(p.milkdrop));
   await closeAll();
   win.setContentSize(size[0], size[1]); await h.wait(800);
@@ -159,7 +159,7 @@ h.open().then(async ({ win, js }) => {
   await js('(mock.active = "winify", mock.setContext("spotify:album:a1", 0), mock.setPaused(false))'); await h.wait(1500);
   if (!(await js(isOpen.search))) await open('search');
   const reopened = await R(SEL.search);
-  check('a spot remembered from before (unstepped, 10 px off the playlist) reopens snapped to it, on the steps', reopened.x === plw.x && reopened.y === plw.b && (reopened.w - 275) % 25 === 0 && (reopened.h - 116) % 29 === 0, JSON.stringify({ reopened, playlist: plw }));
+  check('a spot remembered 10 px off the playlist reopens snapped to it, at the size it was left', reopened.x === plw.x && reopened.y === plw.b && reopened.w === 358 && reopened.h === 303, JSON.stringify({ reopened, playlist: plw }));
   await close('search');
   const keep = await js(`(() => { const g = WinifyWebamp.getInstance().store.getState().windows.genWindows; return JSON.stringify({ main: g.main.position, playlist: [g.playlist.position, g.playlist.size] }); })()`);
   const full = win.getContentSize();
@@ -168,7 +168,32 @@ h.open().then(async ({ win, js }) => {
   const kept = await js(`(() => { const g = WinifyWebamp.getInstance().store.getState().windows.genWindows; return JSON.stringify({ main: g.main.position, playlist: [g.playlist.position, g.playlist.size] }); })()`);
   const pl2 = await R('#playlist-window'); const mn2 = await R('#main-window');
   check('the window shrinks so the windows no longer fit: the playlist keeps its height, under the main window (Webamp\'s reset undone)', JSON.parse(kept).playlist[1].join() === '0,5' && pl2.x === mn2.x && pl2.y === mn2.b, JSON.stringify({ keep: JSON.parse(keep), kept: JSON.parse(kept) }));
-  await js('WinifyPanels.reset()'); await open('search'); await h.wait(300);   // back in the stack for the next part
+
+  console.log('9c. Level with the column: its real height, and resizing snaps to edges');
+  await js('WinifyPanels.reset()'); await open('search'); await h.wait(300);
+  const plSize = (n) => js(`WinifyWebamp.getInstance().store.dispatch({ type: 'WINDOW_SIZE_CHANGED', windowId: 'playlist', size: [0, ${'${'}n${'}'}] })`.replace('${n}', n));
+  await plSize(8); await h.wait(300); await js('WinifyPanels.relayout()'); await h.wait(300);
+  const tallPl = await R('#playlist-window'); p = await P();
+  check('the playlist made taller: stacked panels exactly as tall as the column now is, not its default', tallPl.h === 261 + 3 * 29 && p.lyrics.y === main.y && Object.values(p).filter((r) => r && r.y === main.y).every((r) => r.b === tallPl.b), JSON.stringify({ tallPl, p }));
+  await plSize(5); await h.wait(300); await js('WinifyPanels.relayout()'); await h.wait(300);
+  p = await P();
+  check('...back to its default: so are they', p.lyrics.y === main.y && Object.values(p).filter((r) => r && r.y === main.y).every((r) => r.h === HEIGHT && r.b === pl.b), JSON.stringify(p));
+  const ltop = await R('.winify-lyrics .wl-top');
+  await drag(ltop.x + 60, ltop.y + 8, 40, 50);   // off the steps: 40 px right, 50 px down
+  const l0 = await R(SEL.lyrics); const Wd = await W();
+  const lg = await R('.winify-lyrics .winify-grip');
+  await drag(lg.x + 10, lg.y + 7, (Wd - 4) - l0.r, (pl.b + 6) - l0.b);   // 4 px short of the right edge, 6 px past the column's bottom
+  const l1 = await R(SEL.lyrics);
+  check('resized near the column\'s bottom and the right edge: snaps exactly level with both', l0.x === colRight + 40 && l0.y === main.y + 50 && l1.b === pl.b && l1.r === Wd && l1.x === l0.x && l1.y === l0.y, JSON.stringify({ l0, l1, columnBottom: pl.b, right: Wd }));
+  const lg2 = await R('.winify-lyrics .winify-grip');
+  await drag(lg2.x + 10, lg2.y + 7, -200, -100);   // far from any edge
+  const l2 = await R(SEL.lyrics);
+  check('...resized away from any edge: whole steps again', (l2.w - 275) % 25 === 0 && (l2.h - 116) % 29 === 0, JSON.stringify(l2));
+  const lg3 = await R('.winify-lyrics .winify-grip');
+  await drag(lg3.x + 10, lg3.y + 7, (Wd - 4) - l2.r, (pl.b + 6) - l2.b);
+  await close('lyrics'); await open('lyrics');
+  check('closed and reopened: still level with the column and the edge', JSON.stringify(await R(SEL.lyrics)) === JSON.stringify(l1), JSON.stringify([await R(SEL.lyrics), l1]));
+  await js('WinifyPanels.reset()'); await h.wait(300);   // back in the stack for the next part
 
   console.log('10. Dragging the main window carries every panel snapped to it');
   await open('milkdrop');

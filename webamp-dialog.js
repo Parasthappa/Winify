@@ -9,7 +9,8 @@
  *               window edges), and never past the edges of Winify's window.
  *   resizing    By a grip in the bottom-right corner, like the playlist
  *               window's, in its steps (25 x 29 px from 275 x 116), so
- *               edges line up with Webamp's windows.
+ *               edges line up with Webamp's windows; within the snap
+ *               distance of another window's edge, it snaps to that edge.
  *   tooltips    Full text of a truncated cell, shown below its row (or
  *               above), but never over the title bar, which is for dragging.
  *
@@ -139,8 +140,28 @@ export const stepped = (w, h, round = Math.round) => ({
   h: STEP.baseH + Math.max(0, round((h - STEP.baseH) / STEP.h)) * STEP.h,
 });
 
+// While resizing: the right and bottom edges snap to another window's edges
+// (touching or aligned, with a window level with it on the other axis) and to
+// the edges of Winify's window, within Webamp's snap distance, as moving does.
+// A snap wins over the steps, which cannot reach every neighbour's edge.
+function snappedSize(x, y, w, h, except) {
+  const near = (p, q) => Math.abs(p - q) < SNAP_DISTANCE;
+  let bestW = null;
+  let bestH = null;
+  const closer = (best, edge, target) => (best === null || Math.abs(target - edge) < Math.abs(best - edge) ? target : best);
+  const boxes = webampBoxes(except).concat([{ x: 0, y: 0, width: window.innerWidth, height: window.innerHeight }]);
+  for (const b of boxes) {
+    const levelY = y < b.y + b.height + SNAP_DISTANCE && b.y < y + h + SNAP_DISTANCE;
+    const levelX = x < b.x + b.width + SNAP_DISTANCE && b.x < x + w + SNAP_DISTANCE;
+    if (levelY) for (const edge of [b.x, b.x + b.width]) if (edge > x && near(x + w, edge)) bestW = closer(bestW, x + w, edge);
+    if (levelX) for (const edge of [b.y, b.y + b.height]) if (edge > y && near(y + h, edge)) bestH = closer(bestH, y + h, edge);
+  }
+  return { w: bestW === null ? w : Math.round(bestW - x), h: bestH === null ? h : Math.round(bestH - y) };
+}
+
 // Resizing `el` by `grip` (its frame's bottom-right corner, webamp-frame.js),
-// in Winamp's steps. onResize() while it moves, onResized(rect) when let go.
+// in Winamp's steps, snapping to other windows' edges when close.
+// onResize() while it moves, onResized(rect) when let go.
 export function makeResizable(el, { grip, minWidth, minHeight, onResize, onResized }) {
   grip.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
@@ -153,10 +174,12 @@ export function makeResizable(el, { grip, minWidth, minHeight, onResize, onResiz
     const from = rectOf(el);
     const move = (ev) => {
       if (ev.buttons === 0) { up(); return; }   // let go where the release was not seen
-      const raw = stepped(from.w + ev.clientX - sx, from.h + ev.clientY - sy);
-      const fit = stepped(window.innerWidth - from.x, window.innerHeight - from.y, Math.floor);   // never past the edges
-      const w = Math.max(minWidth, Math.min(raw.w, fit.w));
-      const h = Math.max(minHeight, Math.min(raw.h, fit.h));
+      const want = { w: from.w + ev.clientX - sx, h: from.h + ev.clientY - sy };
+      const snap = snappedSize(from.x, from.y, want.w, want.h, el);
+      const raw = stepped(want.w, want.h);
+      const fit = { w: window.innerWidth - from.x, h: window.innerHeight - from.y };   // never past the edges
+      const w = Math.max(minWidth, Math.min(snap.w !== want.w ? snap.w : raw.w, fit.w));
+      const h = Math.max(minHeight, Math.min(snap.h !== want.h ? snap.h : raw.h, fit.h));
       el.style.width = w + 'px';
       el.style.height = h + 'px';
       if (onResize) onResize();

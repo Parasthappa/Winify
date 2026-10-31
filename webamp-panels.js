@@ -8,9 +8,10 @@
  * right of the main + playlist column, in the order they were opened, tops
  * aligned and edges touching. One that would run off the right edge starts
  * a second row under the playlist window, left-aligned with it; a row that
- * would run off the bottom is shortened to fit. All open at the same height,
- * the main window's plus the playlist window's default height, so they line
- * up with that column. Closing one slides the later ones over (and up).
+ * would run off the bottom is shortened to fit. All open exactly as tall as
+ * that column is (the main window plus the playlist window, and the
+ * equalizer when it is under them), so they line up with it. Closing one
+ * slides the later ones over (and up).
  * The Winify panel (the chassis, with what's playing) is off-limits: a panel
  * that would overlap it goes to the next free spot, past it in the same row
  * or in the next row; only when there is none does it stay where it was
@@ -32,7 +33,7 @@
  * Webamp's (sized in its 25x29 px steps, see webamp-milkdrop.js).
  */
 
-import { stepped, snapRect } from './webamp-dialog.js';
+import { snapRect } from './webamp-dialog.js';
 
 const log = (...args) => console.log('[winify/panels]', ...args);
 
@@ -87,7 +88,9 @@ function column() {
     right: Math.max(...parts.map((p) => p.r)),
     top: main.y,
     bottom: Math.max(...parts.map((p) => p.b)),
-    height: (main.b - main.y) + PLAYLIST_DEFAULT_HEIGHT,
+    // The column as it is (a resized playlist, the equalizer under it), or,
+    // without the playlist, as it will be when it opens.
+    height: playlist ? Math.max(...parts.map((p) => p.b)) - main.y : (main.b - main.y) + PLAYLIST_DEFAULT_HEIGHT,
   };
 }
 
@@ -134,7 +137,9 @@ function stack(ids) {
       // Never off the screen: a stacked panel must not push the player (Webamp
       // pulls a window that is off screen back, with its snapped group).
       const px = Math.max(0, Math.min(x, W - w));
-      fitted = p.fit ? p.fit({ x: px, y, w, h }) : Object.assign({ x: px, y }, stepped(w, h, Math.floor));
+      // Exactly the column's height (Winify's own panels; Milkdrop is sized
+      // in Webamp's steps by its fit).
+      fitted = p.fit ? p.fit({ x: px, y, w, h }) : { x: px, y, w, h };
       if (!first) first = { fitted, x, y, row, rowStart, rowH };
       if (!overlaps(fitted, ch)) break;
       if (tries >= CHASSIS_TRIES || y + h >= H && x + w > W) {
@@ -176,12 +181,12 @@ export function opening(id) {
   if (!store.open.includes(id)) store.open.push(id);
   save();
   if (store.placed[id]) {
-    // Sizes kept before resizing went in steps land on the nearest step.
+    // The size as it was left (a step, or snapped to a neighbour's edge).
     // A spot within snapping distance of another window snaps to it, as if
     // dropped there now.
     const r = store.placed[id];
     if (id === 'milkdrop') return clampRect(r);
-    return clampRect(snapRect(Object.assign({}, r, stepped(r.w, r.h))));
+    return clampRect(snapRect(r));
   }
   const ids = stacked().filter((x) => x !== id).concat(id);
   // Keep the order the panels were opened in.

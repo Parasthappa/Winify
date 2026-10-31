@@ -18,7 +18,9 @@ h.open().then(async ({ win, js }) => {
   };
   const closed = async (sel) => { for (const end = Date.now() + 5000; Date.now() < end && (await R(sel)) && (await js(`getComputedStyle(document.querySelector(${JSON.stringify(sel)})).display`)) !== 'none';) await h.wait(50); };
   const grab = async (sel) => { const t = await R(sel); return { x: t.x + 40, y: t.y + 8 }; };   // the title bar's left fill
-  const inside = (d) => d.x >= 0 && d.y >= 0 && d.r <= 1200 && d.b <= 762;
+  // The window is as tall as the screen's usable area allows (macOS shrinks it).
+  const H = await js('innerHeight');
+  const inside = (d) => d.x >= 0 && d.y >= 0 && d.r <= 1200 && d.b <= H;
   await h.wait(1500);
   await js('(mock.active = "winify", mock.setContext("spotify:playlist:big", 0), mock.setPaused(false))'); await h.wait(2500);
   if (!process.env.KEEP_PROFILE) {
@@ -36,7 +38,7 @@ h.open().then(async ({ win, js }) => {
     d = await R('.winify-search');
     check('dropped 9px from the playlist window\'s right edge: snaps flush, top aligned', d.x === pl.r && d.y === pl.y, JSON.stringify({ pl, d }));
     g = await grab('.winify-search .ws-top'); await drag(g.x, g.y, 2000, 2000); d = await R('.winify-search');
-    check('dragged far past the bottom-right: stops at the window edge, fully visible', inside(d) && d.r === 1200 && d.b === 762, JSON.stringify(d));
+    check('dragged far past the bottom-right: stops at the window edge, fully visible', inside(d) && d.r === 1200 && d.b === H, JSON.stringify(d));
     g = await grab('.winify-search .ws-top'); await drag(g.x, g.y, -3000, -3000); d = await R('.winify-search');
     check('dragged far past the top-left: stops at the edge', d.x === 0 && d.y === 0, JSON.stringify(d));
     g = await grab('.winify-search .ws-top'); await drag(g.x, g.y, 600, 300); const placed = await R('.winify-search');
