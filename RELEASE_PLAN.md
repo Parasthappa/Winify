@@ -140,7 +140,8 @@ Done means:
       run it from the source (Node, the castLabs Electron, their own EVS
       signing and Spotify Client ID), the visualizer setup, troubleshooting,
       privacy, and the "Not affiliated" section.
-- [ ] Credits name everything Winify uses (THIRD_PARTY_NOTICES.md).
+- [x] Credits name everything Winify uses (THIRD_PARTY_NOTICES.md), down to
+      each library inside Webamp's build (31 Oct 2026).
 - [ ] Screenshots of Winify are in the README.
 - [ ] The project is on GitHub, with nothing personal in it or its history.
 - [ ] A 1.0 tag and release notes on GitHub: source only, no built app.

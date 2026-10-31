@@ -418,7 +418,3 @@ How Winify is built, and how to work on it: see [DEVELOPMENT.md](DEVELOPMENT.md)
 ## Licence
 
 MIT. See [LICENSE](LICENSE).
-
-Winify is an independent project. It is not affiliated with, endorsed by or
-sponsored by Spotify or Winamp. Spotify is a trademark of Spotify AB; Winamp
-is a trademark of its owner.
