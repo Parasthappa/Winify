@@ -226,7 +226,10 @@ const WORKER_CSP = "default-src 'none'; script-src 'self' 'unsafe-eval' 'wasm-un
 // media permissions to, so a random port every launch meant the microphone
 // grant never persisted and the device-label warm-up re-opened the mic on
 // every start. 8888 is left alone -- that is the OAuth callback.
-const APP_PORTS = [8899, 8900, 8901, 8902, 8903];
+// The packaged app has its own range: its storage (layout, mixes, the
+// playlist index) belongs to the port too, so the two copies running at once
+// must not push each other onto another port and an empty store.
+const APP_PORTS = app.isPackaged ? [8909, 8910, 8911, 8912, 8913] : [8899, 8900, 8901, 8902, 8903];
 
 function startAppServer() {
   return new Promise((resolve, reject) => {
@@ -1262,7 +1265,8 @@ const LRCLIB_TIMEOUT_MS = 15000;
 ipcMain.handle('lrclib', async (_event, path, params) => {
   if (!LRCLIB_PATHS.has(path)) throw new Error('not an LRCLIB lookup: ' + path);
   const res = await fetch(LRCLIB + path + '?' + new URLSearchParams(params), {
-    headers: { 'User-Agent': 'Winify/' + require('./package.json').version + ' (Winamp-style Spotify player; Electron)' },
+    // LRCLIB asks for the app's name, version and a link to its project page.
+    headers: { 'User-Agent': 'Winify/' + require('./package.json').version + ' (Winamp-style Spotify player; ' + require('./package.json').homepage + ')' },
     signal: AbortSignal.timeout(LRCLIB_TIMEOUT_MS),
   });
   // Busy (429/503): how long LRCLIB asks clients to wait before trying again.

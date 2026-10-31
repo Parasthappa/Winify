@@ -74,7 +74,12 @@ test/package/capture.js`.
 
 The packaged app keeps its settings in `Application Support/Winify App`
 (`main.js`, `PACKAGED_FOLDER`), apart from the development copy's `winify`
-(the Mac's disk ignores case, so `Winify` would be the same folder).
+(the Mac's disk ignores case, so `Winify` would be the same folder). It
+serves its page on ports 8909-8913, the development copy on 8899-8903
+(`APP_PORTS`): the page's storage (layout, mixes, the playlist index)
+belongs to its port, so the two running at once would otherwise push one
+onto the next port and an empty store. Sign-in is the same for both: the
+callback server on 8888 (`REDIRECT_URI`), one sign-in at a time.
 
 Shipped in `Contents/Resources`: `LICENSE.winify.txt`,
 `THIRD_PARTY_NOTICES.md`, Electron's `LICENSE` (as `LICENSE.electron.txt`)
