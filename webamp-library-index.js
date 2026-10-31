@@ -81,20 +81,25 @@ const save = (rec) => (shared() ? shared().put(rec) : tx('readwrite', (s) => s.p
   .catch((err) => ctx && ctx.warn('index: could not save -', err && err.message));
 const drop = (uri) => (shared() ? shared().remove(uri) : tx('readwrite', (s) => s.delete(uri))).catch(() => {});
 
-// Everything saved. The first time with the shared store, an index this
-// copy built on its own before is moved into it rather than built again.
+// Everything saved. An index this copy built on its own before is moved
+// into the shared one rather than built again: every playlist the shared
+// one lacks, or has unfinished where this copy's is finished (whichever copy
+// opens first, nothing either built is lost).
 async function loadAll() {
   if (!shared()) return localAll();
-  let recs = await shared().load();
-  if (!recs.length) {
-    const old = await localAll().catch(() => []);
-    if (old.length) {
-      for (const r of old) await shared().put(r);
-      ctx.log('index: moved', old.length, 'playlists from this copy\'s own index into the shared one');
-      recs = old;
-    }
+  const recs = await shared().load();
+  const old = await localAll().catch(() => []);
+  const have = new Map(recs.map((r) => [r.uri, r]));
+  let moved = 0;
+  for (const r of old) {
+    const s = have.get(r.uri);
+    if (s && (s.complete || !r.complete)) continue;
+    await shared().put(r);
+    have.set(r.uri, r);
+    moved++;
   }
-  return recs;
+  if (moved) ctx.log('index: moved', moved, 'playlists from this copy\'s own index into the shared one');
+  return [...have.values()];
 }
 
 // Only one copy builds at a time: the one holding the shared lock (renewed

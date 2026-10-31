@@ -77,6 +77,14 @@ app.whenReady().then(async () => {
   check('...and not read from Spotify again (unchanged)', !sent.some((s) => /\/playlists\/p\d\/items|\/me\/tracks\?.*offset/.test(s)), JSON.stringify(sent));
   check('...its songs searchable', (await js(`WinifyIndex.search('Song 200').length`)) === 1);
 
+  console.log('4b. The shared one already has some (the other copy opened first): the rest is still moved in');
+  await js(`window.spotify.index.clear()`);
+  await js(`window.spotify.index.put({ uri: 'spotify:playlist:p0', name: 'Shared 0', snapshot: 's0', meId: 'tester', songs: [], next: 0, complete: false })`);
+  sent.length = 0;
+  await js('WinifyIndex.restart({ gapMs: 100 })'); await wait(3000);
+  const p0 = JSON.parse(fs.readFileSync(path.join(SHARED, 'index', encodeURIComponent('spotify:playlist:p0') + '.json'), 'utf8'));
+  check('all 3 there, the unfinished one replaced by this copy\'s finished one, nothing read from Spotify', indexFiles().length === 3 && p0.complete && !sent.some((s) => /\/playlists\/p\d\/items|\/me\/tracks\?.*offset/.test(s)), JSON.stringify({ files: indexFiles(), p0: p0.complete, sent }));
+
   console.log('5. The picker: opening it again never restarts a read under way');
   await js(`localStorage.removeItem('winify.picker.v1')`); await js('WinifyWebamp.unmount()'); await wait(300);
   fs.writeFileSync(path.join(profile, 'tokens.json'), JSON.stringify({ accessToken: 'fake', refreshToken: 'fake-refresh', expiresAt: Date.now() + 3600e3, scope: SCOPES }));
