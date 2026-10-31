@@ -64,6 +64,8 @@ app.whenReady().then(async () => {
   console.log('First run');
   let v = await until((x) => /WELCOME/.test(x.status || ''));
   check('1 welcome: "Get started"', v.cta === 'Get started' && !v.input, JSON.stringify(v)); await shot('01-welcome');
+  const label = await js(`[...document.querySelectorAll('#login-screen div')].filter((d) => !d.children.length).map((d) => d.textContent.trim()).find((t) => /^v\\d/.test(t)) || null`);
+  check('...version label is package.json\'s', label === 'v' + require('../../package.json').version, label);
   await click('#login-screen .sa-cta');
   v = await until((x) => x.input); check('2 Client ID step', v.status === 'PASTE YOUR SPOTIFY CLIENT ID' && v.cta === 'Save Client ID', JSON.stringify(v)); await shot('02-client-id');
   await enter('hello'); v = await until((x) => /NOT A CLIENT ID/.test(x.status || '')); check('3 not a Client ID', !!v.input, v.status); await shot('03-not-a-client-id');

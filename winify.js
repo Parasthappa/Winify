@@ -291,6 +291,9 @@
       errLedBg: 'radial-gradient(circle at 38% 32%, ' + this.mix(YELLOW, true, 0.55) + ' 0%, ' + YELLOW + ' 45%, ' + this.mix(YELLOW, false, 0.35) + ' 100%)',
       errLedGlow: '0 0 12px 3px ' + this.alpha(YELLOW, 0.6) + ', inset 0 0 4px rgba(255,255,255,.5)',
 
+      // package.json's version, from the app (blank in the design preview).
+      versionLabel: IPC && IPC.version ? 'v' + IPC.version : '',
+
       remember: remember,
       lampBg: remember
         ? 'radial-gradient(circle at 38% 32%, ' + this.mix(action, true, 0.55) + ' 0%, ' + action + ' 44%, ' + this.mix(action, false, 0.35) + ' 100%)'

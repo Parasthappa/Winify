@@ -333,6 +333,9 @@ function createWindow() {
       // the playback SDK's buffering and causes stalls and skipped tracks.
       // This window is meant to be tucked away, so throttling must be off.
       backgroundThrottling: false,
+      // The chassis's version label. package.json itself, not app.getVersion():
+      // that is Electron's version when a test starts main.js.
+      additionalArguments: ['--winify-version=' + require('./package.json').version],
     },
   });
   // Demo hook preserved: `npm start -- --outcome=network` (or free-account)

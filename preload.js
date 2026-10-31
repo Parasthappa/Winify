@@ -3,7 +3,11 @@ const { contextBridge, ipcRenderer } = require('electron');
 const on = (channel) => (callback) =>
   ipcRenderer.on(channel, (_event, payload) => callback(payload));
 
+const VERSION_ARG = '--winify-version=';
+
 contextBridge.exposeInMainWorld('spotify', {
+  // Winify's version (package.json), for the chassis's label.
+  version: (process.argv.find((a) => a.startsWith(VERSION_ARG)) || '').slice(VERSION_ARG.length),
   // Renderer -> main
   ready: () => ipcRenderer.send('ready'),
   login: () => ipcRenderer.send('login'),

@@ -221,6 +221,9 @@ Done means:
 
 - [ ] `npm run package` builds an NSIS installer (and a `.zip`) on Windows,
       app name Winify, version 1.1.0, Winify's icon (`.ico`), its own app ID.
+- [ ] Bump `version` in package.json from 1.0.0 to 1.1.0. Everything reads
+      it: the chassis's version label, the app's own version and the
+      installer's file name.
 - [ ] Order inside the build: package, (Authenticode, only if a certificate is
       ever added), **then** VMP-sign the folder holding `Winify.exe`, then
       `verify-pkg`; the build fails if verification fails. (The Mac build is
