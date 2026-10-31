@@ -1,7 +1,7 @@
 // My playlists: the local index (webamp-library-index.js) and Jump to track's
 // two modes, against the fake Spotify.
 const { app } = require('electron'); const h = require('../lib/harness');
-let fails = 0; setTimeout(() => { console.log('WATCHDOG'); app.exit(2); }, 240000);
+let fails = 0; setTimeout(() => { console.log('WATCHDOG'); app.exit(2); }, 420000);
 h.open().then(async ({ win, js }) => {
   const check = (l, ok, d) => { if (!ok) fails++; console.log((ok ? '  PASS ' : '  FAIL ') + l + (d ? '   ' + String(d).slice(0, 240) : '')); };
   const take = async () => JSON.parse(await js('JSON.stringify(calls.splice(0))'));
@@ -171,6 +171,87 @@ h.open().then(async ({ win, js }) => {
   await js('WinifyIndex.restart()'); await h.wait(800);
   st = await I();
   check('the saved index loads (4 songs in 2 lists), nothing sent', st.songs === 4 && st.lists === 2 && indexReads(await take()).length === 0, JSON.stringify(st));
+
+  console.log('10. Relaunching: a first build, one quit half-way and resumed, and nothing changed');
+  // 100 playlists of yours (60 songs: 2 pages each), 10 of someone else's,
+  // 120 Liked Songs (3 pages). A reload is a relaunch: the fake Spotify starts
+  // afresh, and the index and the picker's list stay saved.
+  const LIB = (o = {}) => `(() => {
+    PLAYLISTS.length = 0;
+    for (let i = 0; i < 100; i++) {
+      PLAYLISTS.push({ id: 'm' + i, name: 'Mine ' + i, uri: 'spotify:playlist:m' + i, owner: { id: 'user1' }, collaborative: false, snapshot_id: 's' + i + (i === ${o.changed == null ? -1 : o.changed} ? 'x' : ''), items: { total: 60 } });
+      CONTEXTS['spotify:playlist:m' + i] = Array.from({ length: 60 }, (_, k) => 20000 + i * 100 + k);
+    }
+    for (let i = 0; i < 10; i++) PLAYLISTS.push({ id: 'o' + i, name: 'Theirs ' + i, uri: 'spotify:playlist:o' + i, owner: { id: 'someone' }, collaborative: false, snapshot_id: 't' + i, items: { total: 5 } });
+    CONTEXTS['spotify:user:user1:collection'] = Array.from({ length: 120 }, (_, k) => 30000 + k);
+    ${o.liked ? `CONTEXTS['spotify:user:user1:collection'][0] = 39999; mock.likedNewest = '2026-10-31T09:00:00Z';` : ''}
+  })()`;
+  const LIBRARY = ['api:me', 'api:myPlaylists', 'api:savedTracks', 'api:playlistItems'];
+  const libraryCalls = (cs) => cs.filter((c) => LIBRARY.includes(c[0]) && !(c[0] === 'api:playlistItems' && c[1] === 'big'));
+  const summary = (cs) => { const n = {}; for (const c of libraryCalls(cs).sort((a, b) => a[0].localeCompare(b[0]))) n[c[0].slice(4)] = (n[c[0].slice(4)] || 0) + 1; return n; };
+  const total = (cs) => libraryCalls(cs).length;
+  const relaunch = async (lib, { fresh = false } = {}) => {
+    await js('location.reload()'); await h.wait(500);
+    while (!(await js('window.mounted === true').catch(() => false))) await h.wait(100);
+    await js(lib); await js('(mock.active = "winify", mock.setContext("spotify:playlist:big", 0), mock.setPaused(false))'); await h.wait(1200);
+    if (fresh) {
+      await js(`new Promise((res) => { const q = indexedDB.open('winify-index', 1); q.onsuccess = () => { const t = q.result.transaction('lists', 'readwrite'); t.objectStore('lists').clear(); t.oncomplete = () => { q.result.close(); res(); }; }; })`);
+      await js(`localStorage.removeItem('winify.picker.v1')`);
+    }
+    await take();
+    await js(`localStorage.removeItem('winify.index.paused')`);
+    await js('WinifyIndex.restart({ gapMs: 20 })');
+  };
+  // Until the index has nothing left to read, sampling the progress note.
+  const settle = async (ms = 60000) => {
+    const t = Date.now(); let notes = new Set(); let quiet = 0;
+    while (Date.now() - t < ms) {
+      const n = await js('WinifyIndex.progressNote()'); if (n) notes.add(n.replace(/\d+ of/, 'n of'));
+      const st = await I();
+      quiet = !st.building && !st.waiting && !(await js('WinifyPicker.state ? WinifyPicker.state().loading : false').catch(() => false)) ? quiet + 1 : 0;
+      if (quiet >= 15) break;                 // 1.5 s with nothing reading and no list check
+      await h.wait(100);
+    }
+    return { ms: Date.now() - t, notes: [...notes] };
+  };
+
+  await relaunch(LIB(), { fresh: true });
+  await settle();
+  cs = await take(); st = await I();
+  const first = total(cs);
+  check('a first build: who you are, the list, then every playlist of yours and Liked Songs, each page once', st.lists === 101 && st.songs === 100 * 60 + 120 &&
+    JSON.stringify(summary(cs)) === JSON.stringify({ me: 1, myPlaylists: 3, playlistItems: 200, savedTracks: 1 + 3 }), first + ' requests ' + JSON.stringify(summary(cs)) + ' ' + JSON.stringify(st));
+
+  await relaunch(LIB(), { fresh: true });
+  await until('WinifyIndex.status().lists >= 40', 30000);
+  await take();
+  await relaunch(LIB());                                  // quit half-way, then launched again
+  await settle();
+  cs = await take(); st = await I();
+  const resumedPages = libraryCalls(cs).filter((c) => c[0] === 'api:playlistItems').map((c) => c[1] + '@' + c[2]);
+  check('quit half-way: the next launch goes on where it stopped, no page read twice, all 101 lists', st.lists === 101 && st.songs === 6120 &&
+    new Set(resumedPages).size === resumedPages.length && resumedPages.length < 200 && resumedPages.length >= 100, total(cs) + ' requests ' + JSON.stringify(summary(cs)));
+  const resumed = total(cs);
+
+  await relaunch(LIB());
+  const quick = await settle();
+  cs = await take(); st = await I();
+  check('nothing changed: a quick check only (Liked Songs\' size, the list of playlists), no playlist read, in seconds',
+    JSON.stringify(summary(cs)) === JSON.stringify({ myPlaylists: 3, savedTracks: 1 }) && st.lists === 101 && quick.ms < 15000, total(cs) + ' requests in ' + quick.ms + ' ms ' + JSON.stringify(summary(cs)));
+  check('...and no "Indexing" note during that check', quick.notes.length === 0, JSON.stringify(quick.notes));
+  const unchanged = total(cs);
+
+  await relaunch(LIB({ changed: 7 }));
+  const one = await settle();
+  cs = await take();
+  check('one playlist changed (its snapshot): only it is read again', JSON.stringify(libraryCalls(cs).filter((c) => c[0] === 'api:playlistItems').map((c) => c[1])) === JSON.stringify(['m7', 'm7']), JSON.stringify(summary(cs)));
+  check('...with "Indexing 0 of 1" while it reads', one.notes.length === 1 && /of 1$/.test(one.notes[0]), JSON.stringify(one.notes));
+  await relaunch(LIB({ changed: 7, liked: true }));
+  await settle();
+  cs = await take();
+  check('a song liked in place of another (same count, newer addition): only Liked Songs is read again', libraryCalls(cs).filter((c) => c[0] === 'api:playlistItems').length === 0 &&
+    libraryCalls(cs).filter((c) => c[0] === 'api:savedTracks').length === 1 + 3 && (await js(`WinifyIndex.search('39999').length`)) === 1, JSON.stringify(summary(cs)));
+  console.log('   requests: first build ' + first + ', resumed build ' + resumed + ', nothing changed ' + unchanged);
 
   const loud = JSON.parse(await js('JSON.stringify(loud)')); const errs = JSON.parse(await js('JSON.stringify(errors)'));
   check('no alerts, downloads, file prompts or new windows', loud.length === 0, JSON.stringify(loud));

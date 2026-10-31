@@ -149,7 +149,7 @@ window.fetch = async (url, opts = {}) => {
     return new Response(JSON.stringify({ error: { status: 429, message: 'Too many requests', reason: 'QUOTA_EXCEEDED' } }),
       { status: 429, headers: { 'Retry-After': String(mock.limitPlayer.retryAfter) } });
   }
-  if (m === 'GET' && p === '/me') return json(200, { id: 'user1' });
+  if (m === 'GET' && p === '/me') { rec('api:me'); return json(200, { id: 'user1' }); }
   if (m === 'GET' && p === '/me/player') {
     if (mock.active === 'none' || mock.active === 'winify-empty') return json(204);
     const dev = mock.active === 'winify' ? { id: 'winify-dev', name: 'Winify', volume_percent: mock.volume } : { id: 'phone', name: 'Test Phone', volume_percent: 90 };
@@ -221,7 +221,9 @@ window.fetch = async (url, opts = {}) => {
     rec('api:savedTracks', u.searchParams.get('offset'));
     if (mock.pageDelay) await new Promise((r) => setTimeout(r, mock.pageDelay));   // a slow connection
     if (mock.noLibraryScope) return json(403, { error: { status: 403, message: 'Insufficient client scope' } });
-    return page(CONTEXTS['spotify:user:user1:collection'], (n) => ({ added_at: '2026-01-01T00:00:00Z', track: T(n) }));
+    // The newest addition comes first; mock.likedNewest changes its date.
+    const liked = CONTEXTS['spotify:user:user1:collection'];
+    return page(liked, (n) => ({ added_at: (n === liked[0] && mock.likedNewest) || '2026-01-01T00:00:00Z', track: T(n) }));
   }
   if (m === 'GET' && (mm = p.match(/^\/tracks\/([^/]+)$/))) { rec('api:track', mm[1]); return json(200, T(+mm[1])); }
   if (m === 'GET' && (mm = p.match(/^\/artists\/([^/]+)$/))) { rec('api:artist', mm[1]); return json(200, { name: 'Artist ' + mm[1].replace(/^sa/, '') }); }

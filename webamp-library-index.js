@@ -6,11 +6,13 @@
  * Built slowly in the background: one request at a time, at most one every
  * 1 s, waiting out Spotify's Retry-After on a 429. Progress is saved after
  * every page, so quitting part-way loses nothing. Which playlists there are
- * comes from the playlist picker's saved list (its snapshot_id says whether
- * a playlist changed); it is checked again only when the picker reads that
- * list (when it is a few hours old, or REFRESH), and only playlists whose
- * snapshot changed are read again, in full. Liked Songs has no snapshot:
- * its size and newest addition stand in for one.
+ * comes from the playlist picker's list (its snapshot_id says whether a
+ * playlist changed); it is checked once per launch, and again whenever the
+ * picker reads that list (when it is a few hours old, or REFRESH), and only
+ * playlists whose snapshot changed are read again, in full. Liked Songs has
+ * no snapshot: its size and newest addition stand in for one. The check is
+ * Liked Songs' size and the list in pages of 50; "Indexing" shows only while
+ * playlists are actually being read.
  *
  * Searching never sends a request.
  */
@@ -33,6 +35,7 @@ let lists = new Map();               // playlist URI -> its saved record
 let wanted = [];                     // what the picker's list says to index: [{ uri, name, snapshot }]
 let pending = [];                    // URIs still to read, in order
 let round = { done: 0, total: 0 };   // this round's progress, for the note
+let holding = false;                 // waiting out a rate limit or an outage: not reading
 let waking = null;                   // ends the wait between requests early (a new plan)
 let runningGen = 0;                  // the start whose reading loop is running
 let requests = 0;                    // sent since Winify started, for the log
@@ -81,9 +84,12 @@ function wantedFrom(src) {
   return liked.concat(own);
 }
 
-// Read again what changed or is unfinished; forget what is gone.
+// Read again what changed or is unfinished; forget what is gone. Each read
+// of the list is planned once (the picker reports it, and init asks for it).
+let planned = null;
 function plan(src) {
-  if (!src) return;
+  if (!src || src === planned) return;
+  planned = src;
   if (meId && src.meId !== meId) forgetAll();          // another account
   meId = src.meId;
   wanted = wantedFrom(src);
@@ -126,6 +132,7 @@ async function pacedNow(path, g) {
       if (g !== gen) return null;
     }
     if (g !== gen) return null;
+    if (holding) { holding = false; changed(); }
     lastRequestAt = Date.now();
     requests++;
     try {
@@ -135,6 +142,8 @@ async function pacedNow(path, g) {
       if (err.status === 429) {
         ctx.warn('index: Spotify rate limit - paused for', err.retryAfter, 's');
         lastRequestAt = Date.now() + (err.retryAfter || 5) * 1000;
+        holding = true;
+        changed();
         continue;
       }
       throw err;
@@ -194,6 +203,8 @@ async function run() {
         if (g !== gen) return;
         if (err.status == null) {                       // offline: try again later
           ctx.warn('index: could not reach Spotify - trying again in a minute');
+          holding = true;
+          changed();
           await sleep(RETRY_MS);
           continue;
         }
@@ -289,12 +300,17 @@ export function search(query) {
 export const current = (uri) => !!(lists.get(uri) && lists.get(uri).complete && !pending.includes(uri));
 
 export function status() {
-  return { songs: songCount(), lists: lists.size, building: pending.length > 0, done: round.done, total: round.total, requests };
+  return { songs: songCount(), lists: lists.size, building: reading_(), waiting: pending.length > 0 && !reading_(), done: round.done, total: round.total, requests };
 }
 
-// "Indexing playlists: 40 of 97" while it builds, or null.
+// Reading playlists now: something to read and the reading loop on it, not
+// waiting out a rate limit or an outage (nor the quick check of the list,
+// which plans nothing until it is done).
+const reading_ = () => pending.length > 0 && runningGen === gen && !holding;
+
+// "Indexing playlists: 40 of 97" while it reads them, or null.
 export function progressNote() {
-  return pending.length ? 'Indexing playlists: ' + round.done + ' of ' + round.total : null;
+  return reading_() ? 'Indexing playlists: ' + round.done + ' of ' + round.total : null;
 }
 
 function changed() {
@@ -342,6 +358,8 @@ export function reset() {
   gen++;
   if (waking) waking();
   pending = [];
+  planned = null;
+  holding = false;
   ctx = null;
 }
 
