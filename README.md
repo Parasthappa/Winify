@@ -188,9 +188,18 @@ and plays them. Skip, reorder, queue and shuffle work as with any playlist.
 Hover over a song to see which playlist it came from. Click the logo again
 for a fresh mix.
 
-Your last 10 mixes are kept on this Mac (never on your Spotify account) and
-listed at the top of the playlist picker, under "Winify mixes". Pick one to
-play it again exactly. Right-click one to rename or delete it.
+To mix playlists you choose, open the playlist picker, **Cmd-click** each
+one (or **Shift-click** a range), then press **Enter**. Choose how many songs
+from each (10, 20 or 50) and whether to shuffle them together.
+
+Your last 20 mixes, of both kinds, are kept on this Mac (never on your
+Spotify account) and listed at the top of the playlist picker, under
+"Winify mixes" (a mix of chosen playlists is named like "4 PLAYLISTS · 20
+each · 31 Oct"). Hover over one to see which playlists it came from. Pick one
+to play it again exactly. Right-click one to **Remix** it (the same
+playlists, as many songs from each, fresh random picks, saved as a new mix),
+rename it or delete it. Remix uses Winify's index of your playlists, so a
+playlist it hasn't indexed yet is left out until it has.
 
 ### Finding a track
 

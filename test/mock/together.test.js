@@ -1,7 +1,7 @@
 // Playing several playlists together: Cmd/Shift-click in the picker, the
 // prompt, the mix built from the index, big selections sent in batches.
 const { app } = require('electron'); const h = require('../lib/harness');
-let fails = 0; setTimeout(() => { console.log('WATCHDOG'); app.exit(2); }, 280000);
+let fails = 0; setTimeout(() => { console.log('WATCHDOG'); app.exit(2); }, 400000);
 h.open().then(async ({ win, js }) => {
   const check = (l, ok, d) => { if (!ok) fails++; console.log((ok ? '  PASS ' : '  FAIL ') + l + (d ? '   ' + String(d).slice(0, 300) : '')); };
   const take = async () => JSON.parse(await js('JSON.stringify(calls.splice(0))'));
@@ -123,6 +123,56 @@ h.open().then(async ({ win, js }) => {
   check('built with no request to Spotify (only the play)', made && made.length > 100 && reads(cs).length === 0 && cs.filter((c) => /^api:(?!play)/.test(c[0])).length === 0, made && made.length + ' ' + JSON.stringify(cs.filter((c) => /^api:/.test(c[0]))));
   const deep = made.map(id).filter((n) => n >= 20000 && n % 100 >= 50).length;
   check('songs come from the whole playlist (not only its first page)', deep > 20, deep + ' of ' + made.length);
+
+  console.log('7. Saved like the random mixes: named, hover names the playlists, replayed exactly, remixed, 20 kept');
+  let all = await js('WinifyMix.saved()');
+  const four = all.find((x) => x.header && x.header.name === '4 PLAYLISTS · 10 each');
+  check('a mix of chosen playlists is named "4 PLAYLISTS · 10 each · <day>"', /^4 PLAYLISTS · 10 each · \d{1,2} [A-Z][a-z]{2}$/.test(four.name) && /^20 PLAYLISTS · 50 each · \d{1,2} [A-Z][a-z]{2}$/.test(all[1].name), JSON.stringify(all.map((x) => x.name)));
+  check('...and remembers its playlists, how many from each, and the order', four.kind === 'chosen' && four.perList === 10 && four.together === true && JSON.stringify(four.sources.map((x) => x.name).sort()) === JSON.stringify(['Alpha', 'Bravo', 'Charlie', 'Liked Songs']), JSON.stringify(four.sources));
+  check('a random mix remembers its playlists too (23, 10 each)', all[0].kind === 'random' && all[0].sources.length === 23 && all[0].perList === 10, JSON.stringify({ kind: all[0].kind, n: all[0].sources && all[0].sources.length }));
+  await js('WinifyPicker.close()'); await js('WinifyPicker.open()'); await h.wait(500);
+  const nameCell = await js(`(() => { const c = document.querySelector('.winify-picker .wp-row[data-mix="${four.id}"] .wp-name'); if (!c) return null; const b = c.getBoundingClientRect(); return { x: Math.round(b.left + 20), y: Math.round(b.top + b.height / 2), tip: c.dataset.tip }; })()`);
+  win.webContents.sendInputEvent({ type: 'mouseMove', x: nameCell.x, y: nameCell.y }); await h.wait(900);
+  const tipText = await js(`(document.querySelector('.winify-tooltip') || {}).textContent || null`);
+  check('hovering it in the picker: "From: " and its playlists', /^From: /.test(tipText || '') && ['Alpha', 'Bravo', 'Charlie', 'Liked Songs'].every((n) => tipText.includes(n)), tipText);
+  win.webContents.sendInputEvent({ type: 'mouseMove', x: 5, y: 5 }); await h.wait(200);
+
+  const mine = all.find((x) => x.name === 'Mine');
+  await take(); await js(`WinifyMix.playSaved(${JSON.stringify(mine.id)})`); await h.wait(500);
+  cs = await take(); body = plays(cs)[0];
+  check('playing a saved mix again: exactly the same songs, in the same order', body && JSON.stringify(body.uris) === JSON.stringify(mine.tracks.map((t) => t.uri).slice(0, 100)), body && body.uris.length);
+
+  await take();
+  const rm = await js(`WinifyMix.remix(${JSON.stringify(mine.id)})`); await h.wait(500);
+  cs = await take(); all = await js('WinifyMix.saved()');
+  check('Remix: no request to make it (only the play)', cs.filter((c) => /^api:/.test(c[0]) && c[0] !== 'api:play').length === 0 && plays(cs).length === 1, JSON.stringify(cs.filter((c) => /^api:/.test(c[0])).map((c) => c[0])));
+  const u7 = rm.tracks.map((t) => id(t.uri)), m7 = mine.tracks.map((t) => id(t.uri));
+  check('...the same playlists in the same order, 50 from each, not shuffled together, saved as a new mix on top', all[0].id === rm.id && all.some((x) => x.id === mine.id) &&
+    JSON.stringify(rm.sources) === JSON.stringify(mine.sources) && rm.perList === 50 && rm.together === false && /^3 PLAYLISTS · 50 each · /.test(rm.name) &&
+    u7.slice(0, 50).every((n) => inC(n) || [8000, 8001, 8002].includes(n)) && u7.slice(-5).every(inB), JSON.stringify({ name: rm.name, n: u7.length }));
+  check('...with fresh random songs (Charlie\'s 50 of 60 picked again)', JSON.stringify(u7.slice(0, 50)) !== JSON.stringify(m7.slice(0, 50)) && new Set(u7).size === u7.length, '');
+
+  await h.click(win, js, '.winify-picker .wp-row[data-mix="' + all.find((x) => x.kind === 'random' && x.sources.length === 23).id + '"]', 0.5, 0.5, 'right'); await h.wait(300);
+  await take();
+  await js(`[...document.querySelectorAll('#webamp-context-menu li')].find((l) => l.textContent === 'Remix').click()`);
+  await until(`WinifyMix.saved()[0].kind === 'random' && WinifyMix.saved()[0].sources.length === 23 && WinifyMix.saved()[0].id !== ${JSON.stringify(all[0].id)}`, 8000);
+  cs = await take(); const rr = (await js('WinifyMix.saved()'))[0];
+  check('right-click a random mix > Remix: the same 23 playlists, 10 from each, fresh, no request to make it', rr.kind === 'random' && rr.perList === 10 && rr.tracks.length > 100 &&
+    cs.filter((c) => /^api:/.test(c[0]) && c[0] !== 'api:play').length === 0 && !/PLAYLISTS/.test(rr.name), JSON.stringify({ name: rr.name, n: rr.tracks.length }));
+
+  // A mix saved before mixes remembered their playlists: found by the names on its songs.
+  await js(`(() => { const all = WinifyMix.saved(); all.unshift({ id: 'old1', name: 'Old one', at: 1, playlists: 2, tracks: [
+    { uri: 'spotify:track:8000', name: 'a', durationMs: 1, from: 'Alpha' }, { uri: 'spotify:track:8100', name: 'b', durationMs: 1, from: 'Bravo' }] });
+    localStorage.setItem('winify.mixes.v1', JSON.stringify(all)); })()`);
+  check('an older mix: hover names its playlists from its songs', JSON.stringify(await js(`WinifyMix.fromNames('old1')`)) === JSON.stringify(['Alpha', 'Bravo']));
+  const ro = await js(`WinifyMix.remix('old1')`); await h.wait(400);
+  check('...and Remix finds them in your list: Alpha and Bravo, 10 each', ro && JSON.stringify(ro.sources.map((x) => x.uri)) === JSON.stringify(['spotify:playlist:pa', 'spotify:playlist:pb']) && ro.tracks.length === 15, ro && JSON.stringify({ n: ro.tracks.length, s: ro.sources }));
+
+  const oldest = (await js('WinifyMix.saved()')).slice(-1)[0];
+  for (let i = 0; i < 20; i++) { await js(`WinifyMix.makeFrom([{ uri: 'spotify:playlist:pa', name: 'Alpha' }, { uri: 'spotify:playlist:pb', name: 'Bravo' }], 10, true)`); await h.wait(50); }
+  all = await js('WinifyMix.saved()');
+  check('20 kept, the oldest dropped first', all.length === 20 && !all.some((x) => x.id === oldest.id) && all[0].at >= all[19].at, all.length + ' kept');
+  await js('WinifyPicker.close()');
 
   const loud = JSON.parse(await js('JSON.stringify(loud)')); const errs = JSON.parse(await js('JSON.stringify(errors)'));
   check('no alerts, downloads, file prompts or new windows', loud.length === 0, JSON.stringify(loud));

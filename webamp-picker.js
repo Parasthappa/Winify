@@ -105,6 +105,12 @@ function filtered(q) {
 // with their track counts: the random mix picks from these. The saved list
 // is used; with none yet it is read first. Lists saved before ownership was
 // recorded count every entry as yours.
+// The playlists in the saved list, now, without reading anything.
+export function knownPlaylists() {
+  if (!lib) lib = recall();
+  return lib ? lib.entries : [];
+}
+
 export async function ownPlaylists() {
   if (!lib) lib = recall();
   // A read under way is finished (sooner), not started again.
@@ -369,6 +375,8 @@ function renderList() {
     const name = document.createElement('span');
     name.className = 'wp-name';
     name.textContent = numbers[index] + '. ' + r.name;
+    // A saved mix: hovering names the playlists it came from.
+    if (r.mixId) { const from = mixes.fromNames(r.mixId); if (from.length) name.dataset.tip = 'From: ' + from.join(', '); }
     const count = document.createElement('span');
     count.className = 'wp-count';
     count.textContent = r.count == null ? '' : String(r.count);
@@ -495,6 +503,8 @@ function build(spot) {
     select(Number(row.dataset.index));
     const id = row.dataset.mix;
     showMenu(e.clientX, e.clientY, [
+      // The same playlists, as many from each, fresh songs: a new mix.
+      { label: 'Remix', action: () => { mixes.remix(id); } },
       { label: 'Rename', action: () => rename(id) },
       { label: 'Delete', action: () => { mixes.remove(id); } },
     ]);

@@ -7,8 +7,9 @@
 // Spotify and LRCLIB are faked in the main process and Spotify's player
 // script is blocked, so nothing leaves this Mac and it works on any account.
 // Checks: the page's port, the remembered sign-in, the playlist picker, a
-// lyrics lookup through Winify's LRCLIB route (and its User-Agent), and
-// sign-in through http://127.0.0.1:8888/callback.
+// mix of playlists chosen together and its Remix, a lyrics lookup through
+// Winify's LRCLIB route (and its User-Agent), and sign-in through
+// http://127.0.0.1:8888/callback.
 const { app, BrowserWindow, session, shell } = require('electron');
 const fs = require('fs'), os = require('os'), path = require('path'), http = require('http');
 
@@ -31,7 +32,13 @@ global.fetch = async (u, o = {}) => {
     if (p === '/v1/me') return J(200, { id: 'checker', product: 'premium', country: 'GB' });
     if (p === '/v1/me/tracks') return J(200, { total: 2, items: [{ added_at: '2026-10-31T00:00:00Z', track: null }], next: null });
     if (p === '/v1/me/playlists') return J(200, { total: PLAYLISTS.length, items: PLAYLISTS.slice(n, n + 50), next: null });
-    if (/^\/v1\/playlists\/[^/]+\/items$/.test(p)) return J(200, { total: 0, items: [], next: null });
+    const items = p.match(/^\/v1\/playlists\/p(\d)\/items$/);
+    if (items) {
+      const total = PLAYLISTS[+items[1]].items.total;
+      const song = (k) => ({ is_local: false, item: { uri: 'spotify:track:check' + items[1] + k, name: 'Song ' + items[1] + '.' + k, type: 'track',
+        duration_ms: 200000, is_playable: true, artists: [{ name: 'Check Artist' }], album: { name: 'Check Album' } } });
+      return J(200, { total, items: Array.from({ length: Math.max(0, Math.min(50, total - n)) }, (_, k) => song(n + k)), next: null });
+    }
     if (p.startsWith('/v1/me/player')) return J(204, null);
     return J(404, { error: { status: 404, message: 'not in this check' } });
   }
@@ -85,6 +92,23 @@ app.whenReady().then(async () => {
   const rows = await js(`[...document.querySelectorAll('.winify-picker .wp-row .wp-name')].map((r) => r.textContent)`);
   check('the playlist picker lists Liked Songs and the playlists', st.open && st.complete && rows.includes('1. Liked Songs') && rows.some((r) => /Check playlist 3$/.test(r)), JSON.stringify({ st, rows }));
   await js('WinifyPicker.close()');
+
+  // Playlists chosen together: saved as a mix, named and remembered; remixed
+  // from the index with no request. (Spotify's player is blocked here, so
+  // nothing plays: what is checked is what is saved.)
+  const chosen = PLAYLISTS.slice(0, 2).map((p) => ({ uri: p.uri, name: p.name, snapshot: p.snapshot_id }));
+  await js(`WinifyMix.makeFrom(${JSON.stringify(chosen)}, 10, true)`);
+  let mixes = await js('WinifyMix.saved()');
+  const made = mixes[0];
+  check('playlists chosen together: saved as "2 PLAYLISTS · 10 each · <day>", with its playlists', !!made && /^2 PLAYLISTS · 10 each · \d{1,2} [A-Z][a-z]{2}$/.test(made.name) &&
+    made.tracks.length === 11 && JSON.stringify(made.sources.map((x) => x.name)) === JSON.stringify(['Check playlist 1', 'Check playlist 2']), made && JSON.stringify({ name: made.name, n: made.tracks.length }));
+  const before = seen.length;
+  await js(`WinifyMix.remix(${JSON.stringify(made && made.id)})`);
+  mixes = await js('WinifyMix.saved()');
+  const fresh = seen.slice(before).filter((x) => /api\.spotify\.com/.test(x) && !/\/me\/player/.test(x));
+  check('Remix: a new mix of the same playlists, 10 each, with no request to make it', mixes.length === 2 && mixes[0].id !== made.id && mixes[0].tracks.length === 11 &&
+    JSON.stringify(mixes[0].sources) === JSON.stringify(made.sources) && fresh.length === 0, JSON.stringify({ n: mixes.length, fresh }));
+  check('hovering a saved mix names its playlists', JSON.stringify(await js(`WinifyMix.fromNames(${JSON.stringify(made && made.id)})`)) === JSON.stringify(['Check playlist 1', 'Check playlist 2']));
 
   const found = await js(`WinifyLyrics.find({ name: 'Check Song', artist: 'Check Artist', album: 'Check Album', durationS: 200 }).then((r) => r.state, (e) => 'threw ' + e.message)`);
   const lrc = seen.filter((s) => s.includes('lrclib.net'));

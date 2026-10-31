@@ -222,7 +222,7 @@ function showTooltip(cell, dialog, titleBar, style) {
   hideTooltip();
   tip = document.createElement('div');
   tip.className = 'winify-tooltip';
-  tip.textContent = cell.textContent;
+  tip.textContent = cell.dataset.tip || cell.textContent;
   Object.assign(tip.style, {
     position: 'fixed', zIndex: '100003', pointerEvents: 'none', whiteSpace: 'nowrap',
     font: '9px ' + style.font, padding: '1px 3px', background: style.normalbg,
@@ -240,12 +240,14 @@ function showTooltip(cell, dialog, titleBar, style) {
   tip.style.left = left + 'px';
 }
 
-// Tooltips for cut-off text in `list` (cells matching `cells`), kept clear of
+// Tooltips for cut-off text in `list` (cells matching `cells`), or a cell's
+// own data-tip, kept clear of
 // the dialog's title bar. `style` gives the skin's playlist colours and font.
 export function attachTooltips(list, dialog, titleBar, cells, style) {
   list.addEventListener('pointerover', (e) => {
     const cell = e.target.closest(cells);
-    if (!cell || cell.scrollWidth <= cell.clientWidth) return;
+    // Cut-off text, or a cell with its own tip (data-tip).
+    if (!cell || (!cell.dataset.tip && cell.scrollWidth <= cell.clientWidth)) return;
     clearTimeout(tipTimer);
     tipTimer = setTimeout(() => showTooltip(cell, dialog, titleBar, style()), TOOLTIP_DELAY_MS);
   });

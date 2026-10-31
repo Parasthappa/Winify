@@ -104,7 +104,7 @@ h.open().then(async ({ win, js }) => {
   // Right-click the older mix: Rename.
   await h.click(win, js, '.winify-picker .wp-row[data-mix="' + two[1].id + '"]', 0.5, 0.5, 'right'); await h.wait(300);
   const menu = await js(`[...document.querySelectorAll('#webamp-context-menu li')].map((l) => l.textContent)`);
-  check('right-click a mix: Rename and Delete', menu.join() === 'Rename,Delete', JSON.stringify(menu));
+  check('right-click a mix: Remix, Rename and Delete', menu.join() === 'Remix,Rename,Delete', JSON.stringify(menu));
   await js(`[...document.querySelectorAll('#webamp-context-menu li')].find((l) => l.textContent === 'Rename').click()`); await h.wait(200);
   await js(`(() => { const i = document.querySelector('.winify-picker .wp-rename'); i.value = 'Sunday'; i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); })()`); await h.wait(300);
   rows = await js(`[...document.querySelectorAll('.winify-picker .wp-row')].slice(0, 3).map((r) => r.textContent)`);
