@@ -735,6 +735,36 @@ function watchVisibility() {
   }
 }
 
+// The My playlists index, as the page last reported it ({ indexed,
+// playlists, buildOn, building }), for "Build full index".
+let indexState = null;
+ipcMain.on('index-state', (_event, st) => {
+  const before = JSON.stringify(indexState);
+  indexState = st && typeof st === 'object' ? st : null;
+  if (JSON.stringify(indexState) !== before) buildTray();
+});
+function indexItem() {
+  const st = indexState;
+  const of = st && st.playlists ? ' (' + st.indexed + ' of ' + st.playlists + ')' : '';
+  if (st && st.playlists && st.indexed >= st.playlists && !st.buildOn) return { label: 'Index complete' + of, enabled: false };
+  return {
+    label: st && st.buildOn ? 'Pause building the index' + of : 'Build full index' + of,
+    enabled: connected,
+    click: () => send('ui:command', { name: st && st.buildOn ? 'index-pause' : 'index-build' }),
+  };
+}
+
+// Winify's own Spotify requests (both copies; Spotify's player library is
+// not counted), so usage can be seen. Updated as requests are made.
+let usageTimer = null;
+governor.onCount(() => {
+  if (!usageTimer) usageTimer = setTimeout(() => { usageTimer = null; buildTray(); }, 5000);
+});
+function usageItem() {
+  const u = governor.usage();
+  return { label: 'Spotify requests: ' + u.hour + ' in the last hour, ' + u.today + ' today', enabled: false };
+}
+
 function buildTray() {
   if (!tray) return;
   const visible = isOnScreen();
@@ -808,6 +838,9 @@ function buildTray() {
         send('ui:command', { name: 'reset-layout' });
       },
     },
+    { type: 'separator' },
+    indexItem(),
+    usageItem(),
     { type: 'separator' },
     {
       label: 'Change Spotify Client ID...',
@@ -908,6 +941,8 @@ function createTray() {
   tray = new Tray(icon);
   tray.setToolTip('Winify');
   buildTray();
+  // The request counter's "last hour" moves on with time, requests or not.
+  setInterval(buildTray, 60 * 1000);
 }
 
 // --- Token storage --------------------------------------------------------

@@ -212,6 +212,15 @@ box (in the box, J just types).
 - **Shift+Enter** adds it to your queue, to play next.
 - Right-click for more: **Play album** and **Play artist**.
 
+It first searches your own playlists and Liked Songs ("My playlists"),
+instantly and without asking Spotify; press **Tab** to search all of
+Spotify instead. A playlist is added to "My playlists" when you open or play
+it. Until all of them are in, the top line says how many it searches
+("Searching 23 of 97 playlists"). To add the rest at once, click **Build
+full index** there or in the menu-bar menu: it reads them slowly in the
+background (a big library can take hours of Winify running, over several
+sessions), and you can pause it from the menu-bar menu.
+
 ### The playlist window
 
 For albums, your own playlists and Liked Songs, the playlist window is
@@ -285,7 +294,10 @@ switch to the slim windowshade view and back.)
 ### Menu-bar icon
 
 Winify's icon in the macOS menu bar lets you show or hide Winify, open
-Milkdrop, change your Client ID, disconnect, or quit. Closing Winify hides
+Milkdrop, build (or pause building) the "My playlists" index, change your
+Client ID, disconnect, or quit. It also shows how many requests Winify has
+sent Spotify in the last hour and today (both copies, if you use the Mac app
+and `npm start`). Closing Winify hides
 it; use **Quit Winify** (or **Cmd+Q**) to close it completely.
 
 ## Optional: the visualizer
@@ -411,8 +423,7 @@ Winify keeps everything on your Mac:
   removes it.
 - **Milkdrop presets you add**, in Winify's own storage.
 - **An index of the songs in your playlists**, for Jump to track's "My
-  playlists" (built slowly in the background), in a folder that the Mac app
-  and `npm start` share, so it is built once.
+  playlists", in a folder that the Mac app and `npm start` share.
 
 Winify connects only to:
 

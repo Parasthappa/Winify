@@ -208,7 +208,8 @@ window.fetch = async (url, opts = {}) => {
   if (m === 'GET' && p === '/me/playlists') { rec('api:myPlaylists', u.searchParams.get('offset'), u.searchParams.get('limit')); return page(PLAYLISTS, (x) => x); }
   if (m === 'GET' && (mm = p.match(/^\/playlists\/([^/]+)$/))) { rec('api:playlistMeta', mm[1]);
     const names = { short: 'Disco House//Progressive', long: 'Deep Late-Night Minimal Techno, Dub & Hypnotic Grooves For Very Long Drives Home' };
-    return json(200, { name: names[mm[1]] || 'Playlist ' + mm[1] }); }
+    const listed = PLAYLISTS.find((x) => x.id === mm[1]);
+    return json(200, { name: names[mm[1]] || 'Playlist ' + mm[1], snapshot_id: listed ? listed.snapshot_id : 'snap-' + mm[1] }); }
   if (m === 'GET' && (mm = p.match(/^\/playlists\/([^/]+)\/items$/))) {
     rec('api:playlistItems', mm[1], u.searchParams.get('offset'), u.searchParams.get('limit'));
     const pl = PLAYLISTS.find((x) => x.id === mm[1]);

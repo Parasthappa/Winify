@@ -34,8 +34,21 @@ const WIDTH = 475;                  // the playlist window plus eight segments
 // As many rows as its height holds (it is resizable).
 const visibleRows = () => {
   const list = el && el.querySelector('.ws-list');
-  return Math.max(1, Math.floor(((list && list.clientHeight) || 16 * ROW) / ROW));
+  // The scope line, when shown, takes the top row.
+  return Math.max(1, Math.floor(((list && list.clientHeight) || 16 * ROW) / ROW) - (scope() ? 1 : 0));
 };
+
+// My playlists searches only what is indexed: when that is not all of them,
+// the list's top line says so ("Searching 23 of 97 playlists · Build full
+// index"; click it to start the build), so partial results are not taken
+// for the whole picture.
+function scope() {
+  if (mode !== 'mine') return null;
+  const st = index.status();
+  if (!st.playlists || st.indexed >= st.playlists) return null;
+  return 'Searching ' + st.indexed + ' of ' + st.playlists + ' playlists \u00b7 ' +
+    (!st.buildOn ? 'Build full index' : st.building ? 'building the index\u2026' : 'index build waiting its turn');
+}
 const FLASH_MS = 2500;
 
 let ctx = null;                     // { webamp, api, say, log, warn, deviceId, refreshSoon, now }
@@ -90,7 +103,7 @@ function indexNote(typed) {
     return index.progressNote() + (st.songs ? ' (' + st.songs + ' songs so far)' : '') + '\n' +
       (typed ? 'Nothing found yet - the rest is still being read' : 'Type to search what is in already') + '\n' + TAB_HINT;
   }
-  if (!st.songs) return 'Index not built yet: it starts once your playlists are listed\n' + TAB_HINT;
+  if (!st.songs) return 'Nothing indexed yet: playlists are added as you open them\n' + TAB_HINT;
   return typed ? 'No results in your playlists\n' + TAB_HINT : 'Type to search your playlists (' + st.songs + ' songs)\nTab: all of Spotify';
 }
 
@@ -316,12 +329,25 @@ function render() {
   // change restyles in place, or a double-click's second click would land on
   // a new element and never register.
   const VISIBLE_ROWS = visibleRows();
-  const key = mode + '|' + chosenSeq + '|' + scroll + '|' + VISIBLE_ROWS + '|' + results.length + '|' + (results[0] && results[0].uri) + '|' + status;
+  const scopeLine = scope();
+  const key = mode + '|' + chosenSeq + '|' + scroll + '|' + VISIBLE_ROWS + '|' + results.length + '|' + (results[0] && results[0].uri) + '|' + status + '|' + scopeLine;
   if (key === drawnKey) { paintSelection(); return; }
   drawnKey = key;
   const st = skinStyle();
   const list = el.querySelector('.ws-list');
   list.textContent = '';
+  if (scopeLine) {
+    const row = document.createElement('div');
+    row.className = 'ws-row ws-status ws-scope';
+    row.style.color = st.normal;
+    row.textContent = scopeLine;
+    if (/Build full index$/.test(scopeLine)) {
+      row.style.cursor = 'pointer';
+      row.title = 'Read the rest of your playlists, slowly, in the background (pause it from the menu bar)';
+      row.addEventListener('click', () => { index.startBuild(); });
+    }
+    list.appendChild(row);
+  }
   if (status) {
     for (const line of status.split('\n')) {
       const row = document.createElement('div');

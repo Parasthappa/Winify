@@ -77,6 +77,17 @@ app.whenReady().then(async () => {
   check('...a restarted copy too', !(await again.admit('/me/playlists', undefined)).ok);
   check('...other endpoints are not held back', (await again.admit('/me/player', undefined)).ok);
 
+  console.log('6. The menu bar\'s counter: both copies, the last hour and today');
+  dir = fresh();
+  const c1 = create({ dir, copy: 'dev', caps: CAPS, windows: { minute: 60000, hour: 3600000 } });
+  for (let i = 0; i < 4; i++) await c1.admit('/me/player', undefined);
+  await wait(1200);                                     // written to the shared folder
+  const c2 = create({ dir, copy: 'packaged', caps: CAPS, windows: { minute: 60000, hour: 3600000 } });
+  for (let i = 0; i < 3; i++) await c2.admit('/search?q=x', undefined);
+  c2.count();                                           // one of sign-in's own
+  const u = c2.usage();
+  check('8 in the last hour and 8 today, counted across both copies', u.hour === 8 && u.today === 8, JSON.stringify(u));
+
   console.log(fails ? 'RESULT: ' + fails + ' FAILED' : 'RESULT: ALL PASSED');
   app.exit(fails ? 1 : 0);
 });

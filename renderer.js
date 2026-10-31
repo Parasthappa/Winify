@@ -52,6 +52,12 @@ window.spotify.onCommand(async (command) => {
     case 'audio-stop':
       window.WinifyAudio.stop();
       break;
+    case 'index-build':
+      if (window.WinifyIndex) window.WinifyIndex.startBuild();
+      break;
+    case 'index-pause':
+      if (window.WinifyIndex) window.WinifyIndex.pauseBuild();
+      break;
     case 'jump-to-track':
       if (window.WinifySearch) window.WinifySearch.open();
       break;

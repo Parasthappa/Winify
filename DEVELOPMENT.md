@@ -149,11 +149,14 @@ playlist; taken over when that copy quits or stops renewing). The other
 copy reads what is saved and re-reads it when it changes. An index a copy
 built on its own before (its page's IndexedDB) is moved in the first time.
 
-With these caps a first index build of this library (about 756 requests:
-the list, Liked Songs, 297 playlists in pages of 50) takes about five hours
-of Winify running, across as many sessions as it takes (progress is saved
-after every page). Later checks for changes cost a handful (Liked Songs'
-size and the list) every few hours, plus the changed playlists.
+The index is not built by itself: playlists go in as the playlist window
+reads them (opened or played: no extra request), and "Build full index"
+(menu bar, Jump to track) reads the rest as background work, pausable,
+remembered across launches until done. For this library a full build is
+about 756 requests (the list, Liked Songs, 297 playlists in pages of 50),
+about five hours of Winify running within the background caps. The
+playlist list is kept for three days (or REFRESH). The menu bar shows both
+copies' requests in the last hour and today (`day-<copy>.json`).
 
 ## System audio capture
 

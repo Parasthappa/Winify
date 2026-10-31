@@ -14,8 +14,8 @@
  * ones included), so the list is read sparingly: it is remembered between
  * launches and shown at once; with nothing remembered, the first 50 come
  * straight away and the rest one page every couple of seconds (sooner while
- * filtering or scrolling near the end). A remembered list older than a few
- * hours is refreshed the same way in the background, and REFRESH in the
+ * filtering or scrolling near the end). A remembered list older than three
+ * days is refreshed the same way in the background, and REFRESH in the
  * bottom bar does it now (its first page at once, so a new playlist shows up
  * straight away).
  *
@@ -34,7 +34,7 @@ import * as index from './webamp-library-index.js';
 
 const PAGE = 50;                    // the /me/playlists maximum
 const PAGE_GAP_MS = 2000;           // background pace: one page every 2 s
-const STALE_MS = 3 * 60 * 60 * 1000;   // refresh a remembered list after this
+const STALE_MS = 3 * 24 * 60 * 60 * 1000;   // refresh a remembered list after this (REFRESH: any time)
 const STORE_KEY = 'winify.picker.v1';
 const ROW = 13;                     // Webamp's playlist row height
 const WIDTH = 325;                  // the playlist window plus two segments
@@ -105,6 +105,13 @@ function filtered(q) {
 // with their track counts: the random mix picks from these. The saved list
 // is used; with none yet it is read first. Lists saved before ownership was
 // recorded count every entry as yours.
+// The saved list as it is (for the index), without reading anything: null
+// if there is none, or it is from before it kept snapshots.
+export function savedList() {
+  if (!lib) lib = recall();
+  return lib && lib.complete && 'likedNewest' in lib && !lib.entries.some((e) => !('snapshot' in e)) ? lib : null;
+}
+
 // The playlists in the saved list, now, without reading anything.
 export function knownPlaylists() {
   if (!lib) lib = recall();
@@ -127,8 +134,8 @@ export async function ownPlaylists() {
   return lib ? lib.entries.filter((e) => e.mine !== false && e.count > 0) : [];
 }
 
-// The list for the My playlists index (webamp-library-index.js), without
-// hurrying. Read again when it is a few hours old, as the picker's own
+// The list for "Build full index" (webamp-library-index.js), without
+// hurrying. Read again when it is a few days old, as the picker's own
 // refresh does, so the index sees what changed (Liked Songs' size and newest
 // addition, and the list in pages of 50 with each playlist's snapshot); also
 // when there is none, or it is from before it kept those. If that read

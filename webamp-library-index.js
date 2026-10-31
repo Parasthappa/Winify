@@ -1,22 +1,26 @@
 /* My playlists: a local index of every song in the playlists you own and in
  * Liked Songs, for Jump to track's "My playlists" mode (webamp-search.js):
  * title, artist, album, duration, and each playlist and position it is in.
- * Kept on this Mac (IndexedDB), never sent anywhere.
+ * Kept on this Mac, never sent anywhere: by the main process, in a folder
+ * both copies (npm start and Winify.app) share, so it is built once.
  *
- * Built slowly in the background: one request at a time, at most one every
- * 3 s, as background work for the request governor (spotify-governor.js,
- * which lets it use only what playback and what you do leave, so a first
- * build spreads over hours and sessions), waiting out Spotify's Retry-After
- * on a 429. Kept by the main process in a folder both copies share, so it is
- * built once; only one copy builds at a time. Progress is saved after
- * every page, so quitting part-way loses nothing. Which playlists there are
- * comes from the playlist picker's list (its snapshot_id says whether a
- * playlist changed); it is checked again whenever the picker reads that
- * list (at launch or when opened, if it is a few hours old; REFRESH), and only
- * playlists whose snapshot changed are read again, in full. Liked Songs has
- * no snapshot: its size and newest addition stand in for one. The check is
- * Liked Songs' size and the list in pages of 50; "Indexing" shows only while
- * playlists are actually being read.
+ * Indexed as you go: a playlist (or Liked Songs) the playlist window reads
+ * in full, when you open or play it, goes into the index from what it read,
+ * at no extra request (noteList).
+ *
+ * Nothing is read by itself. "Build full index" (the menu bar, or Jump to
+ * track's "Searching 23 of 97 playlists" line) reads the rest: one request at
+ * a time, at most one every 3 s, as background work for the request governor
+ * (spotify-governor.js: only what playback and what you do leave, so it
+ * spreads over hours and sessions), waiting out Spotify's Retry-After on a
+ * 429, until it is done or paused (remembered across launches until then).
+ * Only one copy builds at a time. Progress is saved after every page.
+ *
+ * Which playlists there are comes from the playlist picker's saved list (its
+ * snapshot_id says whether a playlist changed; Liked Songs' size and newest
+ * addition stand in for one); it is read again only when the picker does
+ * (when the list is three days old, or REFRESH). A changed playlist is
+ * indexed again when it is opened, or by "Build full index".
  *
  * Searching never sends a request.
  */
@@ -168,10 +172,75 @@ function plan(src) {
     if (!rec || rec.snapshot !== w.snapshot || !rec.complete) pending.push(w.uri);
   }
   round = { done: 0, total: pending.length };
-  ctx.log('index:', wanted.length, 'playlists (Liked Songs included),', pending.length, 'to read');
+  ctx.log('index:', wanted.length, 'playlists (Liked Songs included),', pending.length, 'not indexed or changed' +
+    (buildOn() ? ' - building' : ' (indexed as you open them; "Build full index" reads the rest)'));
   changed();
   if (waking) waking();
-  if (pending.length) run();
+  if (pending.length && buildOn()) run();
+}
+
+// ---- Build full index: only when asked -------------------------------------------
+// Nothing is read by itself any more: playlists are indexed as you open them
+// (noteList), and "Build full index" (menu bar, Jump to track) reads the rest,
+// slowly, as background work for the request governor, until it is done or
+// paused. Remembered across launches until then.
+const BUILD_KEY = 'winify.index.build';
+function buildOn() {
+  try { return localStorage.getItem(BUILD_KEY) === '1'; } catch (e) { return false; }
+}
+function setBuild(on) {
+  try { if (on) localStorage.setItem(BUILD_KEY, '1'); else localStorage.removeItem(BUILD_KEY); } catch (e) { /* storage unavailable */ }
+}
+
+export async function startBuild() {
+  if (!ctx) return;
+  setBuild(true);
+  ctx.log('index: build full index - started');
+  changed();
+  const g = gen;
+  // What to read comes from the playlist list (read now only if there is none
+  // saved, or it is a few days old).
+  const src = await picker.listForIndex();
+  if (g !== gen || !src) return;
+  if (src === planned) { if (pending.length) run(); else finishBuild(); } else plan(src);
+  if (!pending.length) finishBuild();
+}
+
+export function pauseBuild() {
+  setBuild(false);
+  if (waking) waking();                // a wait between requests ends at once
+  if (ctx) ctx.log('index: build paused -', indexedCount(), 'of', wanted.length, 'playlists indexed');
+  changed();
+}
+
+function finishBuild() {
+  if (!buildOn()) return;
+  setBuild(false);
+  if (ctx) ctx.log('index: full index built -', wanted.length, 'playlists');
+  changed();
+}
+
+const indexedCount = () => wanted.filter((w) => current(w.uri)).length;
+
+// A playlist the playlist window has just read in full (its own requests):
+// into the index at no extra cost. Your own playlists and Liked Songs only
+// (what My playlists searches). `songs`: as songOf makes them.
+export function noteList(uri, name, snapshot, songs) {
+  if (!ctx || !uri || !Array.isArray(songs)) return;
+  const liked = /:collection$/.test(uri);
+  const known = picker.knownPlaylists().find((e) => e.uri === uri);
+  if (!liked && !(known && known.mine !== false)) return;
+  // The name as the playlist list has it (as the index keeps every other).
+  const w = wanted.find((x) => x.uri === uri);
+  name = (w && w.name) || (known && known.name) || name;
+  const rec = { uri, name, snapshot, meId: meId || (liked ? uri.split(':')[2] : null), songs, next: songs.length, complete: true, at: Date.now(), from: 'opened' };
+  lists.set(uri, rec);
+  table = null;
+  save(rec);
+  if (!wanted.some((w) => w.uri === uri)) wanted.push({ uri, name, snapshot });
+  pending = pending.filter((u) => u !== uri);
+  ctx.log('index: "' + name + '" indexed as you opened it -', songs.filter(Boolean).length, 'songs, no extra requests');
+  changed();
 }
 
 // ---- Reading ------------------------------------------------------------------------
@@ -218,7 +287,7 @@ async function pacedNow(path, g, priority) {
 // A playlist entry, or a saved song, as a row: [uri, title, artist, album,
 // durationMs, playable]. Positions count every entry, so anything that is
 // not a playable Spotify song (a local file, an episode) is kept as null.
-function songOf(t, local) {
+export function songOf(t, local) {
   if (!t || local || t.is_local || t.type === 'episode' || !/^spotify:track:/.test(t.uri || '')) return null;
   return [t.uri, t.name || '', (t.artists || []).map((a) => a.name).join(', '), (t.album && t.album.name) || '',
     t.duration_ms || 0, t.is_playable !== false];
@@ -259,6 +328,7 @@ async function run() {
   const started = Date.now();
   try {
     while (pending.length && g === gen) {
+      if (!buildOn()) break;                          // paused
       // Only while this copy holds the build (renewed before each playlist).
       if (!(await mayBuild()) || g !== gen) break;
       const uri = pending[0];
@@ -283,6 +353,7 @@ async function run() {
       round.done++;
       changed();
     }
+    if (g === gen && !pending.length) finishBuild();
     if (g === gen && !pending.length) ctx.log('index: up to date -', songCount(), 'songs in', lists.size, 'playlists;', requests,
       'requests since Winify started (' + Math.round((Date.now() - started) / 1000) + ' s this round)');
   } finally {
@@ -365,8 +436,11 @@ export function search(query) {
 // Is this playlist as Spotify has it now (positions to be trusted)?
 export const current = (uri) => !!(lists.get(uri) && lists.get(uri).complete && !pending.includes(uri));
 
+// `indexed` of `playlists` (your own and Liked Songs) are in and current;
+// `buildOn`: "Build full index" asked for and not finished or paused.
 export function status() {
-  return { songs: songCount(), lists: lists.size, building: reading_(), waiting: pending.length > 0 && !reading_(), done: round.done, total: round.total, requests };
+  return { songs: songCount(), lists: lists.size, indexed: indexedCount(), playlists: wanted.length, buildOn: buildOn(),
+    building: reading_(), waiting: pending.length > 0 && !reading_(), done: round.done, total: round.total, requests };
 }
 
 // Reading playlists now: something to read and the reading loop on it, not
@@ -381,6 +455,10 @@ export function progressNote() {
 
 function changed() {
   listeners.forEach((fn) => { try { fn(); } catch (e) { /* a listener's own problem */ } });
+  // The menu bar's "Build full index" item shows how far it is.
+  if (window.spotify && window.spotify.indexState) {
+    window.spotify.indexState({ indexed: indexedCount(), playlists: wanted.length, buildOn: buildOn(), building: reading_() });
+  }
 }
 
 export function onChange(fn) {
@@ -412,11 +490,11 @@ export async function init(c) {
   }
   table = null;
   if (paused()) { ctx.log('index: paused (no requests) -', songCount(), 'songs saved'); changed(); return; }
-  // The picker's saved list; read first if there is none, or it is from
-  // before it kept each playlist's snapshot.
-  const src = await picker.listForIndex();
-  if (g !== gen || !src) return;
-  plan(src);
+  // What there is to index: the picker's saved list, as it is (nothing read
+  // at launch). A build asked for and not finished carries on.
+  if (buildOn()) { startBuild(); return; }
+  const src = picker.savedList();
+  if (src) plan(src); else changed();
 }
 
 // Signed out: stop. The index stays; another account's sign-in replaces it.
@@ -433,6 +511,6 @@ export function reset() {
 }
 
 // For DevTools and tests.
-window.WinifyIndex = { status, progressNote, search, current: (uri) => current(uri),
+window.WinifyIndex = { status, progressNote, search, current: (uri) => current(uri), startBuild, pauseBuild,
   // Tests: start again (after un-pausing), at their own pace.
   restart: (opts = {}) => { if (!ctx) return; gapMs = opts.gapMs || GAP_MS; const c = ctx; reset(); return init(c); } };

@@ -50,6 +50,8 @@
  * Shuffle, row drags and removals, and tracks added to Spotify's queue.
  */
 
+import * as index from './webamp-library-index.js';
+
 const PAGE = 50;                    // the Web API maximum for both endpoints
 // A mix is sent to Spotify as a window of this many songs (starting where it
 // plays from), not whole: a big mix would be one huge request. The order
@@ -318,12 +320,15 @@ async function loadAlbum(uri) {
 // February 2026 names: /playlists/{id}/items, each entry's track under `item`.
 async function loadPlaylist(uri) {
   const id = idOf(uri);
-  const meta = await ctx.api('GET', '/playlists/' + id + '?fields=name');
+  // The snapshot comes in the same request: the index keeps it (noteList).
+  const meta = await ctx.api('GET', '/playlists/' + id + '?fields=name,snapshot_id');
   if (meta && meta.name) contextNames[uri] = meta.name;
   const path = '/playlists/' + id + '/items?market=from_token&additional_types=track,episode';
   const map = (entry) => row(entry && entry.item);
+  const toIndex = (entry) => index.songOf(entry && entry.item, entry && entry.is_local);
   const first = await page(path, 0);
-  return { name: meta && meta.name, list: first.items.map(map), total: first.total, path, map };
+  return { name: meta && meta.name, list: first.items.map(map), total: first.total, path, map,
+    toIndex, indexRows: first.items.map(toIndex), snapshot: meta && meta.snapshot_id };
 }
 
 // Saved tracks keep the `track` field name; the February 2026 rename to
@@ -331,8 +336,12 @@ async function loadPlaylist(uri) {
 async function loadLikedSongs() {
   const path = '/me/tracks?market=from_token';
   const map = (entry) => row(entry && entry.track);
+  const toIndex = (entry) => index.songOf(entry && entry.track);
   const first = await page(path, 0);
-  return { name: 'Liked Songs', list: first.items.map(map), total: first.total, path, map };
+  // Liked Songs has no snapshot: its size and newest addition (the index's own).
+  const newest = first.items[0] && first.items[0].added_at;
+  return { name: 'Liked Songs', list: first.items.map(map), total: first.total, path, map,
+    toIndex, indexRows: first.items.map(toIndex), snapshot: first.total + '|' + (newest || '') };
 }
 
 const stillComing = () => !!more && more.contextUri === listContext && mode === 'list';
@@ -355,6 +364,7 @@ async function readMore(m) {
       const got = await page(m.path, m.offset);
       if (more !== m || !stillComing()) return;
       const rows = (got.items || []).map(m.map);
+      if (m.indexRows) m.indexRows = m.indexRows.concat((got.items || []).map(m.toIndex));
       m.offset += PAGE;
       appendRows(m, rows);
       if (!rows.length) break;
@@ -362,6 +372,7 @@ async function readMore(m) {
     more = null;
     contextList = { uri: m.contextUri, list: m.rows, name: m.name };
     ctx.log('playlist window:', '"' + m.name + '" complete -', m.rows.length, 'tracks');
+    if (m.indexRows) index.noteList(m.contextUri, m.name, m.snapshot, m.indexRows);
     if (shuffleWaiting) {
       shuffleWaiting = false;
       if (shuffleOn) applyShuffle();
@@ -445,12 +456,17 @@ async function load(contextUri) {
       // The rest, if any, is read in the background (set before the list goes
       // in, so shuffle and "not in the list" know more is coming).
       const m = got.total > got.list.length
-        ? { contextUri, path: got.path, map: got.map, rows: got.list.slice(), offset: PAGE, total: got.total, name: got.name, hurry: false, wake: null }
+        ? { contextUri, path: got.path, map: got.map, rows: got.list.slice(), offset: PAGE, total: got.total, name: got.name, hurry: false, wake: null,
+          toIndex: got.toIndex, indexRows: got.indexRows, snapshot: got.snapshot }
         : null;
       more = m;
       installList(got.list, 'list', contextUri, got.name);
       if (m) readMore(m);
-      else contextList = { uri: contextUri, list: got.list, name: got.name };
+      else {
+        contextList = { uri: contextUri, list: got.list, name: got.name };
+        // All of it in one page: into the index too (playlists and Liked Songs).
+        if (got.indexRows) index.noteList(contextUri, got.name, got.snapshot, got.indexRows);
+      }
       ctx.log('playlist window:', k, '"' + got.name + '" -', got.total, 'tracks', m ? '(the first ' + got.list.length + ' now, the rest in the background)' : '');
       ctx.say(got.name ? got.name + ' - ' + got.total + ' tracks' : got.total + ' tracks');
       return;

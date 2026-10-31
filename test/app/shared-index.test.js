@@ -39,7 +39,7 @@ app.whenReady().then(async () => {
   const js = (c) => win.webContents.executeJavaScript(c, true);
   const until = async (expr, ms) => { const t = Date.now(); let v; while (!(v = await js(expr).catch(() => false)) && Date.now() - t < ms) await wait(200); return v; };
   await until('!!(window.WinifyWebamp && WinifyWebamp.isMounted())', 20000);
-  await js('WinifyIndex.restart({ gapMs: 100 })');
+  await js('WinifyIndex.restart({ gapMs: 100 })'); await js('WinifyIndex.startBuild()');
 
   console.log('1. Built into the shared folder');
   await until('WinifyIndex.status().lists === 3 && !WinifyIndex.status().building', 30000);
@@ -52,14 +52,14 @@ app.whenReady().then(async () => {
   await js(`window.spotify.index.clear()`);
   fs.writeFileSync(lockFile, JSON.stringify({ pid: process.ppid, copy: 'packaged', at: Date.now() }));   // a live process, not this one
   sent.length = 0;
-  await js('WinifyIndex.restart({ gapMs: 100 })'); await wait(3000);
+  await js('WinifyIndex.restart({ gapMs: 100 })'); await js('WinifyIndex.startBuild()'); await wait(3000);
   check('no playlist read sent while the other copy holds the build', !sent.some((s) => /\/playlists\/p\d\/items|\/me\/tracks\?.*offset/.test(s)), JSON.stringify(sent));
   check('...and it says so', logs.some((m) => /the other Winify is building it/.test(m)), logs.filter((m) => /index/.test(m)).slice(-3).join(' | '));
   check('...nothing shown as "Indexing" here', !(await js('WinifyIndex.status().building')));
 
   console.log('3. A lock left by a copy that quit: taken over');
   fs.writeFileSync(lockFile, JSON.stringify({ pid: 999999, copy: 'packaged', at: Date.now() }));
-  await js('WinifyIndex.restart({ gapMs: 100 })');
+  await js('WinifyIndex.restart({ gapMs: 100 })'); await js('WinifyIndex.startBuild()');
   await until('WinifyIndex.status().lists === 3 && !WinifyIndex.status().building', 30000);
   check('built here again, all 3', indexFiles().length === 3 && JSON.parse(fs.readFileSync(lockFile, 'utf8')).pid === process.pid, JSON.stringify(indexFiles()));
 

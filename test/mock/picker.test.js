@@ -129,12 +129,12 @@ h.open().then(async ({ win, js }) => {
   check('relaunch: the remembered list at once, no requests at all', p.open && p.rows === 97 && !p.loading && !cs.some((x) => /^api:(myPlaylists|savedTracks)$/.test(x[0])), JSON.stringify([p, cs.map((x) => x[0])]));
   await js('WinifyPicker.close()');
   // Four hours later: shown at once, refreshed in the background.
-  await js(`(() => { const l = JSON.parse(localStorage.getItem('winify.picker.v1')); l.at = Date.now() - 4 * 3600e3; localStorage.setItem('winify.picker.v1', JSON.stringify(l)); })()`);
+  await js(`(() => { const l = JSON.parse(localStorage.getItem('winify.picker.v1')); l.at = Date.now() - 4 * 24 * 3600e3; localStorage.setItem('winify.picker.v1', JSON.stringify(l)); })()`);
   await js('location.reload()'); await h.wait(500);
   while (!(await js('window.mounted === true').catch(() => false))) await h.wait(100);
   await js('(mock.active = "winify", mock.setContext("spotify:album:a1", 0), mock.setPaused(false))'); await h.wait(2500); await take();
   await c('#eject'); await h.wait(400); p = await P();
-  check('a list over 3 hours old: shown at once (97 rows) while it refreshes in the background', p.open && p.rows === 97 && p.loading, JSON.stringify(p));
+  check('a list over 3 days old: shown at once (97 rows) while it refreshes in the background', p.open && p.rows === 97 && p.loading, JSON.stringify(p));
   const t2 = Date.now(); let minRows = 97; while (!(await P()).complete || (await P()).loading) { minRows = Math.min(minRows, (await P()).rows); if (Date.now() - t2 > 9000) break; await h.wait(150); }
   cs = await take(); p = await P();
   check('...refreshed: all 3 pages again, and the list never shrank meanwhile', cs.filter((x) => x[0] === 'api:myPlaylists').length === 3 && p.complete && !p.loading && minRows === 97, JSON.stringify([minRows, cs.filter((x) => x[0] === 'api:myPlaylists').map((x) => x[1])]));

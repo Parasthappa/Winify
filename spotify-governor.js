@@ -41,6 +41,8 @@ const classOf = (p, asked) => (/^\/me\/player(\/|$|\?)/.test(p) ? 'playback' : (
 function create({ dir, copy, caps = CAPS, now = Date.now, log = () => {}, windows = { minute: MINUTE, hour: HOUR }, userWaitMax = USER_WAIT_MAX }) {
   const MINUTE_W = windows.minute, HOUR_W = windows.hour;
   const mine = [];                         // this copy's request times, last hour
+  const today = () => { const d = new Date(now()); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+  let day = null;                          // this copy's count today: { date, count }
   const waiting = [];                      // { cls, at, resolve }
   let others = { at: 0, times: [] };       // the other copy's, read now and then
   let blocks = { at: 0, map: {} };
@@ -98,7 +100,31 @@ function create({ dir, copy, caps = CAPS, now = Date.now, log = () => {}, window
     const t = now();
     mine.push(t);
     while (mine.length && mine[0] <= t - HOUR_W) mine.shift();
-    if (!saveTimer) saveTimer = setTimeout(() => { saveTimer = null; writeJson('requests-' + copy + '.json', mine.filter((x) => x > now() - HOUR_W)); }, 1000);
+    if (!day) day = readJson('day-' + copy + '.json', null);
+    if (!day || day.date !== today()) day = { date: today(), count: 0 };
+    day.count++;
+    if (!saveTimer) saveTimer = setTimeout(() => {
+      saveTimer = null;
+      writeJson('requests-' + copy + '.json', mine.filter((x) => x > now() - HOUR_W));
+      writeJson('day-' + copy + '.json', day);
+    }, 1000);
+    onCount();
+  }
+  let onCount = () => {};
+
+  // Both copies' requests in the last hour and today (for the menu bar).
+  function usage() {
+    const hour = counts().hour;
+    let todayCount = 0;
+    try {
+      for (const f of fs.readdirSync(dir)) {
+        if (!/^day-.+\.json$/.test(f)) continue;
+        const d = f === 'day-' + copy + '.json' && day ? day : readJson(f, null);
+        if (d && d.date === today()) todayCount += d.count;
+      }
+    } catch (e) { /* none yet */ }
+    if (day && day.date === today() && !fs.existsSync(file('day-' + copy + '.json'))) todayCount += day.count;
+    return { hour, today: todayCount };
   }
 
   // Let through, in order of rank, whatever fits now; check again later.
@@ -168,6 +194,9 @@ function create({ dir, copy, caps = CAPS, now = Date.now, log = () => {}, window
     },
     blockedUntil: (apiPath) => blockedUntil(keyOf(apiPath)),
     state: () => { const c = counts(); return { minute: c.minute, hour: c.hour, waiting: waiting.map((w) => w.cls), blocks: readJson('blocks.json', {}) }; },
+    usage,
+    // Told after each request counted (the menu bar's counter).
+    onCount: (fn) => { onCount = fn; },
   };
 }
 

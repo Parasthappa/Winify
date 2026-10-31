@@ -25,6 +25,8 @@ contextBridge.exposeInMainWorld('spotify', {
   // `priority` 'background': work nobody is waiting for (the governor in the
   // main process lets it use only what is left).
   api: (method, path, body, priority) => ipcRenderer.invoke('spotify-api', method, path, body, priority),
+  // How far the My playlists index is, for the menu bar's "Build full index".
+  indexState: (st) => ipcRenderer.send('index-state', st),
   // Background requests already waiting there that someone now waits for.
   promote: (keys) => ipcRenderer.invoke('spotify-api:promote', keys),
   // The My playlists index, kept by the main process for both copies.

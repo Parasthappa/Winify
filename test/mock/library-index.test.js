@@ -37,10 +37,10 @@ h.open().then(async ({ win, js }) => {
   await h.click(win, js, '#title-bar', 0.3, 0.5); await h.wait(150);
   await key('J'); await h.wait(400);
   let said = await rowsText();
-  check('empty list says "Index not built yet" and offers Tab', /^Index not built yet/.test(said[0]) && said[1] === 'Press Tab to search all of Spotify', JSON.stringify(said));
+  check('empty list says "Nothing indexed yet: playlists are added as you open them" and offers Tab', /^Nothing indexed yet: playlists are added as you open them$/.test(said[0]) && said[1] === 'Press Tab to search all of Spotify', JSON.stringify(said));
   await type('road'); await h.wait(150);
   said = await rowsText();
-  check('a search that finds nothing says the same, not a bare empty list', (await S()).results === 0 && /^Index not built yet/.test(said[0]) && said.length === 2, JSON.stringify(said));
+  check('a search that finds nothing says the same, not a bare empty list', (await S()).results === 0 && /^Nothing indexed yet/.test(said[0]) && said.length === 2, JSON.stringify(said));
   await key('Escape'); await h.wait(200);
 
   console.log('1. Paused (as in every other suite): no requests');
@@ -48,13 +48,15 @@ h.open().then(async ({ win, js }) => {
   check('no index requests while paused', indexReads(await take()).length === 0);
   check('nothing indexed yet', (await I()).lists === 0, JSON.stringify(await I()));
 
-  console.log('2. The first build: your playlists and Liked Songs, nothing else');
+  console.log('2. Nothing is built by itself; "Build full index" builds your playlists and Liked Songs, nothing else');
   await js(`localStorage.removeItem('winify.index.paused')`); await take();
-  await js('WinifyIndex.restart({ gapMs: 500 })');
+  await js('WinifyIndex.restart({ gapMs: 500 })'); await h.wait(1500);
+  check('started, not paused: still no requests until asked', indexReads(await take()).length === 0 && !(await I()).buildOn, JSON.stringify(await I()));
+  await js('WinifyIndex.startBuild()');
   await until('WinifyIndex.status().building', 8000);
   await js('WinifySearch.open()'); await h.wait(150);
   said = await rowsText();
-  check('while it builds: "Indexing playlists: n of 3" and the Tab hint', /^Indexing playlists: \d of 3/.test(said[0]) && said[said.length - 1] === 'Press Tab to search all of Spotify', JSON.stringify(said));
+  check('while it builds: "Searching 0 of 3 playlists · building", "Indexing playlists: n of 3" and the Tab hint', /^Searching \d of 3 playlists · building the index…$/.test(said[0]) && /^Indexing playlists: \d of 3/.test(said[1]) && said[said.length - 1] === 'Press Tab to search all of Spotify', JSON.stringify(said));
   await js('WinifySearch.close()');
   await until('!WinifyIndex.status().building && WinifyIndex.status().lists === 3', 15000);
   let cs = await take(); let reads = indexReads(cs);
@@ -119,7 +121,7 @@ h.open().then(async ({ win, js }) => {
   check('Tab again: My playlists, instant, no requests', s.mode === 'mine' && s.results === 1 && (await take()).filter((c) => /^api:/.test(c[0])).length === 0, JSON.stringify(s));
   await key('Escape'); await h.wait(200);
 
-  console.log('7. Kept current: the picker\'s refresh re-reads only what changed, one request a second');
+  console.log('7. Kept current: the picker\'s refresh notes what changed; "Build full index" re-reads only that, 3 s apart');
   await js('WinifyIndex.restart()'); await h.wait(300);          // the real pace
   await js(`(() => {
     PLAYLISTS[0].snapshot_id = 'a2'; CONTEXTS['spotify:playlist:pa'] = [7001, 7006];
@@ -127,6 +129,11 @@ h.open().then(async ({ win, js }) => {
     CONTEXTS['spotify:user:user1:collection'] = [7007, 7005, 7001];  // a song liked
   })()`);
   await take(); await js('WinifyPicker.refresh()');
+  await until('WinifyPicker.state().complete && !WinifyPicker.state().loading', 8000); await h.wait(1500);
+  const noted = await I();
+  check('the refresh reads the list only: nothing re-read by itself; 0 of 2 current (Road Trip and Liked Songs changed, Gym gone)',
+    indexReads(await take()).length === 0 && noted.playlists === 2 && noted.indexed === 0 && !noted.buildOn, JSON.stringify(noted));
+  await js('WinifyIndex.startBuild()');
   const times = [];
   let note = null, searchBar = null, pickerBar = null;
   const t0 = Date.now();
@@ -161,6 +168,7 @@ h.open().then(async ({ win, js }) => {
     };
   })()`);
   await js('WinifyIndex.restart({ gapMs: 40 })'); await take(); await js('WinifyPicker.refresh()');
+  await until('WinifyPicker.state().complete && !WinifyPicker.state().loading', 8000); await js('WinifyIndex.startBuild()');
   await until(`WinifyIndex.search('7010').length === 1`, 15000);
   cs = await take();
   const lim = cs.findIndex((c) => c[0] === 'mock:429');
@@ -172,7 +180,7 @@ h.open().then(async ({ win, js }) => {
   st = await I();
   check('the saved index loads (4 songs in 2 lists), nothing sent', st.songs === 4 && st.lists === 2 && indexReads(await take()).length === 0, JSON.stringify(st));
 
-  console.log('10. Relaunching: a first build, one quit half-way and resumed, and nothing changed');
+  console.log('10. Requests: a full build, one resumed, a launch, the picker on an old list, a playlist played');
   // 100 playlists of yours (60 songs: 2 pages each), 10 of someone else's,
   // 120 Liked Songs (3 pages). A reload is a relaunch: the fake Spotify starts
   // afresh, and the index and the picker's list stay saved.
@@ -190,7 +198,7 @@ h.open().then(async ({ win, js }) => {
   const libraryCalls = (cs) => cs.filter((c) => LIBRARY.includes(c[0]) && !(c[0] === 'api:playlistItems' && c[1] === 'big'));
   const summary = (cs) => { const n = {}; for (const c of libraryCalls(cs).sort((a, b) => a[0].localeCompare(b[0]))) n[c[0].slice(4)] = (n[c[0].slice(4)] || 0) + 1; return n; };
   const total = (cs) => libraryCalls(cs).length;
-  const relaunch = async (lib, { fresh = false, hoursLater = false } = {}) => {
+  const relaunch = async (lib, { fresh = false, daysLater = false } = {}) => {
     await js('location.reload()'); await h.wait(500);
     while (!(await js('window.mounted === true').catch(() => false))) await h.wait(100);
     await js(lib); await js('(mock.active = "winify", mock.setContext("spotify:playlist:big", 0), mock.setPaused(false))'); await h.wait(1200);
@@ -198,8 +206,8 @@ h.open().then(async ({ win, js }) => {
       await js(`new Promise((res) => { const q = indexedDB.open('winify-index', 1); q.onsuccess = () => { const t = q.result.transaction('lists', 'readwrite'); t.objectStore('lists').clear(); t.oncomplete = () => { q.result.close(); res(); }; }; })`);
       await js(`localStorage.removeItem('winify.picker.v1')`);
     }
-    // The saved list as if read a few hours ago (the picker's refresh age).
-    if (hoursLater) await js(`(() => { const l = JSON.parse(localStorage.getItem('winify.picker.v1')); l.at = Date.now() - 4 * 3600 * 1000; localStorage.setItem('winify.picker.v1', JSON.stringify(l)); })()`);
+    // The saved list as if read four days ago (past the picker's refresh age, 3 days).
+    if (daysLater) await js(`(() => { const l = JSON.parse(localStorage.getItem('winify.picker.v1')); l.at = Date.now() - 4 * 24 * 3600 * 1000; localStorage.setItem('winify.picker.v1', JSON.stringify(l)); })()`);
     await take();
     await js(`localStorage.removeItem('winify.index.paused')`);
     await js('WinifyIndex.restart({ gapMs: 20 })');
@@ -217,48 +225,68 @@ h.open().then(async ({ win, js }) => {
     return { ms: Date.now() - t, notes: [...notes] };
   };
 
+  // "Build full index", once.
   await relaunch(LIB(), { fresh: true });
+  await js('WinifyIndex.startBuild()');
   await settle();
   cs = await take(); st = await I();
   const first = total(cs);
-  check('a first build: who you are, the list, then every playlist of yours and Liked Songs, each page once', st.lists === 101 && st.songs === 100 * 60 + 120 &&
+  check('Build full index from nothing: who you are, the list, then every playlist of yours and Liked Songs, each page once', st.lists === 101 && st.songs === 100 * 60 + 120 && !st.buildOn &&
     JSON.stringify(summary(cs)) === JSON.stringify({ me: 1, myPlaylists: 3, playlistItems: 200, savedTracks: 1 + 3 }), first + ' requests ' + JSON.stringify(summary(cs)) + ' ' + JSON.stringify(st));
 
   await relaunch(LIB(), { fresh: true });
+  await js('WinifyIndex.startBuild()');
   await until('WinifyIndex.status().lists >= 40', 30000);
   await take();
   await relaunch(LIB());                                  // quit half-way, then launched again
   await settle();
   cs = await take(); st = await I();
   const resumedPages = libraryCalls(cs).filter((c) => c[0] === 'api:playlistItems').map((c) => c[1] + '@' + c[2]);
-  check('quit half-way: the next launch goes on where it stopped, no page read twice, all 101 lists', st.lists === 101 && st.songs === 6120 &&
+  check('quit half-way: the next launch carries on (the build is remembered) where it stopped, no page read twice', st.lists === 101 && st.songs === 6120 &&
     new Set(resumedPages).size === resumedPages.length && resumedPages.length < 200 && resumedPages.length >= 100, total(cs) + ' requests ' + JSON.stringify(summary(cs)));
   const resumed = total(cs);
 
   await relaunch(LIB());
   await settle();
   cs = await take(); st = await I();
-  check('launched again soon after: no requests at all (the list was checked less than a few hours ago)', total(cs) === 0 && st.lists === 101, JSON.stringify(summary(cs)));
-  const soon = total(cs);
-  await relaunch(LIB(), { hoursLater: true });
-  const quick = await settle();
-  cs = await take(); st = await I();
-  check('a few hours later, nothing changed: a quick check only (Liked Songs\' size, the list of playlists), no playlist read',
-    JSON.stringify(summary(cs)) === JSON.stringify({ myPlaylists: 3, savedTracks: 1 }) && st.lists === 101, total(cs) + ' requests in ' + quick.ms + ' ms ' + JSON.stringify(summary(cs)));
-  check('...and no "Indexing" note during that check', quick.notes.length === 0, JSON.stringify(quick.notes));
-  const unchanged = total(cs);
-
-  await relaunch(LIB({ changed: 7 }), { hoursLater: true });
-  const one = await settle();
-  cs = await take();
-  check('one playlist changed (its snapshot): only it is read again', JSON.stringify(libraryCalls(cs).filter((c) => c[0] === 'api:playlistItems').map((c) => c[1])) === JSON.stringify(['m7', 'm7']), JSON.stringify(summary(cs)));
-  check('...with "Indexing 0 of 1" while it reads', one.notes.length === 1 && /of 1$/.test(one.notes[0]), JSON.stringify(one.notes));
-  await relaunch(LIB({ changed: 7, liked: true }), { hoursLater: true });
+  check('a launch: no requests for the index at all', total(cs) === 0 && st.lists === 101, JSON.stringify(summary(cs)));
+  const launch = total(cs);
+  await relaunch(LIB({ changed: 7 }), { daysLater: true });
   await settle();
   cs = await take();
-  check('a song liked in place of another (same count, newer addition): only Liked Songs is read again', libraryCalls(cs).filter((c) => c[0] === 'api:playlistItems').length === 0 &&
-    libraryCalls(cs).filter((c) => c[0] === 'api:savedTracks').length === 1 + 3 && (await js(`WinifyIndex.search('39999').length`)) === 1, JSON.stringify(summary(cs)));
-  console.log('   requests: first build ' + first + ', resumed build ' + resumed + ', launched again soon after ' + soon + ', a few hours later with nothing changed ' + unchanged);
+  check('...also days later (nothing is checked by itself)', total(cs) === 0, JSON.stringify(summary(cs)));
+  await js('WinifyPicker.open()'); await until('WinifyPicker.state().complete && !WinifyPicker.state().loading', 10000); await h.wait(1500);
+  cs = await take(); st = await I();
+  check('opening the picker then: the list read again (Liked Songs\' size, 3 pages), no playlist read; 100 of 101 current (one changed)',
+    JSON.stringify(summary(cs)) === JSON.stringify({ myPlaylists: 3, savedTracks: 1 }) && st.indexed === 100 && st.playlists === 101, JSON.stringify(summary(cs)) + ' ' + JSON.stringify(st));
+  const pickerOpen = total(cs);
+  await js('WinifyPicker.close()');
+  await js('WinifySearch.open()'); await h.wait(300);
+  const scopeRow = await js(`(document.querySelector('.winify-search .ws-scope') || {}).textContent || null`);
+  check('Jump to track, My playlists: "Searching 100 of 101 playlists · Build full index" on top', scopeRow === 'Searching 100 of 101 playlists · Build full index', scopeRow);
+  await js('WinifySearch.close()');
+  // Played: the playlist window reads it (its own requests), and the index takes it from there.
+  await js('mock.setContext("spotify:playlist:m7", 0)');
+  await until('WinifyIndex.status().indexed === 101', 15000);
+  cs = await take();
+  check('the changed playlist played: indexed as it was opened - the playlist window\'s own requests, none extra', (await I()).indexed === 101 &&
+    libraryCalls(cs).filter((c) => c[0] === 'api:playlistItems').map((c) => c[1]).join() === 'm7,m7' && (await js(`WinifyIndex.search('20759').length`)) === 1, JSON.stringify(cs.filter((c) => /^api:playlist/.test(c[0]))));
+  const played = cs.filter((c) => /^api:playlist(Meta|Items)$/.test(c[0]) && c[1] === 'm7').length;
+  await js('mock.setContext("spotify:playlist:big", 0)'); await h.wait(500);
+
+  await relaunch(LIB({ changed: 7, liked: true }), { daysLater: true });
+  await js('WinifyPicker.refresh()'); await until('WinifyPicker.state().complete && !WinifyPicker.state().loading', 10000);
+  await take();
+  // Started from Jump to track's scope line.
+  await js('WinifySearch.open()'); await h.wait(300);
+  await js(`document.querySelector('.winify-search .ws-scope').click()`);
+  check('clicking "Build full index" there starts the build', await until('WinifyIndex.status().buildOn || WinifyIndex.status().indexed === 101', 5000));
+  await js('WinifySearch.close()');
+  await settle();
+  cs = await take();
+  check('a song liked in place of another (same count, newer addition): Build full index reads only Liked Songs', libraryCalls(cs).filter((c) => c[0] === 'api:playlistItems').length === 0 &&
+    libraryCalls(cs).filter((c) => c[0] === 'api:savedTracks').length === 3 && (await js(`WinifyIndex.search('39999').length`)) === 1, JSON.stringify(summary(cs)));
+  console.log('   requests: full build ' + first + ', resumed build ' + resumed + ', a launch ' + launch + ', opening the picker on a list days old ' + pickerOpen + ', playing a 60-song playlist ' + played + ' (index: none extra)');
 
   const loud = JSON.parse(await js('JSON.stringify(loud)')); const errs = JSON.parse(await js('JSON.stringify(errors)'));
   check('no alerts, downloads, file prompts or new windows', loud.length === 0, JSON.stringify(loud));
