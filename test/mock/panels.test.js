@@ -38,6 +38,10 @@ h.open().then(async ({ win, js }) => {
   for (const id of ['picker', 'search', 'lyrics', 'milkdrop']) await open(id);
   let p = await P();
   check('all four open at once', !!(p.picker && p.search && p.lyrics && p.milkdrop), JSON.stringify(p));
+  const frameEdges = await js(`Object.fromEntries(Object.entries(${JSON.stringify(SEL)}).map(([id, sel]) => { const e = document.querySelector('#webamp ' + sel); const b = e.getBoundingClientRect();
+    const parts = [...e.querySelectorAll('.gen-bottom, .gen-bottom *')].map((x) => x.getBoundingClientRect()); const bot = e.querySelector('.gen-bottom').getBoundingClientRect();
+    return [id, { box: b.bottom, edge: [bot.top, bot.height], lowest: Math.max(...parts.map((r) => r.bottom)) }]; }))`);
+  check('every frame draws its whole bottom edge (14 px) inside its box: nothing hangs below the column', Object.values(frameEdges).every((f) => f.edge[1] === 14 && f.edge[0] === f.box - 14 && f.lowest === f.box), JSON.stringify(frameEdges));
   check('all the column\'s height (main + playlist default: ' + HEIGHT + ')', ['picker', 'search', 'lyrics', 'milkdrop'].every((id) => p[id].h === HEIGHT), JSON.stringify(Object.fromEntries(Object.entries(p).map(([k, v]) => [k, v && v.h]))));
   check('the first right of the column, tops aligned', p.picker.x === colRight && p.picker.y === main.y, JSON.stringify(p.picker));
   check('the next touching it', touching(p.picker, p.search), JSON.stringify([p.picker, p.search]));

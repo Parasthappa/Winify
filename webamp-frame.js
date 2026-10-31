@@ -71,7 +71,11 @@ export const FRAME_CSS = `
   #webamp .winify-frame { position: fixed; image-rendering: pixelated; }
   /* The middle keeps to the frame's height (its content scrolls), rather than
      growing with what it holds. */
-  #webamp .winify-frame .gen-middle { min-height: 0; overflow: hidden; }
+  #webamp .winify-frame .gen-middle { flex: 1 1 0; min-height: 0; overflow: hidden; }
+  /* The title bar (20 px) and bottom edge (14 px) never give way to it: a
+     squeezed bottom edge left its 14 px corner pieces hanging 8 px below the
+     frame, past the windows beside it, with a dark notch between them. */
+  #webamp .winify-frame .gen-top, #webamp .winify-frame .gen-bottom { flex-shrink: 0; }
   #webamp .winify-frame .winify-frame-content { display: flex; flex-direction: column; overflow: hidden; min-width: 0; min-height: 0; }
   #webamp .winify-frame .winify-resize { position: absolute; right: 0; bottom: 0; width: 20px; height: 20px; }
 `;
