@@ -2,7 +2,7 @@
 //
 // Runs the real Winify with your own sign-in and checks the core flows end to
 // end: sign-in, a playlist from the picker, Next/Previous, the visualizer
-// hearing the music, playing from search, lyrics, and a random mix (its end
+// hearing the music, Milkdrop drawing it, playing from search, lyrics, and a random mix (its end
 // too with SMOKE_MIX_END=1, which needs higher caps). It plays music out loud
 // for about a minute, then pauses.
 //
@@ -35,7 +35,12 @@ const PLAYER_PATH = /^\/v1\/(melody|track-playback|storage-resolve|widevine-lice
 const TIME_LIMIT_MS = 120000;
 const SEARCH = 'Blinding Lights The Weeknd';
 
-app.setPath('userData', path.join(app.getPath('appData'), 'winify'));
+// Winify's own settings: the development copy's, or the packaged app's when
+// run from a test build of it (npm run package -- --smoke; main.js sets the same).
+app.setPath('userData', path.join(app.getPath('appData'), app.isPackaged ? 'Winify App' : 'winify'));
+// Inside a packaged build the test's own folder is read-only: logs go where
+// the build says.
+const OUTPUT = process.env.SMOKE_OUTPUT || path.join(__dirname, '..', '.output');
 const tokensFile = path.join(app.getPath('userData'), 'tokens.json');
 
 const started = Date.now();
@@ -128,7 +133,7 @@ require(path.join(__dirname, '..', '..', 'main.js'));
 setTimeout(() => stop('TIMED OUT after ' + TIME_LIMIT_MS / 1000 + ' s', 3), TIME_LIMIT_MS);
 // Everything the run prints is also kept in test/.output/smoke-last.log, so
 // the request list can be read afterwards without running it again.
-const LAST_LOG = path.join(__dirname, '..', '.output', 'smoke-last.log');
+const LAST_LOG = path.join(OUTPUT, 'smoke-last.log');
 fs.mkdirSync(path.dirname(LAST_LOG), { recursive: true });
 fs.writeFileSync(LAST_LOG, '');
 for (const level of ['log', 'warn', 'error']) {
@@ -136,8 +141,8 @@ for (const level of ['log', 'warn', 'error']) {
   console[level] = (...args) => { try { fs.appendFileSync(LAST_LOG, args.join(' ') + '\n'); } catch (e) { /* keep going */ } original(...args); };
 }
 // One line per run, for the runs-per-day limit (CLAUDE.md).
-fs.mkdirSync(path.join(__dirname, '..', '.output'), { recursive: true });
-fs.appendFileSync(path.join(__dirname, '..', '.output', 'smoke-runs.log'), new Date().toLocaleString('sv-SE') + '\n');
+fs.mkdirSync(OUTPUT, { recursive: true });
+fs.appendFileSync(path.join(OUTPUT, 'smoke-runs.log'), new Date().toLocaleString('sv-SE') + '\n');
 
 app.whenReady().then(async () => {
   let win; while (!(win = BrowserWindow.getAllWindows()[0])) await wait(100);
@@ -227,6 +232,15 @@ app.whenReady().then(async () => {
   check('the visualizer receives the music', level > 10, level < 0 ? 'audio capture not running' : 'signal ' + level +
     (level <= 10 ? ' (silence: is the Multi-Output Device the sound output?)' : ''));
 
+  // 4b. Milkdrop draws it (opened and closed again; no requests)
+  const mdWasOpen = await js('WinifyMilkdrop.state().open');
+  if (!mdWasOpen) await js('WinifyMilkdrop.toggle()');
+  await until('WinifyMilkdrop.state().open && WinifyMilkdrop.state().index != null', 8000);
+  await wait(500);
+  const m0 = (await js('WinifyMilkdrop.state()')).renders; await wait(1000); const m1 = (await js('WinifyMilkdrop.state()')).renders;
+  check('Milkdrop draws the music', m1 - m0 > 30, (m1 - m0) + ' frames/s');
+  if (!mdWasOpen) await js('WinifyMilkdrop.toggle()');
+
   // 5. Playing from search
   await js(`document.querySelector('#webamp #title-bar').dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))`);
   await js(`window.WinifySearch.open()`);
@@ -248,7 +262,7 @@ app.whenReady().then(async () => {
   check('the chassis shows it: album cover, title, artist, Spotify logo, link back', !!np, np ? np.title + ' - ' + np.artist + ', cover ' + np.cover + ', "' + np.link + '"' : 'not shown');
   try {
     const r = await js(`(() => { const b = document.querySelector('#login-screen').getBoundingClientRect(); return { x: Math.round(b.left), y: Math.round(b.top), width: Math.round(b.width), height: Math.round(b.height) }; })()`);
-    fs.writeFileSync(path.join(__dirname, '..', '.output', 'smoke-chassis.png'), (await win.webContents.capturePage(r)).toPNG());
+    fs.writeFileSync(path.join(OUTPUT, 'smoke-chassis.png'), (await win.webContents.capturePage(r)).toPNG());
   } catch (e) { console.log('       (no chassis photo: ' + e.message + ')'); }
 
   // 6. Lyrics for it

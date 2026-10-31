@@ -49,6 +49,47 @@ Every line it writes goes through `drm-redact.js`: queries are cut from web
 addresses, and tokens, codes and long opaque strings are hidden (checked by
 `test/app/drm-redact.test.js`).
 
+## Packaging
+
+`npm run package` (`packaging/build.js`) builds `dist/mac-arm64/Winify.app`
+and `dist/Winify-1.0.0.dmg` with electron-builder, from the castLabs Electron
+in `node_modules/electron/dist` (`electronDist`: copied, never changed; arm64
+only, as that Electron is). Bundle ID `app.winify.player`.
+
+Signing order, as castLabs requires on macOS: electron-builder packages,
+`packaging/vmp-sign.js` (afterPack) runs `sign-pkg --force` on the folder
+holding Winify.app (without `--force` it keeps the copied development
+signature), then signs ad-hoc with `codesign --deep --sign -`
+(electron-builder looks for an identity "-" in the keychain and skips it, so
+its own signing is off). `packaging/vmp-verify.js` (afterSign) runs
+`verify-pkg` and `codesign --verify`, and the build fails if either fails.
+No hardened runtime: it would refuse the Widevine module downloaded at first
+launch. Each build is a new ad-hoc signature, so macOS asks for microphone
+(and screen-recording) access again after every build.
+
+The packaged app keeps its settings in `Application Support/Winify App`
+(`main.js`, `PACKAGED_FOLDER`), apart from the development copy's `winify`
+(the Mac's disk ignores case, so `Winify` would be the same folder).
+
+Shipped in `Contents/Resources`: `LICENSE.winify.txt`,
+`THIRD_PARTY_NOTICES.md`, Electron's `LICENSE` (as `LICENSE.electron.txt`)
+and `LICENSES.chromium.html`. Not shipped: `.env`, the tests and the notes.
+
+Testing the packaged app: the smoke test runs inside Winify's own process,
+which a packaged app does not allow from outside, so
+`npm run package -- --test <entry>` builds the same app (same binary,
+signatures, bundle ID and settings folder) starting at a test instead, into
+`dist/test`. Never for sharing.
+
+```bash
+npm run package -- --test test/smoke/smoke.js
+SMOKE_OUTPUT=test/.output dist/test/mac-arm64/Winify.app/Contents/MacOS/Winify
+```
+
+The smoke test then uses the packaged app's own sign-in (open Winify.app,
+sign in with Remember me, quit it first). `test/package/loopback.js` is the
+native system-audio capture retest, run the same way.
+
 ## Spotify API limits that shape the design
 
 - **Development Mode** (2026): Premium required, one Client ID per developer,
@@ -75,10 +116,11 @@ Electron's native loopback capture (`setDisplayMediaRequestHandler` with
 already ended, so no samples arrive (see
 [electron/electron#52738](https://github.com/electron/electron/issues/52738)).
 This was the case with every combination of the relevant Chromium feature
-flags, with stock and castLabs Electron. It has not been tried in a packaged,
-Developer ID-signed and notarized app, which macOS may treat differently;
-worth retesting when Winify is packaged. Until then, BlackHole provides the
-loopback (README, "Optional: the visualizer").
+flags, with stock and castLabs Electron. Retested in the packaged, ad-hoc
+signed Winify.app (30 Oct 2026, `test/package/loopback.js`): macOS's picker
+returns a screen but the stream has no audio track at all. A Developer
+ID-signed, notarized app is still untested (no developer membership).
+BlackHole provides the loopback (README, "Optional: the visualizer").
 
 ## Milkdrop
 
@@ -178,6 +220,7 @@ chassis, the Webamp windows and Winify's own windows are drawn in it.
 | `milkdrop-convert-worker.js` | Turns .milk and .json files into Butterchurn presets, off the page |
 | `drm-debug.js` | DRM diagnostics, inactive unless `--drm-debug` |
 | `drm-redact.js` | Keeps tokens and signed links out of the DRM diagnostics |
+| `packaging/` | `npm run package`: the build, VMP and ad-hoc signing, verification |
 
 Playback goes through `window.WinifyPlayer` (`play()`, `pause()`,
 `nextTrack()`, `previousTrack()`, `setVolume()`, `getVolume()`, `seek()`), so

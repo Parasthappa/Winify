@@ -108,6 +108,42 @@ Next time you open Winify, click **Continue with Spotify**. Turn on
 To use a different Spotify app later, choose **Change Spotify Client ID...**
 from Winify's menu-bar icon, or **CHANGE CLIENT ID** on the sign-in screen.
 
+### Optional: make Winify a Mac app
+
+Instead of starting Winify from Terminal each time, you can build it into an
+app you open from Finder or the Dock. It needs steps 1 to 3 done first
+(your castLabs account signs the app too).
+
+```bash
+npm run package
+```
+
+It takes a few minutes. You get **Winify.app** in the `dist/mac-arm64`
+folder, and **Winify-1.0.0.dmg** in `dist`, a copy you can send to a friend.
+Drag Winify.app into Applications to keep it.
+
+The app keeps its own settings, apart from `npm start`: the first time you
+open it, connect your Spotify app again (step 5).
+
+It needs a Mac with Apple silicon (M1 or later). After each new build, macOS
+asks again to allow microphone access for the visualizer.
+
+### Opening a copy someone sent you
+
+Winify isn't from the App Store, so macOS stops it the first time:
+
+1. Open the .dmg and drag **Winify** into **Applications**.
+2. Open Winify from Applications. macOS says it can't be opened; click
+   **Done**.
+3. Open **System Settings > Privacy & Security**, scroll down, and click
+   **Open Anyway** next to the message about Winify. Confirm with your
+   password or Touch ID.
+4. Winify opens. From now on it opens like any other app.
+
+You need Spotify Premium and your own Spotify app (step 1). The first time,
+Winify needs the internet to download the part that plays
+Spotify's protected audio.
+
 ## Using Winify
 
 ### Playing music
@@ -231,7 +267,8 @@ it; use **Quit Winify** (or **Cmd+Q**) to close it completely.
 
 The visualizer needs to hear your Mac's sound, which macOS does not allow
 directly. A small free audio tool, BlackHole, makes it possible. Music plays
-fine without it; only the visualizer stays empty.
+fine without it; only the visualizer stays empty. This is the same for the
+Mac app made with `npm run package`: it needs BlackHole too.
 
 1. Install BlackHole (needs [Homebrew](https://brew.sh)), then **restart your
    Mac**:

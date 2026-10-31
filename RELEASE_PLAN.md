@@ -114,22 +114,23 @@ Done means each works, has tests against the mocks, and is in the README:
 
 Done means:
 
-- [ ] Winify.app is built from the project with one command, and opens from
+- [x] Winify.app is built from the project with one command, and opens from
       Finder like any app.
 - [ ] Its name is "Winify" everywhere: the menu bar, Finder, the Dock, the
       app switcher and Activity Monitor (not "Electron").
 - [ ] It has Winify's icon in Finder and the Dock.
-- [ ] It is VMP-signed with the user's own EVS account, after any other
+- [x] It is VMP-signed with the user's own EVS account, after any other
       signing step that changes the app, so Spotify plays in the packaged app.
       Apple: ad-hoc signing only (no developer membership, no notarizing).
-- [ ] THIRD_PARTY_NOTICES.md, Electron's LICENSE and LICENSES.chromium.html
+- [x] THIRD_PARTY_NOTICES.md, Electron's LICENSE and LICENSES.chromium.html
       are inside the app.
 - [ ] Sign-in, playback, the visualizers and lyrics work from the built app
       (the smoke test, run against it).
-- [ ] Native system-audio capture is retested in the packaged app, to see
+- [x] Native system-audio capture is retested in the packaged app, to see
       whether BlackHole is still needed. The answer, either way, goes in the
-      README's visualizer setup.
-- No .dmg or download for other people.
+      README's visualizer setup. Still needed: no audio track (30 Oct 2026).
+- No public download. A .dmg DM'd to a friend is fine (no Apple signing, so
+  they open it once via Privacy & Security > Open Anyway).
 
 ## 5. Publish (the source code)
 

@@ -5,10 +5,12 @@
   "scripts": {
     "start": "electron .",
     "test": "node test/run.js",
-    "smoke": "electron test/smoke/smoke.js"
+    "smoke": "electron test/smoke/smoke.js",
+    "package": "node packaging/build.js"
   },
   "devDependencies": {
-    "electron": "github:castlabs/electron-releases#v44.1.0+wvcus"
+    "electron": "github:castlabs/electron-releases#v44.1.0+wvcus",
+    "electron-builder": "^26.0.12"
   },
   "dependencies": {
     "butterchurn": "3.0.0-beta.5",

@@ -5,6 +5,12 @@ const http = require('http');
 const path = require('path');
 const { redact } = require('./drm-redact');
 
+// The packaged app (npm run package) keeps its settings apart from the
+// development copy's ("winify"): its own Client ID, sign-in, layout and
+// Widevine. The Mac's disk ignores case, so "Winify" would be the same folder.
+const PACKAGED_FOLDER = 'Winify App';
+if (app.isPackaged) app.setPath('userData', path.join(app.getPath('appData'), PACKAGED_FOLDER));
+
 // Winify ships with no credentials. Every user registers their own Spotify
 // app (Spotify's Development Mode allows no shared one) and pastes its Client
 // ID on the sign-in screen's setup step; it is stored in Winify's settings
