@@ -145,7 +145,8 @@ Done means:
 - [ ] Screenshots of Winify are in the README.
 - [ ] The project is on GitHub, with nothing personal in it or its history.
 - [ ] A 1.0 tag and release notes on GitHub: source only, no built app.
-- [ ] Winify's menu links to the GitHub project (where Webamp's link used
-      to be).
-- [ ] LRCLIB: Winify's User-Agent includes the GitHub link (LRCLIB asks for
-      "a link to its homepage or project page").
+- [x] Winify's menu links to the GitHub project (where Webamp's link used
+      to be): "Winify..." at the top of the main menu (31 Oct 2026).
+- [x] LRCLIB: Winify's User-Agent includes the GitHub link (LRCLIB asks for
+      "a link to its homepage or project page"), from package.json's
+      `homepage` (31 Oct 2026).

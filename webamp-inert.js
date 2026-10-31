@@ -67,11 +67,19 @@ const NOT_HERE = [
 if (MAC) DEAD_MENU_ITEMS.add('Equalizer');
 const DEAD_MENU_CSS = `
   #webamp #playlist-list-menu li:has(.new-list),
-  #webamp #playlist-list-menu li:has(.save-list) { display: none; }
-  /* The main menu's first item, "Webamp...", links to webamp.org: Webamp's
-     own about page, not Winify's. It goes, with the line under it. */
-  #webamp-context-menu li:has(> a[href*="webamp.org"]),
-  #webamp-context-menu li:has(> a[href*="webamp.org"]) + li.hr { display: none; }`;
+  #webamp #playlist-list-menu li:has(.save-list) { display: none; }`;
+
+// The main menu's first item, Webamp's "Webamp..." (its own about page on
+// webamp.org), becomes "Winify..." and links to Winify's project page.
+const PROJECT_URL = 'https://github.com/Parasthappa/Winify';
+function linkProject() {
+  for (const a of document.querySelectorAll('#webamp-context-menu li > a[href*="webamp.org"]')) {
+    a.href = PROJECT_URL;
+    // The text node's value, not textContent: Webamp's React owns that node,
+    // and replacing it breaks Webamp's next redraw.
+    for (const t of a.childNodes) if (t.nodeType === Node.TEXT_NODE && t.nodeValue.trim() === 'Webamp...') t.nodeValue = 'Winify...';
+  }
+}
 
 // The main window's title bar without its minimize, windowshade and close
 // buttons. The skin paints them into the title bar image itself (their own
@@ -123,8 +131,9 @@ function hideDeadItems() {
 // children keeps this off Webamp's constant redraws.
 const menuObserver = new MutationObserver(() => {
   hideDeadItems();
+  linkProject();
   // A menu's items can land a frame after the menu itself.
-  if (document.getElementById('webamp-context-menu')) requestAnimationFrame(hideDeadItems);
+  if (document.getElementById('webamp-context-menu')) requestAnimationFrame(() => { hideDeadItems(); linkProject(); });
 });
 
 function onClickCapture(e) {

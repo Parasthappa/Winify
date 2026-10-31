@@ -72,7 +72,7 @@ app.whenReady().then(async () => {
   check('the playlist window\'s LYRIC (MISC) button exists', await click('#webamp #playlist-misc-menu'));
   let v = await shown();
   check('LYRIC: window open, Blinding Lights lyrics on screen (visible, not covered)', v && v.visible && v.hitInside && /^Blinding Lights\s+The Weeknd/.test(v.text) && /tryna call/i.test(v.text), JSON.stringify(v && { visible: v.visible, hit: v.hitInside, text: v.text.slice(0, 90) }));
-  check('LRCLIB request went out from the main process and came back 200, with Winify\'s User-Agent', lrclibSeen.some((x) => x.status === 200 && /^Winify\/1\.0\.0 /.test(x.ua || '')), JSON.stringify(lrclibSeen));
+  check('LRCLIB request went out from the main process and came back 200, with Winify\'s User-Agent (name, version, project page)', lrclibSeen.some((x) => x.status === 200 && /^Winify\/1\.0\.0 \(.*https:\/\/github\.com\/Parasthappa\/Winify\)$/.test(x.ua || '')), JSON.stringify(lrclibSeen));
   fs.writeFileSync(path.join(__dirname, '..', '.output', 'lyrics-app.png'), (await win.webContents.capturePage()).toPNG());
   await click('#webamp #playlist-misc-menu');
   check('LYRIC again closes it', await closed());

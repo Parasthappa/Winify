@@ -45,11 +45,26 @@ You will get a **Client ID** from it, which Winify asks for later.
 
 ### Step 2: Install Winify
 
-Download this project to your Mac, open **Terminal** in its folder, and run:
+Open **Terminal** and run these, one at a time. They download Winify from
+[GitHub](https://github.com/Parasthappa/Winify) into a folder called `winify`,
+go into it, and install what it needs:
+
+```bash
+git clone https://github.com/Parasthappa/Winify.git
+```
+
+```bash
+cd winify
+```
 
 ```bash
 npm install
 ```
+
+(If your Mac asks to install the "command line developer tools" for `git`,
+click **Install** and run the first line again. Or download the project from
+GitHub with **Code > Download ZIP**, unzip it, and open Terminal in that
+folder.) Run the other commands in this README from that same folder.
 
 ### Step 3: Allow Winify to play Spotify's audio
 

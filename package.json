@@ -1,6 +1,11 @@
 {
   "name": "winify",
   "version": "1.0.0",
+  "homepage": "https://github.com/Parasthappa/Winify",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Parasthappa/Winify.git"
+  },
   "main": "main.js",
   "scripts": {
     "start": "electron .",

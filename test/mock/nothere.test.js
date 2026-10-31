@@ -16,7 +16,8 @@ h.open().then(async ({ win, js }) => {
     const x = Math.round(b.x + 100), y = Math.round(b.y + 40);
     win.webContents.sendInputEvent({ type: 'mouseDown', x, y, button: 'right', clickCount: 1 }); win.webContents.sendInputEvent({ type: 'mouseUp', x, y, button: 'right', clickCount: 1 }); await h.wait(400);
     const items = await js(`[...document.querySelectorAll('#webamp-context-menu li')].filter((l) => l.firstChild && l.firstChild.nodeType === 3 && getComputedStyle(l).display !== 'none').map((l) => l.firstChild.textContent.trim())`);
-    await h.click(win, js, '#main-window', 0.5, 0.97); await h.wait(200);
+    // Closed by a click well away from it (on the menu, it would pick an item).
+    win.webContents.sendInputEvent({ type: 'mouseDown', x: 1100, y: 700, button: 'left', clickCount: 1 }); win.webContents.sendInputEvent({ type: 'mouseUp', x: 1100, y: 700, button: 'left', clickCount: 1 }); await h.wait(200);
     return items; };
   const calls = async () => JSON.parse(await js('JSON.stringify(calls.splice(0))'));
   await h.wait(1500);
