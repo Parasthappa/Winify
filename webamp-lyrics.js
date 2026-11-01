@@ -28,6 +28,8 @@ const WIDTH = 325;                  // as the picker's: a tidier stack
 const WATCH_MS = 500;               // how often the current track is checked
 const DURATION_SLACK_S = 4;         // a search match this close is the same recording
 const BUSY_FALLBACK_S = 2;          // LRCLIB busy without saying how long to wait
+let autoRetryMs = 30 * 1000;        // LRCLIB failing (5xx): tried again by itself after this...
+const AUTO_RETRIES = 3;             // ...at most this many times for a song
 const BUSY_QUIET_MAX_S = 20;        // a longer wait is not done quietly: the window offers a retry
 const BUSY_JITTER = 0.3;            // up to 30% more, as LRCLIB asks, so clients don't retry in step
 
@@ -104,6 +106,8 @@ function answered(res, allowNotFound) {
 // request goes out before then: a short wait is waited out for one quiet
 // retry; a long one leaves the window's own retry to the listener.
 let busyUntil = 0;
+let autoRetryTimer = null;
+let autoRetried = { uri: null, n: 0 };
 
 function retryAfterMs(value) {
   const n = Number(value);
@@ -293,6 +297,8 @@ function draw(head, text, note, retry) {
 
 async function show(uri) {
   shownUri = uri;
+  clearTimeout(autoRetryTimer);
+  if (autoRetried.uri !== uri) autoRetried = { uri, n: 0 };
   const seq = ++lookupSeq;
   const n = ctx.now;
   const head = { title: n.title, artist: n.artist };
@@ -309,12 +315,19 @@ async function show(uri) {
   } catch (err) {
     if (seq !== lookupSeq) return;
     warn('lookup failed -', err.message);
-    // 429: busy. A 5xx: LRCLIB itself is failing (it answered, so not "couldn't
-    // reach"), with its code. No answer at all: couldn't reach it.
+    // 429: busy. 503: LRCLIB's own "server is busy" (ServerOverloaded). Another
+    // 5xx: LRCLIB itself failing (it answered, so not "couldn't reach"). No
+    // answer at all: couldn't reach it. On a 5xx it is tried again by itself.
+    const again = err.status >= 500 && autoRetried.n < AUTO_RETRIES;
     draw(head, null, (err.status === 429 ? 'LRCLIB is busy.'
+      : err.status === 503 ? 'LRCLIB is overloaded right now (error 503).'
       : err.status >= 500 ? 'LRCLIB isn’t working right now (error ' + err.status + ').'
-      : 'Couldn’t reach LRCLIB.') + ' Click to try again.',
+      : 'Couldn’t reach LRCLIB.') + (again ? ' Trying again shortly; click to try now.' : ' Click to try again.'),
       () => { if (shownUri === uri) show(uri); });
+    if (again) {
+      autoRetried.n++;
+      autoRetryTimer = setTimeout(() => { if (shownUri === uri && seq === lookupSeq) show(uri); }, autoRetryMs * autoRetried.n);
+    }
     return;
   }
   lyricsCache.set(uri, result);
@@ -544,6 +557,7 @@ window.WinifyLyrics = {
   open, close, toggle, isOpen,
   find: (details) => lookUp(details),
   clearBusy: () => { busyUntil = 0; },             // tests: forget a Retry-After
+  setAutoRetryMs: (ms) => { autoRetryMs = ms; },   // tests: a shorter wait
   state: () => ({ open: !!el, shownUri, cached: [...lyricsCache.keys()],
     entry: shownUri ? lyricsCache.get(shownUri) || null : null,
     text: el ? el.querySelector('.wl-body').innerText : null }),

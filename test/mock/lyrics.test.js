@@ -76,8 +76,15 @@ h.open().then(async ({ win, js }) => {
   // LRCLIB itself failing (502, as on 31 Oct): said so, with its code - not "busy", not "couldn't reach".
   await js('(LRC.busy = true, LRC.busyStatus = 502)'); await play(9);
   s = await untilL((v) => /Song 2009/.test(v.text || '') && /LRCLIB/.test(v.text || ''), 15000);
-  check('LRCLIB failing (502): "LRCLIB isn\'t working right now (error 502). Click to try again."', /LRCLIB isn’t working right now \(error 502\)\. Click to try again\./.test(s.text || ''), s.text);
+  check('LRCLIB failing (502): "LRCLIB isn\'t working right now (error 502)", and trying again', /LRCLIB isn’t working right now \(error 502\)\. Trying again shortly; click to try now\./.test(s.text || ''), s.text);
+  // LRCLIB overloaded (503, its "server is busy"): said so, and tried again by itself.
+  await js('(WinifyLyrics.clearBusy(), WinifyLyrics.setAutoRetryMs(700), LRC.busyStatus = 503)'); await play(10);
+  s = await untilL((v) => /Song 2010/.test(v.text || '') && /overloaded/.test(v.text || ''), 15000);
+  check('LRCLIB overloaded (503): says so, and that it will try again', /LRCLIB is overloaded right now \(error 503\)\. Trying again shortly; click to try now\./.test(s.text || ''), s.text);
   await js('(LRC.busy = false, LRC.busyStatus = null, WinifyLyrics.clearBusy())');
+  s = await untilL((v) => /Song 2010/.test(v.text || '') && /No lyrics found/.test(v.text || ''), 15000);
+  check('...once LRCLIB answers, the lyrics window recovers with no click', /No lyrics found/.test(s.text || ''), s.text);
+  await js('(WinifyLyrics.setAutoRetryMs(30000))');
   // A slow lookup shows that it is looking.
   await js('LRC.delay = 1500'); await play(5);
   s = await untilL((v) => /Song 2005/.test(v.text || ''));
