@@ -80,7 +80,7 @@ app.whenReady().then(async () => {
   await wait(400);
   check('Spotify\'s sign-in opens in the browser with this Client ID and Winify\'s redirect URI', opened.length === 1 && opened[0].includes('client_id=' + VALID) && opened[0].includes('redirect_uri=http%3A%2F%2F127.0.0.1%3A8888%2Fcallback'), opened[0]);
   v = await S();
-  check('while waiting: "BROWSER SHOWS AN ERROR? ↗" hint', v.links.includes('BROWSER SHOWS AN ERROR? ↗'), JSON.stringify(v.links));
+  check('while waiting: "Try again" on the button, and a Cancel link', v.cta === 'Try again' && v.links.includes('CANCEL'), JSON.stringify(v));
   v = await until((x) => /REDIRECT/.test(x.status || ''), 8000);
   check('no answer: "NO REPLY · CHECK THE REDIRECT URI", with what to add and the guide', v.status === 'NO REPLY · CHECK THE REDIRECT URI' && /http:\/\/127\.0\.0\.1:8888\/callback/.test(v.text) && /Invalid redirect URI/.test(v.text) && v.links.includes('SETUP GUIDE ↗'), JSON.stringify([v.status, v.text.slice(0, 260)]));
   fs.writeFileSync(path.join(__dirname, '..', '.output', 'setup-redirect.png'), (await win.webContents.capturePage()).toPNG());

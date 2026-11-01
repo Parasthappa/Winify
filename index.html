@@ -307,9 +307,9 @@
               <button type="button" class="sa-link" onClick="{{onGuide}}" style="align-self: flex-start;" title="Opens the setup guide">SETUP GUIDE &#x2197;</button>
             </div>
           </sc-if>
-          <!-- waiting on the browser: in case it shows an error instead -->
+          <!-- waiting on the browser, which may have been closed: a way out (the button tries again) -->
           <sc-if value="{{showWaitHint}}">
-            <button type="button" class="sa-link" onClick="{{onGuide}}" style="position: absolute; right: 34px; top: 30px; font-size: 18px;" title="Opens the setup guide">BROWSER SHOWS AN ERROR? &#x2197;</button>
+            <button type="button" class="sa-link sa-quiet" onClick="{{onCancel}}" style="position: absolute; right: 34px; top: 30px; font-size: 18px;" title="Stop waiting for the browser">CANCEL</button>
           </sc-if>
           <!-- signed out: a different Spotify app -->
           <sc-if value="{{showChangeLink}}">

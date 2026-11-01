@@ -153,6 +153,9 @@
     // first run: the welcome screen, then (Get started) the Client ID step
     var welcome = setup && s.setupWelcome === true;
     var connecting = !setup && status === 'connecting';
+    // Waiting for the browser, whose tab may be gone (nothing tells us): not
+    // stuck, the button tries again, and Cancel goes back.
+    var waitingBrowser = connecting && (s.step || 0) === 0 && !s.autoSignIn && !!IPC && !DEMO;
     var connected = !setup && status === 'connected';
     var failed = !setup && status === 'error';
     var live = powered && !asleep;
@@ -199,6 +202,7 @@
     var ctaLabel = 'Continue with Spotify';
     var ctaAria = 'Continue with Spotify';
     if (connecting) { ctaLabel = 'Connecting…'; ctaAria = 'Connecting to Spotify'; }
+    if (waitingBrowser) { ctaLabel = 'Try again'; ctaAria = 'Open Spotify\u2019s sign-in in your browser again'; }
     if (connected) { ctaLabel = 'Disconnect'; ctaAria = 'Disconnect from Spotify'; }
     if (failed) { ctaLabel = 'Try again'; ctaAria = 'Try connecting to Spotify again'; }
     // nothing failed: sign in again, as at first launch
@@ -210,7 +214,7 @@
     // connected turns the same glass button red
     var ctaBase = connected ? '#e5352b' : action;
 
-    var lit = s.btnHover === true && powered && !connecting;
+    var lit = s.btnHover === true && powered && (!connecting || waitingBrowser);
 
     var topMix = lit ? 0.2 : 0.44;
     var botMix = lit ? 0.5 : 0.72;
@@ -249,8 +253,8 @@
       ctaBg: ctaBg,
       ctaShadow: ctaShadow,
       ctaBorder: ctaBorder,
-      ctaDisabled: !powered || connecting || (setup && s.setupBusy) || s.autoSignIn === true,
-      isConnecting: connecting || (setup && s.setupBusy) || s.autoSignIn === true,
+      ctaDisabled: !powered || (connecting && !waitingBrowser) || (setup && s.setupBusy) || s.autoSignIn === true,
+      isConnecting: (connecting && !waitingBrowser) || (setup && s.setupBusy) || s.autoSignIn === true,
 
       showSetup: setup && !welcome,
       showLogoParts: (!setup || welcome) && !redirectHelp && !nowPlaying,
@@ -266,7 +270,7 @@
       npLinkTitle: s.spotifyApp === false ? 'Opens Spotify\u2019s download page' : 'Opens this track in the Spotify app',
       onOpenSpotify: function () { if (IPC && IPC.openInSpotify && nowPlaying) IPC.openInSpotify(track.uri); },
       showRedirectHelp: redirectHelp,
-      showWaitHint: connecting && (s.step || 0) === 0,
+      showWaitHint: waitingBrowser,
       showChangeLink: !setup && !connecting && !connected && !s.autoSignIn && !!IPC,
       setupPlaceholder: s.setupCurrent ? 'now: ' + s.setupCurrent : 'paste your Client ID',
       showMark: !connected,
@@ -338,6 +342,10 @@
       onGuide: function () {
         if (IPC && IPC.openSetupGuide) { IPC.openSetupGuide(); }
       },
+      onCancel: function () {
+        if (IPC && IPC.cancelLogin) { IPC.cancelLogin(); }
+        self.setState({ status: 'idle', step: 0, failKind: null });
+      },
       onChangeId: function () {
         if (IPC && IPC.changeClientId) { IPC.changeClientId(); }
       },
@@ -348,7 +356,7 @@
           return;
         }
         if (setup) { self.submitSetup(); return; }
-        if (!powered || connecting || s.autoSignIn) { return; }
+        if (!powered || (connecting && !waitingBrowser) || s.autoSignIn) { return; }
         if (connected) {
           if (IPC) { IPC.disconnect(); }
           self.setState({ status: 'idle', step: 0 });

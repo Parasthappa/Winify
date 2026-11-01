@@ -977,6 +977,7 @@ function cancelAuth() {
   if (authServer) {
     try {
       authServer.close();
+      authServer.closeAllConnections();   // none left open to answer for an old attempt
     } catch {
       // Already closed.
     }
@@ -1089,8 +1090,15 @@ function login() {
       return;
     }
 
+    // An older attempt's answer (its tab was still open after Try again): not
+    // this attempt's failure, so it keeps waiting.
+    if (url.searchParams.get('state') !== state) {
+      res.writeHead(400, { 'Content-Type': 'text/plain' });
+      res.end('Sign-in failed: this tab is from an earlier attempt. Use the newest one, or press Try again in Winify.');
+      return;
+    }
     const code = url.searchParams.get('code');
-    const ok = code && url.searchParams.get('state') === state;
+    const ok = !!code;
     res.writeHead(ok ? 200 : 400, { 'Content-Type': 'text/plain' });
     res.end(ok ? 'Connected. You can close this tab.' : 'Sign-in failed. You can close this tab.');
     cancelAuth();
@@ -1465,7 +1473,13 @@ ipcMain.handle('client-id:set', async (_event, raw) => {
 });
 ipcMain.on('client-id:change', changeClientId);
 ipcMain.on('open-setup-guide', () => {
-  shell.openPath(SETUP_GUIDE).then((err) => { if (err) console.warn('[config] could not open the setup guide:', err); });
+  // Packaged, the README is inside app.asar, which other apps cannot open: a copy.
+  let guide = SETUP_GUIDE;
+  if (app.isPackaged) {
+    guide = path.join(app.getPath('temp'), 'Winify README.md');
+    fs.writeFileSync(guide, fs.readFileSync(SETUP_GUIDE));
+  }
+  shell.openPath(guide).then((err) => { if (err) console.warn('[config] could not open the setup guide:', err); });
 });
 
 ipcMain.on('ready', () => {

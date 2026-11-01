@@ -77,8 +77,23 @@ app.whenReady().then(async () => {
   v = await until((x) => /HANDSHAKE/.test(x.status || ''), 4000);
   check('7 ...then sign-in starts by itself: browser opened, handshake', /HANDSHAKE/.test(v.status) && opened.length === 1 && opened[0].includes('client_id=' + VALID), JSON.stringify([v.status, opened.length]));
   await shot('07-waiting-for-browser');
+  // The browser tab may be gone: the button tries again, Cancel goes back.
+  await wait(600);
+  v = await S();
+  check('7b while waiting for the browser: "Try again" and Cancel, not stuck on "Connecting…"', v.cta === 'Try again' && v.links.includes('CANCEL') && !v.links.some((l) => /BROWSER SHOWS/.test(l)), JSON.stringify(v));
+  await click('#login-screen .sa-cta'); v = await until((x) => opened.length === 2 && /HANDSHAKE/.test(x.status || ''), 4000);
+  check('7c Try again: the browser opens again, a fresh sign-in, no error', opened.length === 2 && /HANDSHAKE/.test(v.status) && new URL(opened[1]).searchParams.get('state') !== new URL(opened[0]).searchParams.get('state'), JSON.stringify([v.status, opened.length]));
+  await wait(600);
+  const staleAnswer = await realFetch('http://127.0.0.1:8888/callback?code=old&state=' + new URL(opened[0]).searchParams.get('state')).then((r) => r.status).catch(() => 0);
+  v = await S();
+  check('7d an older tab\'s answer is refused, and this attempt keeps waiting', staleAnswer === 400 && /HANDSHAKE/.test(v.status) && v.cta === 'Try again', JSON.stringify([staleAnswer, v.status, v.cta]));
+  await click('#login-screen .sa-link.sa-quiet'); v = await until((x) => x.cta === 'Continue with Spotify', 3000);
+  check('7e Cancel: back to "Continue with Spotify", nothing waiting', v.cta === 'Continue with Spotify' && !/HANDSHAKE/.test(v.status), JSON.stringify(v));
+  const cancelled = await realFetch('http://127.0.0.1:8888/callback?code=x&state=y').then((r) => r.status).catch(() => 0);
+  check('...the sign-in listener is closed', cancelled === 0, cancelled);
+  await click('#login-screen .sa-cta'); await until((x) => opened.length === 3 && /HANDSHAKE/.test(x.status || ''), 4000);
   // You approve in the browser: Spotify calls Winify back.
-  const state = new URL(opened[0]).searchParams.get('state');
+  const state = new URL(opened[opened.length - 1]).searchParams.get('state');
   realFetch('http://127.0.0.1:8888/callback?code=test-code&state=' + state).catch(() => {});
   v = await until((x) => /EXCHANGING/.test(x.status || '')); check('8 exchanging the token', /EXCHANGING AUTH TOKEN/.test(v.status), v.status); await shot('08-exchanging-token');
   v = await until((x) => /VERIFYING/.test(x.status || '')); check('9 verifying Premium', /VERIFYING PREMIUM/.test(v.status), v.status); await shot('09-verifying-premium');
