@@ -264,16 +264,18 @@ async function applyDefaultLayout(container) {
 // Fit Winify's window around a layout and put the windows in it: the layout
 // is moved so its top-left window sits at the margin, the window is resized
 // to the layout plus the margin, and the positions are applied once the
-// window has its new size. center re-centres the window on screen (sign-in,
+// window has its new size. center puts it at its default spot (sign-in,
 // reset); otherwise it grows or shrinks in place.
 async function placeLayout(container, layout, { center = false } = {}) {
   if (!(window.spotify && window.spotify.fitWindow)) {
     let positions = layout.positions;
-    // Screen window: a layout from a fitted window (or the default) opens
-    // where that window used to, centred on the screen.
+    // Screen window: a layout from a fitted window (or the default) opens at
+    // the screen's left edge, centred top to bottom, leaving the room beside
+    // it for the side panels (the chassis has the bottom-right: centred, the
+    // column left no room there and panels landed under the playlist).
     if (SCREEN_WINDOW && center) {
       const box = layoutBox(layout);
-      const dx = Math.round((container.clientWidth - (box.r - box.l)) / 2 - box.l);
+      const dx = PLAYER_MARGIN - box.l;
       const dy = Math.round((container.clientHeight - (box.b - box.t)) / 2 - box.t);
       positions = {};
       for (const id of LAYOUT_WINDOWS) positions[id] = { x: layout.positions[id].x + dx, y: layout.positions[id].y + dy };
@@ -402,7 +404,7 @@ async function restoreLayout(container) {
   if (SCREEN_WINDOW && !saved.screen) {
     try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(currentLayout())); } catch (e) { /* storage unavailable */ }
   }
-  log('layout restored', SCREEN_WINDOW && !saved.screen ? '(from the old fitted window: centred on the screen)' : '');
+  log('layout restored', SCREEN_WINDOW && !saved.screen ? '(from the old fitted window: at the left edge)' : '');
 }
 
 // Menu bar > Reset window layout: forget the saved layout and go back to the

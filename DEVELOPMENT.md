@@ -240,7 +240,8 @@ chassis, the Webamp windows and Winify's own windows are drawn in it.
   screen crashes AppKit). On `enter-html-full-screen` the window goes into
   simple full screen, covering the whole display, and back after.
 - **Positions** are screen positions (the layout's `screen` flag); a layout
-  saved by the old fitted window opens centred, where that window used to.
+  saved by the old fitted window opens at the default spot (the left edge,
+  centred top to bottom, leaving room beside it for the side panels).
 - The yellow and red lights on the chassis, and Webamp's minimize and close
   buttons, send `minimize` and `hide` (`window-command`); minimized and
   hidden both count as off screen for the visualizers.

@@ -76,7 +76,7 @@ app.whenReady().then(async () => {
   check('Webamp\'s windows are on screen too, not under the chassis', !!main0 && (main0.r <= box.x || main0.b <= box.y), JSON.stringify(main0));
 
   console.log('3. Click-through');
-  await move(5, Math.round(area.height / 2));
+  await move(5, 5);
   check('pointer over an empty part: clicks pass through', passing() === true);
   await move(main0.x + 100, main0.y + 50);
   check('over a Webamp window: Winify takes the clicks', passing() === false);
@@ -87,10 +87,10 @@ app.whenReady().then(async () => {
   const play = await R('#webamp #play');   // a button: holding it moves nothing
   win.webContents.sendInputEvent({ type: 'mouseMove', x: play.x + 5, y: play.y + 5 }); await wait(100);
   win.webContents.sendInputEvent({ type: 'mouseDown', x: play.x + 5, y: play.y + 5, button: 'left', clickCount: 1 }); await wait(100);
-  await move(5, Math.round(area.height / 2), true);
+  await move(5, 5, true);
   check('a drag that strays over an empty part keeps the clicks until let go', passing() === false);
-  win.webContents.sendInputEvent({ type: 'mouseUp', x: 5, y: Math.round(area.height / 2), button: 'left', clickCount: 1 }); await wait(200);
-  await move(6, Math.round(area.height / 2));
+  win.webContents.sendInputEvent({ type: 'mouseUp', x: 5, y: 5, button: 'left', clickCount: 1 }); await wait(200);
+  await move(6, 5);
   check('...then through again', passing() === true);
   await js('WinifySearch.open()'); await wait(500);
   await move(5, 5);
@@ -107,7 +107,7 @@ app.whenReady().then(async () => {
   await js('WinifyPassThrough.ignoreRealMouse(true)');   // a real mouse moving during the run must not count
   win.blur(); await wait(300);
   check('Winify not focused', !win.isFocused() && !(await js('document.hasFocus()')));
-  await at(5, area.height / 2);
+  await at(5, 5);
   check('pointer over an empty part: through', passing() === true);
   await at(main0.x + 100, main0.y + 50);
   check('over a Webamp window: Winify takes the click, though it is not the active app (no mouse events needed)', passing() === false);
@@ -199,7 +199,7 @@ app.whenReady().then(async () => {
   win.webContents.reload(); await wait(1000);
   check('player back after a reload', await mounted()); await wait(1500);
   const conv = await R('#webamp #main-window');
-  check('opened where the old window used to: centred on the screen', Math.abs((conv.x + 137) - area.width / 2) <= 2 && Math.abs((conv.y + 377 / 2) - area.height / 2) <= 2, JSON.stringify(conv));
+  check('a layout from the old fitted window: opened at the left edge, centred top to bottom', conv.x === 0 && Math.abs((conv.y + 377 / 2) - area.height / 2) <= 2, JSON.stringify(conv));
   await wait(800);
   check('...then saved as screen positions', (await js(`JSON.parse(localStorage.getItem('winify.layout.v2')).screen`)) === true);
   check('the chassis kept its spot through the reload', JSON.stringify(await R('#login-screen')) === JSON.stringify(box2));
