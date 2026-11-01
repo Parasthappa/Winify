@@ -2,7 +2,7 @@
 // permission for Winify, which input opens, and whether sound arrives.
 //
 //   npm run package -- --test test/package/capture.js
-//   SMOKE_OUTPUT=test/.output dist/test/mac-arm64/Winify.app/Contents/MacOS/Winify
+//   SMOKE_OUTPUT=test/.output dist/test.noindex/mac-arm64/Winify.app/Contents/MacOS/Winify
 //
 // Runs Winify's real main process from the packaged app with an empty settings
 // folder (no Client ID, so nothing goes to Spotify), starts Winify's own

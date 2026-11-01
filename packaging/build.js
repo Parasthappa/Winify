@@ -9,7 +9,9 @@
 //
 // `npm run package -- --test <entry>` builds the same app with a test as its
 // starting file instead (the smoke test runs inside Winify's own process),
-// into dist/test, with no .dmg. Never for sharing.
+// into dist/test.noindex, with no .dmg. Never for sharing. ".noindex" keeps it
+// out of Spotlight, which otherwise offers it as Winify: opened that way, it
+// runs the test and quits.
 const { build, Platform } = require('electron-builder');
 
 const args = process.argv.slice(2);
@@ -59,7 +61,7 @@ const config = {
 if (testEntry) {
   config.extraMetadata = { main: testEntry };
   config.files = config.files.concat(['test/smoke/**', 'test/package/**']);
-  config.directories = Object.assign({}, config.directories, { output: 'dist/test' });
+  config.directories = Object.assign({}, config.directories, { output: 'dist/test.noindex' });
   config.mac = Object.assign({}, config.mac, { target: [{ target: 'dir', arch: ['arm64'] }] });
 }
 

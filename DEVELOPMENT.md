@@ -90,11 +90,11 @@ Testing the packaged app: the smoke test runs inside Winify's own process,
 which a packaged app does not allow from outside, so
 `npm run package -- --test <entry>` builds the same app (same binary,
 signatures, bundle ID and settings folder) starting at a test instead, into
-`dist/test`. Never for sharing.
+`dist/test.noindex`. Never for sharing.
 
 ```bash
 npm run package -- --test test/smoke/smoke.js
-SMOKE_OUTPUT=test/.output dist/test/mac-arm64/Winify.app/Contents/MacOS/Winify
+SMOKE_OUTPUT=test/.output dist/test.noindex/mac-arm64/Winify.app/Contents/MacOS/Winify
 ```
 
 The smoke test then uses the packaged app's own sign-in (open Winify.app,
@@ -103,7 +103,8 @@ native system-audio capture retest, run the same way.
 
 `npm run package:check` builds and runs `test/package/check.js`: the
 packaged app's own checks, offline (Spotify and LRCLIB faked inside it):
-its port range, the remembered sign-in, the playlist picker, a lyrics lookup
+its port range, the remembered sign-in, kbps and kHz, the version label, each
+side panel level with the column, the playlist picker, a mix and its Remix, a lyrics lookup
 through the LRCLIB route with its User-Agent, and sign-in through the 8888
 callback. `npm test` cannot see these: it runs main.js in the development
 Electron, unpackaged (the development copy's ports and settings folder), so

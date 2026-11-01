@@ -1,7 +1,7 @@
 // The My playlists index shared by both copies (main.js keeps it in the shared
 // folder; webamp-library-index.js), and its build lock: the real app, Spotify
 // faked in the main process, Spotify's player script blocked.
-const { app, BrowserWindow, session } = require('electron'); const fs = require('fs'), path = require('path');
+const { app, BrowserWindow, Menu, session } = require('electron'); const fs = require('fs'), path = require('path');
 const profile = path.join(__dirname, '..', '.profiles', 'app-shared-index'); fs.rmSync(profile, { recursive: true, force: true }); fs.mkdirSync(profile, { recursive: true });
 app.setPath('userData', profile);
 const SHARED = process.env.WINIFY_SHARED_DIR;
@@ -25,8 +25,12 @@ global.fetch = async (u, o = {}) => {
   if (p.startsWith('/v1/me/player')) return J(204, null);
   return J(404, { error: { status: 404, message: 'not in this test' } });
 };
+// The menu-bar menu, as last built.
+let trayMenu = [];
+const realBuild = Menu.buildFromTemplate.bind(Menu);
+Menu.buildFromTemplate = (template) => { if (template.some((i) => /^(Quit Winify)$/.test(i.label || ''))) trayMenu = template; return realBuild(template); };
 require(path.join(__dirname, '..', '..', 'main.js'));
-setTimeout(() => { console.log('WATCHDOG'); app.exit(2); }, 150000);
+setTimeout(() => { console.log('WATCHDOG'); app.exit(2); }, 240000);
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 let fails = 0; const check = (l, ok, d) => { if (!ok) fails++; console.log((ok ? '  PASS ' : '  FAIL ') + l + (d ? '   ' + String(d).slice(0, 300) : '')); };
 const indexFiles = () => { try { return fs.readdirSync(path.join(SHARED, 'index')).filter((f) => f.endsWith('.json')).map(decodeURIComponent).sort(); } catch (e) { return []; } };
@@ -95,6 +99,28 @@ app.whenReady().then(async () => {
   const firstPages = sent.filter((s) => /^\/v1\/me\/playlists\?limit=50&offset=0$/.test(s)).length;
   check('opened and closed 5 times while it reads: the first page asked for once', firstPages === 1, JSON.stringify(sent) + ' ' + JSON.stringify(await js('WinifyPicker.state()')) + ' ' + logs.filter((m) => /picker|index|governor|rate|could not/i.test(m)).slice(-4).join(' | '));
   await js('WinifyPicker.close()');
+
+  console.log('6. The menu-bar menu: the request counter, and Build full index');
+  await js(`new Promise((res) => { const q = indexedDB.open('winify-index', 1); q.onsuccess = () => { const t = q.result.transaction('lists', 'readwrite'); t.objectStore('lists').clear(); t.oncomplete = () => { q.result.close(); res(); }; }; })`);
+  await js('window.spotify.index.clear()');
+  sent.length = 0;
+  await js('WinifyIndex.restart({ gapMs: 100 })'); await wait(1000);
+  const item = (re) => trayMenu.find((i) => re.test(i.label || ''));
+  const counter = item(/^Spotify requests:/);
+  check('the counter: "Spotify requests: N in the last hour, M today", counting what was sent', !!counter && /^Spotify requests: [1-9]\d* in the last hour, [1-9]\d* today$/.test(counter.label) && counter.enabled === false, counter && counter.label);
+  const build = item(/^Build full index/);
+  check('"Build full index (0 of 3)", and nothing read until it is chosen', !!build && build.label === 'Build full index (0 of 3)' && !sent.some((x) => /\/playlists\/p\d\/items/.test(x)), (build && build.label) + ' ' + JSON.stringify(sent));
+  build.click();
+  let paused = null;
+  for (let i = 0; i < 40 && !(paused = item(/^Pause building the index/)); i++) await wait(50);
+  check('choosing it starts the build; the item becomes "Pause building the index"', !!paused, trayMenu.map((i) => i.label).filter(Boolean).join(' | '));
+  if (paused) paused.click();
+  await until('!WinifyIndex.status().buildOn', 3000);
+  check('...choosing that pauses it', !(await js('WinifyIndex.status().buildOn')) && !!item(/^Build full index/), JSON.stringify(await js('WinifyIndex.status()')));
+  await js('WinifyIndex.startBuild()');
+  // Up to a minute: the sections above used this minute's background allowance (the governor at work).
+  await until('WinifyIndex.status().indexed === 3 && !WinifyIndex.status().buildOn', 90000); await wait(300);
+  check('finished: "Index complete (3 of 3)"', !!item(/^Index complete \(3 of 3\)$/), (trayMenu.find((i) => /ndex/.test(i.label || '')) || {}).label + ' ' + JSON.stringify(await js('WinifyIndex.status()')) + ' ' + logs.filter((m) => /index/i.test(m)).slice(-4).join(' | '));
 
   console.log(fails ? 'RESULT: ' + fails + ' FAILED' : 'RESULT: ALL PASSED');
   app.exit(fails ? 1 : 0);
