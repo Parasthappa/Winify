@@ -389,6 +389,14 @@ window.
 Milkdrop works your Mac's graphics hard, so it stops drawing whenever its
 window is closed, Winify is hidden or minimized, or the music is paused.
 
+## Limits
+
+- Songs you add to the queue while the playlist window shows a single track
+  with a line under it (for example "Autoplay starts after this track") appear
+  there only once the track changes. They still play.
+- Spotify only shows about 20 upcoming songs in a queue, so a longer queue
+  isn't listed in full.
+
 ## Troubleshooting
 
 | What you see | What to do |
@@ -397,7 +405,7 @@ window is closed, Winify is hidden or minimized, or the music is paused.
 | **SPOTIFY DOES NOT KNOW THIS CLIENT ID** | Copy the Client ID again from your app's settings in the Spotify Developer Dashboard. |
 | **SPOTIFY PREMIUM NOT DETECTED** | Winify needs Spotify Premium. |
 | Music skips after a second or two | Do step 3 again. |
-| **Spotify rate limit - try again in ...** | Spotify is limiting your account for a while. Wait the time shown. |
+| **Spotify asked Winify to wait until ...** | Spotify is limiting your account for a while. Wait until the time shown. |
 | The visualizer is empty | Set up the visualizer (above), and check that the Multi-Output Device is your sound output and that Winify is allowed in **System Settings > Privacy & Security > Microphone**. |
 | Sign-in never finishes | Another app may be using the same sign-in connection. Quit other music or developer tools and try again. |
 

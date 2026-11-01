@@ -150,3 +150,11 @@ Done means:
 - [x] LRCLIB: Winify's User-Agent includes the GitHub link (LRCLIB asks for
       "a link to its homepage or project page"), from package.json's
       `homepage` (31 Oct 2026).
+
+## After 1.0
+
+- [ ] Queued songs in the single-track view: show them as soon as they are
+      added ("Play track, then Autoplay", webamp-playlist.js `noteQueued`), as
+      the Up Next view now does. Needs testing with what that view manages:
+      what plays next, and the jump to Autoplay. The README's Limits section
+      says this until then.

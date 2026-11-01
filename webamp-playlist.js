@@ -417,8 +417,12 @@ async function loadQueue() {
   if (current) list.push(row(current));
   let queued = (q && q.queue) || [];
   // For a track played on its own Spotify reports that same track over and
-  // over as "up next"; nothing is actually queued.
-  if (current && queued.length && queued.every((t) => t && t.uri === current.uri)) queued = [];
+  // over as "up next", after anything actually queued: those repeats go.
+  if (current) {
+    let end = queued.length;
+    while (end > 0 && queued[end - 1] && queued[end - 1].uri === current.uri) end--;
+    queued = queued.slice(0, end);
+  }
   queued.forEach((t) => list.push(row(t)));
   return list;
 }
@@ -895,7 +899,17 @@ export function takeOverSkip(direction) {
 export async function noteQueued(uri) {
   const own = ownQueueing.indexOf(uri);
   if (own >= 0) { ownQueueing.splice(own, 1); return; }
-  if (!ctx || mode !== 'list' || currentIndex < 0) return;
+  if (!ctx) return;
+  // Showing Spotify's Up Next (or the track alone): read it again, once for
+  // several added quickly, rather than waiting for the next track.
+  if (mode === 'queue' || mode === 'standin') {
+    clearTimeout(queueTimer);
+    const gen = loadGen;
+    const source = contextNow();
+    queueTimer = setTimeout(() => refreshQueue(gen, source), QUEUE_REFRESH_MS);
+    return;
+  }
+  if (mode !== 'list' || currentIndex < 0) return;
   pending.push(uri);
   const known = entries.find((e) => e.uri === uri && !e.isLabel);
   let name = known && known.name;
@@ -1576,6 +1590,7 @@ export async function playEntry(id) {
 
 // For inspection from DevTools and tests.
 window.WinifyPlaylist = {
+  noteQueued,
   state: () => ({ mode, listContext, listName, count: entries.length, currentIndex,
     current: entries[currentIndex] && entries[currentIndex].name, autoplay,
     label: entries[0] && entries[0].isLabel ? entries[0].name : null,

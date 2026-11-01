@@ -120,6 +120,18 @@ h.open().then(async ({ win, js }) => {
   await top(); await take(); await dbl(1); await h.wait(800); cs = await take(); play = cs.find((c) => c[0] === 'api:play'); body = play && JSON.parse(play[2]);
   check('  double-click -> plays from that row on (uris)', body && body.uris && body.uris[0] === 'spotify:track:7001', JSON.stringify(body));
 
+  // Songs added to the queue show up at once in Up Next, not only at the next track.
+  await m('(mock.context = null, mock.uris = null, mock.lone = true, mock.queue = [], mock.track = 7000, mock.position = 0)');
+  p = await until((v) => v.pl.mode === 'queue' && v.names[0] === N(7000) && v.rows === 1);
+  check('a lone track: just it (Spotify\'s repeats of it left out)', p.rows === 1 && p.names[0] === N(7000), JSON.stringify(p.names));
+  await take();
+  await m(`(mock.queue.push(7100), WinifyPlaylist.noteQueued('spotify:track:7100'), mock.queue.push(7101), WinifyPlaylist.noteQueued('spotify:track:7101'))`);
+  p = await until((v) => v.names.includes(N(7101)), 3000);
+  cs = await take();
+  check('two songs queued: both listed after it, in order, right away, no repeats of it', JSON.stringify(p.names) === JSON.stringify([N(7000), N(7100), N(7101)]), JSON.stringify(p.names));
+  check('...one read of the queue for both', cs.filter((c) => c[0] === 'api:queue').length === 1, cs.filter((c) => c[0] === 'api:queue').length);
+  await m('(mock.queue = [], mock.lone = false)');
+
   console.log('6. Playing track missing from the list');
   await m('(mock.setContext("spotify:playlist:big", 0))'); await until((v) => v.pl.mode === 'list' && v.rows === 500 && !v.pl.loading && v.cur === 0, 30000);
   await take(); await m('(mock.track = 9998, mock.position = 0)');
