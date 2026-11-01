@@ -117,6 +117,7 @@ function prompt() {
 function searchMine(query, keep) {
   searchSeq++;
   const was = keep && results[selected] && results[selected].uri;
+  if (!keep) picked.clear();
   const chosen = keep ? new Map(results.filter((r) => r.chosen).map((r) => [r.uri, r.places[r.chosen].uri])) : new Map();
   results = query ? index.search(query).map((r) => {
     const at = r.places.findIndex((p) => p.uri === chosen.get(r.uri));
@@ -155,6 +156,7 @@ async function search(query) {
       }
     }
     status = results.length ? null : 'No results';
+    picked.clear();
     selected = 0;
     scroll = 0;
   } catch (err) {
@@ -244,8 +246,48 @@ export async function queue(uri, name) {
 }
 
 function queueRow(r) {
-  if (r && r.playable) queue(r.uri, r.artist + ' - ' + r.title);
-  else if (r) flash('NOT PLAYABLE');
+  if (r && r.playable) {
+    playlist.knowTrack(r.uri, r.artist + ' - ' + r.title, r.durationMs);
+    queue(r.uri, r.artist + ' - ' + r.title);
+  } else if (r) flash('NOT PLAYABLE');
+}
+
+// Several chosen with Cmd-click or Shift-click: queued in list order.
+const picked = new Set();
+let anchor = 0;
+async function queueChosen() {
+  const list = results.filter((r) => picked.has(r.uri) && r.playable);
+  picked.clear();
+  paintSelection();
+  let added = 0;
+  for (const r of list) {
+    playlist.knowTrack(r.uri, r.artist + ' - ' + r.title, r.durationMs);
+    if (!(await queue(r.uri, r.artist + ' - ' + r.title))) break;
+    added++;
+  }
+  if (added === list.length) { ctx.say('Added ' + added + ' songs to queue'); flash('QUEUED ' + added); }
+  else flash('QUEUED ' + added + ' OF ' + list.length);
+}
+
+function toggleChosen(i) {
+  if (!picked.size && results[selected]) picked.add(results[selected].uri);
+  const uri = results[i].uri;
+  if (picked.has(uri)) picked.delete(uri); else picked.add(uri);
+  if (picked.size === 1) picked.clear();
+  selected = i;
+  anchor = i;
+  paintSelection();
+  drawBottom();
+}
+
+function chooseRange(i) {
+  const [a, b] = anchor <= i ? [anchor, i] : [i, anchor];
+  picked.clear();
+  for (let k = a; k <= b; k++) picked.add(results[k].uri);
+  if (picked.size === 1) picked.clear();
+  selected = i;
+  paintSelection();
+  drawBottom();
 }
 
 // What Enter and double-click do, and what Shift+Enter does instead.
@@ -319,7 +361,8 @@ function injectStyles() {
 function paintSelection() {
   const st = skinStyle();
   el.querySelectorAll('.ws-list .ws-row[data-index]').forEach((row) => {
-    row.style.background = Number(row.dataset.index) === selected ? st.selectedbg : '';
+    const at = Number(row.dataset.index);
+    row.style.background = at === selected || (picked.size > 1 && results[at] && picked.has(results[at].uri)) ? st.selectedbg : '';
   });
 }
 
@@ -363,7 +406,7 @@ function render() {
       row.className = 'ws-row' + (r.playable ? '' : ' ws-unplayable');
       row.dataset.index = String(index);
       row.style.color = st.normal;
-      if (index === selected) row.style.background = st.selectedbg;
+      if (index === selected || (picked.size > 1 && picked.has(r.uri))) row.style.background = st.selectedbg;
       const cells = [
         ['ws-title-col', (index + 1) + '. ' + r.title],
         ['ws-artist-col', r.artist],
@@ -390,7 +433,7 @@ function render() {
 function drawBottom(message) {
   const bar = el.querySelector('.ws-info');
   bar.textContent = '';
-  const note = mode === 'mine' && index.status().building ? 'indexing ' + index.status().done + '/' + index.status().total
+  const note = picked.size > 1 ? picked.size + ' chosen' : mode === 'mine' && index.status().building ? 'indexing ' + index.status().done + '/' + index.status().total
     : results.length && !status ? results.length + ' tracks' : '';
   bar.appendChild(skinText(message || (MODES[mode] + (note ? ': ' + note : ''))));
   bar.appendChild(skinText(HINT));
@@ -406,6 +449,7 @@ function flash(message) {
 
 function select(index) {
   if (!results.length || status) return;
+  if (picked.size) { picked.clear(); drawBottom(); }
   selected = Math.max(0, Math.min(results.length - 1, index));
   const VISIBLE_ROWS = visibleRows();
   if (selected < scroll) scroll = selected;
@@ -456,12 +500,28 @@ function build(spot) {
   });
   input.addEventListener('keydown', onKey);
   const list = d.querySelector('.ws-list');
-  list.addEventListener('click', (e) => { const i = rowAt(e.target); if (i != null) select(i); });
-  list.addEventListener('dblclick', (e) => { const i = rowAt(e.target); if (i != null) primary(results[i]); });
+  list.addEventListener('click', (e) => {
+    const i = rowAt(e.target);
+    if (i == null) return;
+    input.focus();                       // so Enter and the arrows keep working after a click
+    if (e.metaKey || e.ctrlKey) { toggleChosen(i); return; }
+    if (e.shiftKey) { chooseRange(i); return; }
+    anchor = i;
+    select(i);
+  });
+  list.addEventListener('dblclick', (e) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey) return;
+    const i = rowAt(e.target);
+    if (i != null) primary(results[i]);
+  });
   list.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     const i = rowAt(e.target);
     if (i == null) return;
+    if (picked.size > 1 && picked.has(results[i].uri)) {
+      showMenu(e.clientX, e.clientY, [{ label: 'Add ' + picked.size + ' songs to queue', hotkey: 'Shift+Enter', action: () => queueChosen() }]);
+      return;
+    }
     select(i);
     const r = results[i];
     if (mode === 'mine') {
@@ -529,7 +589,7 @@ function onKey(e) {
     PageUp: () => select(selected - visibleRows()),
     Enter: () => {
       if (status || !r) return;
-      if (e.shiftKey) secondary(r);
+      if (e.shiftKey) { if (picked.size > 1) queueChosen(); else secondary(r); }
       else primary(r);
     },
     Escape: () => close(),

@@ -183,6 +183,21 @@ h.open().then(async ({ win, js }) => {
   check('right-click a song: Play, Add to queue', JSON.stringify(songMenu) === JSON.stringify(['Play', 'Add to queue (Shift+Enter)']), JSON.stringify(songMenu));
   await js(`[...document.querySelectorAll('#webamp-context-menu li')].find((l) => /queue/.test(l.textContent)).click()`); await h.wait(300); cs = await take();
   check('...Add to queue queues it', cs.filter((x) => x[0] === 'api:addToQueue').length === 1, JSON.stringify(cs.map((x) => x[0])));
+  // Several songs: Cmd-click and Shift-click, then queue them together.
+  const songAt = (text) => js(`(() => { const b = [...document.querySelectorAll('.winify-picker .wp-row[data-song]')].find((x) => x.textContent.includes(${JSON.stringify(text)})).getBoundingClientRect(); return { x: Math.round(b.left + 40), y: Math.round(b.top + b.height / 2) }; })()`);
+  const pressSong = async (text, modifiers = [], button = 'left') => { const b = await songAt(text); win.webContents.sendInputEvent({ type: 'mouseDown', x: b.x, y: b.y, button, clickCount: 1, modifiers }); win.webContents.sendInputEvent({ type: 'mouseUp', x: b.x, y: b.y, button, clickCount: 1, modifiers }); await h.wait(150); };
+  await pressSong('Song 9002'); await pressSong('Song 9004', ['meta']); await pressSong('Song 9005', ['meta']);
+  check('Cmd-click songs: 3 chosen', (await P()).chosen === 3, JSON.stringify(await P()));
+  await take();
+  await js(`document.querySelector('.winify-picker .wp-filter').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true }))`); await h.wait(500); cs = await take();
+  check('Shift+Enter: all 3 queued, in list order, nothing plays; nothing chosen after', JSON.stringify(cs.filter((x) => x[0] === 'api:addToQueue').map((x) => x[1])) === JSON.stringify(['spotify:track:9002', 'spotify:track:9004', 'spotify:track:9005']) && !cs.some((x) => x[0] === 'api:play') && (await P()).chosen === 0, JSON.stringify(cs.filter((x) => /addToQueue/.test(x[0]))));
+  await pressSong('Song 9002'); await pressSong('Song 9005', ['shift']);
+  check('Shift-click: the range, 4 songs', (await P()).chosen === 4, (await P()).chosen);
+  await pressSong('Song 9003', [], 'right');
+  const manyMenu = await js(`[...document.querySelectorAll('#webamp-context-menu li')].map((l) => l.textContent)`);
+  check('right-click one of them: add them all', JSON.stringify(manyMenu) === JSON.stringify(['Add 4 songs to queue (Shift+Enter)']), JSON.stringify(manyMenu));
+  await js(`document.querySelector('#webamp-context-menu li').click()`); await h.wait(500); cs = await take();
+  check('...4 queued', cs.filter((x) => x[0] === 'api:addToQueue').length === 4, JSON.stringify(cs.map((x) => x[0])));
   await dbl('Play this playlist'); await h.wait(400); cs = await take();
   check('Play this playlist: from the top', JSON.stringify(cs.filter((x) => x[0] === 'api:play').map((x) => JSON.parse(x[2]))) === JSON.stringify([{ context_uri: 'spotify:playlist:pz', offset: { position: 0 } }]));
   await js('mock.setContext("spotify:album:a1", 0)'); await h.wait(300);      // the playlist window off Zed (it reads lists too)

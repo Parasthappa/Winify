@@ -28,6 +28,7 @@
 import { makeDraggable, makeResizable, attachTooltips, hideTooltip } from './webamp-dialog.js';
 import { makeFrame, FRAME_CSS } from './webamp-frame.js';
 import * as panels from './webamp-panels.js';
+import * as playlist from './webamp-playlist.js';
 import * as mixes from './webamp-mix.js';
 import { showMenu } from './webamp-search.js';
 import * as index from './webamp-library-index.js';
@@ -153,17 +154,24 @@ async function playSong(r) {
   ctx.refreshSoon();
 }
 
-async function queueSong(r) {
-  if (!r || !r.song) return;
+// One song, or several chosen together, in list order.
+async function queueSongs(list) {
+  const songs = list.filter((r) => r && r.song && r.playable !== false);
   const deviceId = ctx.deviceId();
+  let added = 0;
   try {
-    await ctx.api('POST', '/me/player/queue?uri=' + encodeURIComponent(r.uri) + (deviceId ? '&device_id=' + encodeURIComponent(deviceId) : ''));
-    ctx.say('Added to queue: ' + r.name);
+    for (const r of songs) {
+      playlist.knowTrack(r.uri, r.name, r.durationMs);
+      await ctx.api('POST', '/me/player/queue?uri=' + encodeURIComponent(r.uri) + (deviceId ? '&device_id=' + encodeURIComponent(deviceId) : ''));
+      added++;
+    }
+    if (songs.length) ctx.say(songs.length === 1 ? 'Added to queue: ' + songs[0].name : 'Added ' + added + ' songs to queue');
   } catch (err) {
-    ctx.warn('picker: could not queue', r.name, '-', err.message);
-    ctx.say(err.note || 'Could not add to the queue');
+    ctx.warn('picker: could not queue -', err.message, '(' + added + ' of ' + songs.length + ' added)');
+    ctx.say(err.note || 'Could not add to the queue' + (added ? ' (' + added + ' of ' + songs.length + ' added)' : ''));
   }
 }
+const queueChosen = () => { const list = rows.filter((x) => x.song && picked.has(x.uri)); picked.clear(); renderList(); return queueSongs(list); };
 
 // The rows matching a filter; a section label stays when anything under it does.
 function filtered(q) {
@@ -438,8 +446,8 @@ function selectionNote() {
   const old = bar.querySelector('.wp-sel');
   if (old) old.remove();
   if (picked.size < 2) return;
-  const mixesChosen = /^winify:mix:/.test([...picked][0]);
-  const note = skinText(picked.size + (mixesChosen ? ' chosen: right-click' : ' chosen: enter to play together'));
+  const kind = chosenKind();
+  const note = skinText(picked.size + (kind === 'mix' ? ' chosen: right-click' : kind === 'song' ? ' chosen: shift+enter queues' : ' chosen: enter to play together'));
   note.classList.add('wp-sel');
   bar.appendChild(note);
 }
@@ -608,11 +616,16 @@ function build(spot) {
     const row = e.target.closest('.wp-row[data-song]');
     if (!row) return;
     e.preventDefault();
+    if (picked.size > 1 && picked.has(shown[Number(row.dataset.index)].uri)) {
+      clearTimeout(collapseTimer);
+      showMenu(e.clientX, e.clientY, [{ label: 'Add ' + picked.size + ' songs to queue (Shift+Enter)', action: () => { queueChosen(); } }]);
+      return;
+    }
     select(Number(row.dataset.index));
     const r = shown[Number(row.dataset.index)];
     showMenu(e.clientX, e.clientY, [
       { label: 'Play', action: () => { playSong(r); } },
-      { label: 'Add to queue (Shift+Enter)', action: () => { queueSong(r); } },
+      { label: 'Add to queue (Shift+Enter)', action: () => { queueSongs([r]); } },
     ]);
   });
   // A Winify mix: rename or delete it (on this Mac only).
@@ -644,7 +657,7 @@ function build(spot) {
     if (e.metaKey || e.ctrlKey || e.shiftKey) return;
     clearTimeout(collapseTimer);
     const row = e.target.closest('.wp-row');
-    if (picked.size > 1 && row && row.dataset.index && picked.has(shown[Number(row.dataset.index)].uri)) { playTogether(); return; }
+    if (picked.size > 1 && chosenKind() !== 'song' && row && row.dataset.index && picked.has(shown[Number(row.dataset.index)].uri)) { playTogether(); return; }
     if (!row || !row.dataset.index || Date.now() - backAt < 500) return;   // the second click of a Back
     const r = shown[Number(row.dataset.index)];
     if (!r || r.label) return;
@@ -702,8 +715,9 @@ function onKey(e) {
     PageUp: () => select(selected - visibleRows()),
     Enter: () => {
       const r = shown[selected];
-      if (picked.size > 1) playTogether();
-      else if (r && r.song) { if (e.shiftKey) queueSong(r); else playSong(r); }
+      if (picked.size > 1 && chosenKind() === 'song') { if (e.shiftKey) queueChosen(); }
+      else if (picked.size > 1) playTogether();
+      else if (r && r.song) { if (e.shiftKey) queueSongs([r]); else playSong(r); }
       else if (r && r.back) goBack();
       else if (r && r.playAll) pick(opened.entry);
       else pick(r);
@@ -724,10 +738,14 @@ function onKey(e) {
 // not a section label or a saved mix.
 const choosable = (r) => !!r && !r.label && !r.mixId && !r.song && !r.back && !r.playAll;
 
-// Saved mixes can be chosen together too (to rename or delete them), but not
-// along with playlists: what is chosen is one kind or the other.
-const kindOf = (r) => (r && r.mixId ? 'mix' : choosable(r) ? 'playlist' : null);
-const chosenKind = () => (picked.size ? (/^winify:mix:/.test([...picked][0]) ? 'mix' : 'playlist') : null);
+// Saved mixes can be chosen together too (to rename or delete them), and an
+// opened playlist's songs (to queue them): what is chosen is one kind at a time.
+const kindOf = (r) => (r && r.mixId ? 'mix' : r && r.song ? 'song' : choosable(r) ? 'playlist' : null);
+const chosenKind = () => {
+  if (!picked.size) return null;
+  const first = [...picked][0];
+  return /^winify:mix:/.test(first) ? 'mix' : /^spotify:track:/.test(first) ? 'song' : 'playlist';
+};
 
 // Cmd-click: add or remove one. The row the cursor is on joins first.
 function toggleChosen(i) {

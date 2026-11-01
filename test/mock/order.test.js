@@ -12,7 +12,8 @@ h.open().then(async ({ win, js }) => {
       track: mock.track, queue: mock.queue.slice(), shuffleBtn: s.media.shuffle, spotifyShuffle: mock.shuffle, css: document.getElementById('winify-skipped').textContent }; })()`);
   const until = async (fn, ms = 8000) => { const t0 = Date.now(); let v; while (Date.now() - t0 < ms) { v = await PL(); if (fn(v)) return v; await h.wait(150); } return v; };
   const N = (n) => 'Artist ' + n + ' - Song ' + n;
-  const nums = (p) => p.rows.map((r) => +(r.match(/Song (\d+)/) || [0, 0])[1]);
+  // (The fake search names result 13, track 6013, "road song 13".)
+  const nums = (p) => p.rows.map((r) => (/road song 13/.test(r) ? 6013 : +(r.match(/Song (\d+)/) || [0, 0])[1]));
   const show = (p) => JSON.stringify({ order: nums(p).slice(0, 13), cur: p.cur, track: p.track, queue: p.queue, mode: p.state.mode, skipped: p.state.order && p.state.order.skipped });
   const nearEnd = (ms) => js(`(mock.position = ${200000 - ms}, mock.at = Date.now(), true)`);
   const press = (x, y, button = 'left', clickCount = 1) => { win.webContents.sendInputEvent({ type: 'mouseDown', x, y, button, clickCount }); win.webContents.sendInputEvent({ type: 'mouseUp', x, y, button, clickCount }); };

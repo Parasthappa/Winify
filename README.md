@@ -180,6 +180,7 @@ Press **Eject** or press **L**. Liked Songs and your playlists are listed (type
 to filter). **Enter** plays the selected one. **Double-click** opens it: its songs,
 with **Back to playlists** and **Play this playlist** on top. Double-click a song
 to play it, or right-click it (or **Shift+Enter**) to add it to your queue.
+**Cmd-click** or **Shift-click** several songs to queue them together.
 Press **Eject** again to close it, or **L** once you have clicked
 outside its filter box (in the box, L just types).
 
@@ -213,7 +214,8 @@ box (in the box, J just types).
 
 - **Enter** or double-click plays the track. Spotify's Autoplay continues
   with similar music afterwards.
-- **Shift+Enter** adds it to your queue, to play next.
+- **Shift+Enter** adds it to your queue, to play next. **Cmd-click** or
+  **Shift-click** several first to add them all.
 - Right-click for more: **Play album** and **Play artist**.
 
 It first searches your own playlists and Liked Songs ("My playlists"),
