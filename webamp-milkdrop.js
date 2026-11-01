@@ -249,6 +249,9 @@ function showName(name) {
 }
 
 const STYLE = `
+  /* On Webamp's positioned wrapper: it is a stacking context of its own, so a
+     z-index on the window inside it could never rise above Winify's panels. */
+  #webamp div:has(> div > .gen-window:not(.winify-frame)) { z-index: var(--winify-milkdrop-z, auto); }
   #webamp .gen-window:not(.winify-frame) canvas { background: #000; }
   #webamp .winify-md-name, #webamp .winify-md-nosound {
     position: absolute; left: 0; right: 0; pointer-events: none;
@@ -884,6 +887,9 @@ const asPanel = {
   close: () => { if (isOpen()) toggle(); },
   isOpen: () => isOpen(),
   element: () => windowEl(),
+  // In front of the panels, by a style rule: Webamp draws this window a moment
+  // after it opens, and replaces the element as it loads.
+  setZ: (z) => document.documentElement.style.setProperty('--winify-milkdrop-z', String(z)),
   getRect: () => (webamp ? rect() : null),
   setRect,
 };

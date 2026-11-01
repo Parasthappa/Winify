@@ -228,6 +228,13 @@ export function reset() {
   log('panel placements forgotten - open panels restacked');
 }
 
+function raise(p) {
+  if (!p) return;
+  if (p.setZ) { p.setZ(++zTop); return; }
+  const el = p.element && p.element();
+  if (el) el.style.zIndex = String(++zTop);
+}
+
 // The panel last clicked or typed in: brought in front of the others, its
 // frame lit (.selected, Webamp's focused look) and the rest dimmed. One of
 // Winify's own panels takes the focus from Webamp's windows too (Milkdrop's
@@ -235,7 +242,7 @@ export function reset() {
 export function focus(id) {
   focused = id;
   const p = panels.get(id);
-  if (p && p.element) { const el = p.element(); if (el) el.style.zIndex = String(++zTop); }
+  raise(p);
   if (webamp && id && id !== 'milkdrop') webamp.store.dispatch({ type: 'SET_FOCUSED_WINDOW', window: null });
   paintFocus();
 }
@@ -390,6 +397,12 @@ export async function attach(instance) {
   for (const [id, p] of panels) if (p.isOpen() && !store.open.includes(id)) store.open.push(id);
   save();
   relayout();
+  // Back in the order they were opened, the last in front (a window restored
+  // with Webamp's layout was drawn before the others came back on top of it).
+  for (const id of store.open) {
+    const p = panels.get(id);
+    if (p && p.isOpen()) raise(p);
+  }
 }
 
 export function detach() {

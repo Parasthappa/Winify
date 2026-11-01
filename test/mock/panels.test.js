@@ -199,6 +199,28 @@ h.open().then(async ({ win, js }) => {
   check('closed and reopened: still level with the column and the edge', JSON.stringify(await R(SEL.lyrics)) === JSON.stringify(l1), JSON.stringify([await R(SEL.lyrics), l1]));
   await js('WinifyPanels.reset()'); await h.wait(300);   // back in the stack for the next part
 
+  console.log('9d. A panel opened where a placed one sits comes to the front');
+  await closeAll();
+  await open('search');
+  const st9 = await R('.winify-search .ws-top');
+  await drag(st9.x + 60, st9.y + 8, 0, 40); await drag(st9.x + 60, st9.y + 48, 0, -40);   // placed by hand, back on the stack's first spot
+  const onTopAt = (sel) => js(`(() => { const b = document.querySelector('#webamp ' + ${JSON.stringify(sel)}).getBoundingClientRect(); const e = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2); return !!e.closest(${JSON.stringify(sel)}) || (e.className || e.tagName); })()`);
+  await open('milkdrop');
+  check('VIZ over a placed Jump to track: Milkdrop is in front, not hidden behind it', (await onTopAt(SEL.milkdrop)) === true, await onTopAt(SEL.milkdrop));
+  await close('milkdrop'); await open('lyrics');
+  check('the same for one of Winify\'s own (Lyrics)', (await onTopAt(SEL.lyrics)) === true, await onTopAt(SEL.lyrics));
+  await open('milkdrop');
+  const mdBox = await R(SEL.milkdrop);
+  win.webContents.sendInputEvent({ type: 'mouseDown', x: mdBox.x + 60, y: mdBox.y + 8, button: 'left', clickCount: 1 }); win.webContents.sendInputEvent({ type: 'mouseUp', x: mdBox.x + 60, y: mdBox.y + 8, button: 'left', clickCount: 1 }); await h.wait(200);
+  check('...and clicking a panel brings it forward', (await onTopAt(SEL.milkdrop)) === true);
+  await js('location.reload()'); await h.wait(500);
+  while (!(await js('window.mounted === true').catch(() => false))) await h.wait(100);
+  await until(isOpen.milkdrop, 8000); await h.wait(1500);
+  check('...after a relaunch too: the last opened (Milkdrop) comes back in front', (await onTopAt(SEL.milkdrop)) === true, await onTopAt(SEL.milkdrop));
+  await js('(mock.active = "winify", mock.setContext("spotify:album:a1", 0), mock.setPaused(false))'); await h.wait(800);
+  await closeAll();
+  await js('WinifyPanels.reset()'); await open('lyrics'); await open('picker'); await open('search'); await h.wait(300);   // as the next part expects
+
   console.log('10. Dragging the main window carries every panel snapped to it');
   await open('milkdrop');
   const a0 = await P(); const pl0 = await R('#playlist-window'); const m0 = await R('#main-window'); const tb = await R('#title-bar');
