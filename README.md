@@ -176,8 +176,11 @@ equalizer is planned for the Windows version.
 
 ### Choosing a playlist
 
-Press **Eject** or press **L**. Pick Liked Songs or one of your playlists (type
-to filter). Press **Eject** again to close it, or **L** once you have clicked
+Press **Eject** or press **L**. Liked Songs and your playlists are listed (type
+to filter). **Enter** plays the selected one. **Double-click** opens it: its songs,
+with **Back to playlists** and **Play this playlist** on top. Double-click a song
+to play it, or right-click it (or **Shift+Enter**) to add it to your queue.
+Press **Eject** again to close it, or **L** once you have clicked
 outside its filter box (in the box, L just types).
 
 ### A random mix
@@ -198,8 +201,9 @@ Spotify account) and listed at the top of the playlist picker, under
 each · 31 Oct"). Hover over one to see which playlists it came from. Pick one
 to play it again exactly. Right-click one to **Remix** it (the same
 playlists, as many songs from each, fresh random picks, saved as a new mix),
-rename it or delete it. Remix uses Winify's index of your playlists, so a
-playlist it hasn't indexed yet is left out until it has.
+rename it or delete it. To rename or delete several at once, **Cmd-click** or
+**Shift-click** them first, then right-click one of them: a shared name gets
+numbered ("Road trip", "Road trip (2)").
 
 ### Finding a track
 

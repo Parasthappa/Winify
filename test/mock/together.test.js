@@ -46,10 +46,13 @@ h.open().then(async ({ win, js }) => {
   check('Shift-click chooses the range: Liked Songs, Alpha, Bravo, Charlie', JSON.stringify((await lit()).sort()) === JSON.stringify(['Alpha', 'Bravo', 'Charlie', 'Liked Songs']), JSON.stringify(await lit()));
   check('the bottom bar says how many', await js(`!!document.querySelector('.winify-picker .wp-sel')`));
 
-  console.log('2. Enter asks; 10 each, shuffled together; nothing indexed, so each playlist is read');
+  console.log('2. Enter asks; 10 each, shuffled together; nothing indexed, so one page of each playlist is read');
   await take(); await key('Return');
   check('the prompt opens', await js('WinifyPicker.state().prompt'), await js('document.querySelector(".winify-picker-prompt") && document.querySelector(".winify-picker-prompt").getAttribute("aria-label")'));
   check('...and no request was sent for it', reads(await take()).length === 0);
+  // Panels rise as they are clicked (the picker had been, many times above): the prompt stays in front.
+  const onTop = await js(`(() => { const b = document.querySelector('.winify-picker-prompt').getBoundingClientRect(); const e = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2); return !!e.closest('.winify-picker-prompt') ? true : e.className; })()`);
+  check('the prompt is in front of the picker, not behind it', onTop === true, onTop);
   const defaults = await js(`[...document.querySelectorAll('.winify-picker-prompt .wq-btn')].map((b) => b.getAttribute('aria-pressed') || b.getAttribute('aria-checked'))`);
   check('20 is chosen and "shuffle together" is on, by default', JSON.stringify(defaults.slice(0, 4)) === JSON.stringify(['false', 'true', 'false', 'true']), JSON.stringify(defaults));
   await key('Left');
@@ -59,8 +62,8 @@ h.open().then(async ({ win, js }) => {
   await until(`WinifyPlaylist.state().mix && WinifyPlaylist.state().mix.started`, 15000);
   let cs = await take(); let body = plays(cs)[0]; const uris = body.uris;
   const idx = await js('WinifyIndex.status()');
-  check('only those four playlists were read, in full: Alpha 1 page, Bravo 1, Charlie 2, Liked Songs 1',
-    JSON.stringify(reads(cs).map((c) => c[0] === 'api:savedTracks' ? 'liked' : c[1] + '@' + c[2]).sort()) === JSON.stringify(['liked', 'pa@0', 'pb@0', 'pc@0', 'pc@50']), JSON.stringify(reads(cs)));
+  check('only those four playlists were read, one page each',
+    JSON.stringify(reads(cs).map((c) => c[0] === 'api:savedTracks' ? 'liked' : c[1]).sort()) === JSON.stringify(['liked', 'pa', 'pb', 'pc']), JSON.stringify(reads(cs)));
   const gp = (u) => (id(u) >= 8300 ? 'liked' : id(u) >= 8200 || [8000, 8001, 8002].includes(id(u)) ? 'ac' : id(u) >= 8100 ? 'b' : 'a');
   check('10 from each of Alpha, Charlie and Liked Songs, all 5 of Bravo (35), no duplicates',
     uris.length === 35 && new Set(uris).size === 35 && uris.filter((u) => id(u) >= 8100 && id(u) < 8105).length === 5 && uris.filter((u) => id(u) >= 8300).length === 10, uris.length + ' ' + new Set(uris).size);
@@ -73,9 +76,10 @@ h.open().then(async ({ win, js }) => {
   const lbl = await js(`[...document.querySelectorAll('.winify-picker .wp-row')].slice(0, 3).map((r) => r.textContent)`);
   check('...listed under "Winify mixes" in the picker', lbl[0] === '— WINIFY MIXES —' && lbl[1].includes(mixes[0].name), JSON.stringify(lbl));
   check('the picker is unchosen again and the prompt gone', !(await js('WinifyPicker.state().prompt')) && (await js('WinifyPicker.state().chosen')) === 0);
-  check('the index now holds them', idx.lists === 4, JSON.stringify(idx));
 
-  console.log('3. Now indexed: no requests; playlist after playlist; all of a short one');
+  console.log('3. Indexed: no requests; playlist after playlist; all of a short one');
+  const ensureAll = async (ps) => { for (const p of ps) await js(`WinifyIndex.ensure(${JSON.stringify(p)})`); };
+  await ensureAll(['pa', 'pb', 'pc'].map((x) => ({ uri: 'spotify:playlist:' + x, name: { pa: 'Alpha', pb: 'Bravo', pc: 'Charlie' }[x], snapshot: x + '1' })));
   await click('Charlie'); await click('Alpha', ['meta']);
   const mp = await js(`(() => { const r = document.querySelector('.winify-picker .wp-row[data-mix]'); const b = r.getBoundingClientRect(); return { x: Math.round(b.left + 30), y: Math.round(b.top + b.height / 2) }; })()`);
   press(mp.x, mp.y, ['meta']); await h.wait(100);
@@ -106,7 +110,7 @@ h.open().then(async ({ win, js }) => {
   const big = await js(`WinifyMix.makeFrom(PLAYLISTS.slice(3).map((p) => ({ uri: p.uri, name: p.name, snapshot: p.snapshot_id })), 50, true).then((m) => m && m.tracks.length)`);
   await until(`WinifyPlaylist.state().mix && WinifyPlaylist.state().mix.started`, 20000);
   cs = await take(); body = plays(cs)[0];
-  check('1000 songs in the mix, 20 playlists read once each (2 pages)', big === 1000 && reads(cs).length === 40, big + ' songs, ' + reads(cs).length + ' reads');
+  check('1000 songs in the mix, one page of each of the 20 playlists', big === 1000 && reads(cs).length === 20, big + ' songs, ' + reads(cs).length + ' reads');
   check('Spotify is given a batch (100 songs), not 1000, starting at the first', body.uris.length === 100 && body.offset.position === 0, body.uris.length);
   const first = await js('WinifyMix.saved()[0].tracks.map((t) => t.uri)');
   check('...the batch is the mix\'s first 100', JSON.stringify(body.uris) === JSON.stringify(first.slice(0, 100)));
@@ -117,6 +121,7 @@ h.open().then(async ({ win, js }) => {
   check('the saved record keeps all 1000', m.tracks.length === 1000, m.tracks.length);
 
   console.log('6. The Winamp logo mixes from the index: no requests, random across whole playlists');
+  await ensureAll(Array.from({ length: 20 }, (_, i) => ({ uri: 'spotify:playlist:x' + i, name: 'Extra ' + i, snapshot: 'x' + i + '1' })));
   await take();
   const made = await js(`WinifyMix.make({ playlists: 23 }).then((m) => m && m.tracks.map((t) => t.uri))`);
   cs = await take();
@@ -167,6 +172,38 @@ h.open().then(async ({ win, js }) => {
   check('an older mix: hover names its playlists from its songs', JSON.stringify(await js(`WinifyMix.fromNames('old1')`)) === JSON.stringify(['Alpha', 'Bravo']));
   const ro = await js(`WinifyMix.remix('old1')`); await h.wait(400);
   check('...and Remix finds them in your list: Alpha and Bravo, 10 each', ro && JSON.stringify(ro.sources.map((x) => x.uri)) === JSON.stringify(['spotify:playlist:pa', 'spotify:playlist:pb']) && ro.tracks.length === 15, ro && JSON.stringify({ n: ro.tracks.length, s: ro.sources }));
+
+  console.log('7b. Several saved mixes at once: Cmd/Shift-click, then rename or delete together');
+  await js('WinifyPicker.close()'); await js('WinifyPicker.open()'); await h.wait(500);
+  let ms = await js('WinifyMix.saved()');
+  const mixAt = (mid) => js(`(() => { const b = document.querySelector('.winify-picker .wp-row[data-mix="${mid}"]').getBoundingClientRect(); return { x: Math.round(b.left + 30), y: Math.round(b.top + b.height / 2) }; })()`);
+  const pressMix = async (mid, mods) => { const p = await mixAt(mid); press(p.x, p.y, mods); await h.wait(100); };
+  const menuOn = async (mid) => { const p = await mixAt(mid); win.webContents.sendInputEvent({ type: 'mouseDown', x: p.x, y: p.y, button: 'right', clickCount: 1 }); win.webContents.sendInputEvent({ type: 'mouseUp', x: p.x, y: p.y, button: 'right', clickCount: 1 }); await h.wait(300); return js(`[...document.querySelectorAll('#webamp-context-menu li')].map((l) => l.textContent)`); };
+  const [m0, m1, m2, m3] = ms.map((x) => x.id);
+  await pressMix(m0); await pressMix(m1, ['meta']);
+  check('Cmd-click: two saved mixes chosen', (await js('WinifyPicker.state().chosen')) === 2);
+  await click('Alpha', ['meta']);
+  check('...a playlist cannot join them', (await js('WinifyPicker.state().chosen')) === 2);
+  await take(); await key('Return'); await h.wait(300);
+  check('Enter with mixes chosen: no prompt, nothing plays', !(await js('WinifyPicker.state().prompt')) && !plays(await take()).length);
+  await pressMix(m0); await pressMix(m2, ['shift']);
+  check('Shift-click: the range, mixes only', (await js('WinifyPicker.state().chosen')) === 3, await js('WinifyPicker.state().chosen'));
+  const multi = await menuOn(m1);
+  check('right-click one of them: rename or delete all 3', JSON.stringify(multi) === JSON.stringify(['Rename 3 mixes', 'Delete 3 mixes']), JSON.stringify(multi));
+  check('...still all chosen', (await js('WinifyPicker.state().chosen')) === 3);
+  await js(`[...document.querySelectorAll('#webamp-context-menu li')].find((l) => /^Rename/.test(l.textContent)).click()`); await h.wait(200);
+  await js(`(() => { const i = document.querySelector('.winify-picker .wp-rename'); i.value = 'Road trip'; i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); })()`); await h.wait(300);
+  ms = await js('WinifyMix.saved()');
+  check('renamed together, numbered in list order; nothing chosen after', JSON.stringify(ms.slice(0, 3).map((x) => x.name)) === JSON.stringify(['Road trip', 'Road trip (2)', 'Road trip (3)']) && (await js('WinifyPicker.state().chosen')) === 0, JSON.stringify(ms.slice(0, 3).map((x) => x.name)));
+  const before7 = ms.length;
+  await pressMix(m1); await pressMix(m3, ['meta']);
+  await menuOn(m3);
+  await js(`[...document.querySelectorAll('#webamp-context-menu li')].find((l) => /^Delete/.test(l.textContent)).click()`); await h.wait(300);
+  ms = await js('WinifyMix.saved()');
+  check('deleted together: those 2 gone, the others kept; nothing chosen after', ms.length === before7 - 2 && !ms.some((x) => x.id === m1 || x.id === m3) && ms.some((x) => x.id === m0) && (await js('WinifyPicker.state().chosen')) === 0, ms.length);
+  const single = await menuOn(m0);
+  check('one on its own: Remix, Rename, Delete as before', JSON.stringify(single) === JSON.stringify(['Remix', 'Rename', 'Delete']), JSON.stringify(single));
+  await key('Escape'); await h.wait(150);
 
   const oldest = (await js('WinifyMix.saved()')).slice(-1)[0];
   for (let i = 0; i < 20; i++) { await js(`WinifyMix.makeFrom([{ uri: 'spotify:playlist:pa', name: 'Alpha' }, { uri: 'spotify:playlist:pb', name: 'Bravo' }], 10, true)`); await h.wait(50); }

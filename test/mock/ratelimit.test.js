@@ -11,7 +11,7 @@ h.open().then(async ({ win, js }) => {
   console.log('1. A long rate limit (19798 s, as on the real account)');
   await js('mock.limitPlayer = { until: Date.now() + 19798e3, retryAfter: 19798 }'); await calls();
   await h.click(win, js, '#webamp #eject'); await h.wait(600);
-  await js(`(() => { const r = document.querySelectorAll('.winify-picker .wp-row')[1]; r.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); })()`); await h.wait(800);
+  await js(`(() => { const r = document.querySelectorAll('.winify-picker .wp-row')[1]; r.dispatchEvent(new MouseEvent('click', { bubbles: true })); document.querySelector('.winify-picker .wp-filter').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); })()`); await h.wait(800);
   const msg = await marquee();
   const at = (ms) => { const d = new Date(ms); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
   const okUntil = [at(Date.now() + 19798e3 - 60e3), at(Date.now() + 19798e3)];   // the clock time, give or take its minute

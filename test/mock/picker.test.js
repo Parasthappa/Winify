@@ -90,8 +90,11 @@ h.open().then(async ({ win, js }) => {
   await type('liked'); await take();
   const row = await js(`(() => { const r = document.querySelectorAll('.winify-picker .wp-row')[0].getBoundingClientRect(); return { x: Math.round(r.left + 30), y: Math.round(r.top + 6) }; })()`);
   for (const clickCount of [1, 2]) { win.webContents.sendInputEvent({ type: 'mouseDown', x: row.x, y: row.y, button: 'left', clickCount }); win.webContents.sendInputEvent({ type: 'mouseUp', x: row.x, y: row.y, button: 'left', clickCount }); await h.wait(40); }
+  await h.wait(900); cs = await take(); p = await P();
+  check('double-click Liked Songs: opens its songs, plays nothing', p.opened === 'Liked Songs' && !plays(cs).length, JSON.stringify(p));
+  await js(`[...document.querySelectorAll('.winify-picker .wp-row')].find((r) => /Play this playlist/.test(r.textContent)).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))`);
   await h.wait(900); cs = await take(); pl = plays(cs); p = await P();
-  check('double-click Liked Songs plays the collection from track 1; the picker stays open', p.open && pl.length === 1 && pl[0].context_uri === 'spotify:user:user1:collection' && pl[0].offset.position === 0, JSON.stringify(pl));
+  check('...Play this playlist plays the collection from track 1; the picker stays open', p.open && pl.length === 1 && pl[0].context_uri === 'spotify:user:user1:collection' && pl[0].offset.position === 0, JSON.stringify(pl));
   await js('WinifyPicker.close()'); await h.wait(200);
   await c('#eject'); await h.wait(800);
   const r2 = await js(`(() => { const r = document.querySelectorAll('.winify-picker .wp-row')[4].getBoundingClientRect(); return { x: Math.round(r.left + 30), y: Math.round(r.top + 6) }; })()`);
@@ -154,6 +157,43 @@ h.open().then(async ({ win, js }) => {
   // Signing out forgets it (the next sign-in may be someone else).
   await js('WinifyWebamp.unmount()'); await h.wait(300);
   check('signing out forgets the remembered list', (await js(`localStorage.getItem('winify.picker.v1')`)) === null);
+
+  console.log('6b. Double-click opens a playlist: Back, play a song, queue a song');
+  await js('location.reload()'); await h.wait(500);
+  while (!(await js('window.mounted === true').catch(() => false))) await h.wait(100);
+  await js(`(() => { PLAYLISTS.length = 0; PLAYLISTS.push({ id: 'pz', name: 'Zed', uri: 'spotify:playlist:pz', owner: { id: 'user1' }, collaborative: false, snapshot_id: 'z1', items: { total: 120 } });
+    CONTEXTS['spotify:playlist:pz'] = Array.from({ length: 120 }, (_, k) => 9000 + k); })()`);
+  await js('(mock.active = "winify", mock.setContext("spotify:album:a1", 0), mock.setPaused(false))'); await h.wait(1200);
+  await js('WinifyPicker.open()'); for (let i = 0; i < 30 && !(await P()).complete; i++) await h.wait(200);
+  const dbl = (text) => js(`(() => { const r = [...document.querySelectorAll('.winify-picker .wp-row')].find((x) => x.textContent.includes(${JSON.stringify(text)})); r.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); })()`);
+  const rowTexts = () => js(`[...document.querySelectorAll('.winify-picker .wp-row')].map((r) => r.textContent)`);
+  await take();
+  const t6 = Date.now();
+  await dbl('Zed');
+  for (let i = 0; i < 40 && (await P()).loadingSongs; i++) await h.wait(50);
+  const took = Date.now() - t6; let list6 = await rowTexts(); cs = await take();
+  check('double-click: nothing plays; its songs open, under Back and Play this playlist, all read without pauses', (await P()).opened === 'Zed' && !cs.some((x) => x[0] === 'api:play') && /Back to playlists/.test(list6[0]) && /Play this playlist/.test(list6[1]) && /Song 9000/.test(list6[2]) && (await P()).rows === 122 && took < 1500, took + ' ms ' + JSON.stringify(list6.slice(0, 3)));
+  check('...3 pages, once each', cs.filter((x) => x[0] === 'api:playlistItems' && x[1] === 'pz').length === 3, JSON.stringify(cs.filter((x) => x[0] === 'api:playlistItems').map((x) => x[2])));
+  await dbl('Song 9001');  await h.wait(400); cs = await take();
+  check('double-click a song: plays it within the playlist; the view stays', JSON.stringify(cs.filter((x) => x[0] === 'api:play').map((x) => JSON.parse(x[2]))) === JSON.stringify([{ context_uri: 'spotify:playlist:pz', offset: { position: 1 } }]) && (await P()).opened === 'Zed', JSON.stringify(cs.filter((x) => x[0] === 'api:play')));
+  await js(`document.querySelector('.winify-picker .wp-filter').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true }))`); await h.wait(300); cs = await take();
+  check('Shift+Enter: adds the selected song to the queue, plays nothing', cs.filter((x) => x[0] === 'api:addToQueue').length === 1 && !cs.some((x) => x[0] === 'api:play'), JSON.stringify(cs.filter((x) => /addToQueue|play$/.test(x[0]))));
+  await h.click(win, js, '.winify-picker .wp-row[data-song]', 0.5, 0.5, 'right'); await h.wait(300);
+  const songMenu = await js(`[...document.querySelectorAll('#webamp-context-menu li')].map((l) => l.textContent)`);
+  check('right-click a song: Play, Add to queue', JSON.stringify(songMenu) === JSON.stringify(['Play', 'Add to queue (Shift+Enter)']), JSON.stringify(songMenu));
+  await js(`[...document.querySelectorAll('#webamp-context-menu li')].find((l) => /queue/.test(l.textContent)).click()`); await h.wait(300); cs = await take();
+  check('...Add to queue queues it', cs.filter((x) => x[0] === 'api:addToQueue').length === 1, JSON.stringify(cs.map((x) => x[0])));
+  await dbl('Play this playlist'); await h.wait(400); cs = await take();
+  check('Play this playlist: from the top', JSON.stringify(cs.filter((x) => x[0] === 'api:play').map((x) => JSON.parse(x[2]))) === JSON.stringify([{ context_uri: 'spotify:playlist:pz', offset: { position: 0 } }]));
+  await js('mock.setContext("spotify:album:a1", 0)'); await h.wait(300);      // the playlist window off Zed (it reads lists too)
+  await js(`document.querySelector('.winify-picker .wp-row').click()`); await h.wait(700);
+  check('Back: the playlists again, Zed selected', !(await P()).opened && (await rowTexts()).some((x) => /Zed/.test(x)), JSON.stringify(await P()));
+  await take(); await dbl('Zed'); await h.wait(400); cs = await take();
+  check('opened again: from the index, no request', (await P()).rows === 122 && !cs.some((x) => x[0] === 'api:playlistItems' && x[1] === 'pz'), JSON.stringify(cs.map((x) => x[0])));
+  await js(`document.querySelector('.winify-picker .wp-filter').focus()`); await key('Escape'); await h.wait(200);
+  check('Escape in it: back to the playlists, the picker stays open', !(await P()).opened && (await P()).open, JSON.stringify(await P()));
+  await js('WinifyPicker.close()');
+  await js(`localStorage.removeItem('winify.picker.v1')`);
 
   console.log('7. Spotify refuses the list (a rate limit) with nothing remembered: it stays open and says so');
   await js('location.reload()'); await h.wait(500);

@@ -183,7 +183,8 @@ app.whenReady().then(async () => {
   guard();
   const choice = rows && rows.filter((r) => r.playlist && r.name !== 'Liked Songs' && r.n >= 3 && r.n <= 100).sort((a, b) => a.n - b.n)[0];
   if (!check('picker lists your playlists', !!choice, rows ? rows.length + ' rows' : 'none')) stop('Needs one playlist of your own with 3-100 tracks.', 1);
-  await js(`document.querySelectorAll('.winify-picker .wp-row')[${choice.i}].dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))`);
+  // Chosen and played with Enter (a double-click opens its songs instead).
+  await js(`document.querySelectorAll('.winify-picker .wp-row')[${choice.i}].dispatchEvent(new MouseEvent('click', { bubbles: true })); document.querySelector('.winify-picker .wp-filter').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))`);
   let pl = await until(`(() => { const s = WinifyPlaylist.state(), n = WinifyControls.state(); return s.mode === 'list' && s.currentIndex === 1 && n.where === 'winify' && !n.paused ? { s, n } : null; })()`, 15000);
   guard();
   check('picker plays "' + choice.name + '" on Winify; the playlist window lists it, track 1 current', !!pl,

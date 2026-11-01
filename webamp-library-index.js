@@ -259,7 +259,9 @@ function paced(path, g, priority) {
 
 async function pacedNow(path, g, priority) {
   for (;;) {
-    for (let wait; (wait = lastRequestAt + gapMs - Date.now()) > 0; ) {
+    // Someone waiting for this one (a playlist opened): no pause between
+    // pages; the governor still applies. Background work keeps its pace.
+    for (let wait; (wait = lastRequestAt + (priority === 'user' ? 0 : gapMs) - Date.now()) > 0; ) {
       await sleep(wait);
       waking = null;
       if (g !== gen) return null;
@@ -273,6 +275,7 @@ async function pacedNow(path, g, priority) {
     } catch (err) {
       if (g !== gen) return null;
       if (err.status === 429) {
+        if (priority === 'user') throw err;           // said at once, not waited out
         ctx.warn('index: Spotify rate limit - paused for', err.retryAfter, 's');
         lastRequestAt = Date.now() + (err.retryAfter || 5) * 1000;
         holding = true;
@@ -293,7 +296,7 @@ export function songOf(t, local) {
     t.duration_ms || 0, t.is_playable !== false];
 }
 
-async function readList(uri, g, priority) {
+async function readList(uri, g, priority, onPage) {
   const w = wanted.find((x) => x.uri === uri);
   if (!w) return;
   const liked = /:collection$/.test(uri);
@@ -314,6 +317,7 @@ async function readList(uri, g, priority) {
     lists.set(uri, rec);
     table = null;
     await save(rec);
+    if (onPage) onPage(rowsOf(rec));
   }
 }
 
@@ -398,12 +402,19 @@ const songCount = () => (table || (table = buildTable())).length;
 export function songsOf(uri) {
   const rec = lists.get(uri);
   if (!rec || !rec.complete || pending.includes(uri)) return null;
-  return rec.songs.filter(Boolean).map((s) => ({ uri: s[0], name: (s[2] ? s[2] + ' - ' : '') + s[1], durationMs: s[4], playable: s[5] }));
+  return rowsOf(rec);
+}
+
+// `position`: where Spotify has it in the playlist (entries that are not
+// songs count too).
+function rowsOf(rec) {
+  return rec.songs.map((s, position) => s && { uri: s[0], name: (s[2] ? s[2] + ' - ' : '') + s[1], durationMs: s[4], playable: s[5], position }).filter(Boolean);
 }
 
 // Like songsOf, but reads just this playlist first if it is not indexed yet
 // ({ uri, name, snapshot } from the picker's list). Null if it cannot be read.
-export async function ensure(entry) {
+// `onPage(songs)`: as each page arrives; `onError(err)`: why it could not.
+export async function ensure(entry, { onPage, onError } = {}) {
   const have = songsOf(entry.uri);
   if (have || !ctx) return have;
   const g = gen;
@@ -412,9 +423,10 @@ export async function ensure(entry) {
   if (g !== gen) return null;
   if (!wanted.some((w) => w.uri === entry.uri)) wanted.push({ uri: entry.uri, name: entry.name, snapshot: entry.snapshot });
   try {
-    await readList(entry.uri, g, 'user');            // someone is waiting for this one
+    await readList(entry.uri, g, 'user', onPage);    // someone is waiting for this one
   } catch (err) {
     ctx && ctx.warn('index: could not read', entry.uri, '-', err.message);
+    if (onError) onError(err);
     return null;
   }
   pending = pending.filter((u) => u !== entry.uri);
@@ -511,6 +523,6 @@ export function reset() {
 }
 
 // For DevTools and tests.
-window.WinifyIndex = { status, progressNote, search, current: (uri) => current(uri), startBuild, pauseBuild,
+window.WinifyIndex = { status, progressNote, search, ensure, current: (uri) => current(uri), startBuild, pauseBuild,
   // Tests: start again (after un-pausing), at their own pace.
   restart: (opts = {}) => { if (!ctx) return; gapMs = opts.gapMs || GAP_MS; const c = ctx; reset(); return init(c); } };

@@ -87,12 +87,91 @@ function listFrom(l) {
     snapshot: l.liked + '|' + (l.likedNewest || '') }], l.entries);
 }
 
+// A playlist opened in the picker (a double-click): its songs, with the way
+// back and a way to play it all. Songs from the index, or read now.
+let opened = null;                  // { entry, songs, loading, note }
+let backAt = 0;
+
+function openedRows() {
+  const top = [{ back: true, name: '\u2039 Back to playlists', uri: 'winify:back' }, { playAll: true, name: '\u25b6 Play this playlist', uri: 'winify:play-all' }];
+  const note = opened.note || (opened.loading && !opened.songs.length ? 'Loading...' : !opened.songs.length ? 'No songs' : null);
+  if (note) top.push({ label: true, plain: true, name: note, uri: 'winify:note' });
+  return top.concat(opened.songs.map((s) => ({ song: true, name: s.name, uri: s.uri, durationMs: s.durationMs, playable: s.playable, position: s.position })));
+}
+
+async function openPlaylist(entry) {
+  const filter = el.querySelector('.wp-filter');
+  picked.clear();
+  const mine = { entry, songs: [], loading: true, note: null };
+  opened = mine;
+  filter.value = '';
+  filter.dataset.ownEscape = '1';       // Escape goes back, rather than closing the panel
+  scroll = 0;
+  selected = 0;
+  showList();
+  const songs = await index.ensure({ uri: entry.uri, name: entry.name, snapshot: entry.snapshot }, {
+    onPage: (list) => { if (opened === mine) { mine.songs = list; showList(); } },
+    onError: (err) => { mine.note = err.note || 'Could not read this playlist'; },
+  });
+  if (opened !== mine) return;
+  mine.loading = false;
+  if (songs) mine.songs = songs;
+  else if (!mine.note) mine.note = 'Could not read this playlist';
+  showList();
+  if (selected === 0 && shown.some((r) => r.song)) select(shown.findIndex((r) => r.song));
+}
+
+function goBack() {
+  const from = opened && opened.entry.uri;
+  opened = null;
+  backAt = Date.now();
+  if (!el) return;
+  const filter = el.querySelector('.wp-filter');
+  filter.value = '';
+  delete filter.dataset.ownEscape;
+  scroll = 0;
+  drawnKey = null;
+  showList();
+  const at = shown.findIndex((r) => r.uri === from);
+  select(at >= 0 ? at : 0);
+}
+
+// A song of the opened playlist: played within it.
+async function playSong(r) {
+  if (!opened || !r || !r.song) return;
+  const entry = opened.entry;
+  const deviceId = ctx.deviceId();
+  if (!deviceId) { ctx.say('Winify device not ready'); return; }
+  try {
+    await ctx.api('PUT', '/me/player/play?device_id=' + encodeURIComponent(deviceId),
+      { context_uri: entry.uri, offset: /:collection$/.test(entry.uri) ? { uri: r.uri } : { position: r.position } });
+    ctx.say(r.name);
+  } catch (err) {
+    ctx.warn('picker: could not play', r.name, '-', err.message);
+    ctx.say(err.note || 'Could not play that song');
+  }
+  ctx.refreshSoon();
+}
+
+async function queueSong(r) {
+  if (!r || !r.song) return;
+  const deviceId = ctx.deviceId();
+  try {
+    await ctx.api('POST', '/me/player/queue?uri=' + encodeURIComponent(r.uri) + (deviceId ? '&device_id=' + encodeURIComponent(deviceId) : ''));
+    ctx.say('Added to queue: ' + r.name);
+  } catch (err) {
+    ctx.warn('picker: could not queue', r.name, '-', err.message);
+    ctx.say(err.note || 'Could not add to the queue');
+  }
+}
+
 // The rows matching a filter; a section label stays when anything under it does.
 function filtered(q) {
   if (!q) return rows.slice();
   const out = [];
   let label = null;
   for (const r of rows) {
+    if (r.back || r.playAll) { out.push(r); continue; }
     if (r.label) { label = r; continue; }
     if (!r.name.toLowerCase().includes(q)) continue;
     if (label) { out.push(label); label = null; }
@@ -266,7 +345,7 @@ async function readList(gen, fromStart) {
 function showList() {
   if (!el) return;
   const keep = shown[selected] && shown[selected].uri;
-  rows = listFrom(lib);
+  rows = opened ? openedRows() : listFrom(lib);
   const q = el.querySelector('.wp-filter').value.trim().toLowerCase();
   shown = filtered(q);
   const at = keep ? shown.findIndex((r) => r.uri === keep) : -1;
@@ -324,7 +403,8 @@ function injectStyles() {
     #webamp .winify-picker .wp-refresh.wp-busy { opacity: .45; cursor: default; }
     #webamp .winify-picker .wp-row.wp-label { opacity: .6; font-size: 8px; letter-spacing: 1px; justify-content: center; }
     #webamp .winify-picker .wp-sel { margin-left: auto; }
-    #webamp .winify-picker-prompt { z-index: 100002; }
+    /* Above the panels, which rise as they are clicked (webamp-panels.js focus). */
+    #webamp .winify-picker-prompt { z-index: 1000000; }
     #webamp .winify-picker-prompt .wq-body { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 7px; padding: 4px 8px; font-size: 9px; }
     #webamp .winify-picker-prompt .wq-line { display: flex; align-items: center; gap: 5px; }
     #webamp .winify-picker-prompt .wq-btn { cursor: pointer; padding: 3px 5px; border: 1px solid; line-height: 0; user-select: none; }
@@ -358,7 +438,8 @@ function selectionNote() {
   const old = bar.querySelector('.wp-sel');
   if (old) old.remove();
   if (picked.size < 2) return;
-  const note = skinText(picked.size + ' chosen: enter to play together');
+  const mixesChosen = /^winify:mix:/.test([...picked][0]);
+  const note = skinText(picked.size + (mixesChosen ? ' chosen: right-click' : ' chosen: enter to play together'));
   note.classList.add('wp-sel');
   bar.appendChild(note);
 }
@@ -366,7 +447,7 @@ function selectionNote() {
 function renderList() {
   if (!el || renaming) return;
   const VISIBLE_ROWS = visibleRows();
-  const key = scroll + '|' + VISIBLE_ROWS + '|' + shown.length + '|' + (shown[0] && shown[0].uri) + '|' + rows.length + '|' + failNote;
+  const key = scroll + '|' + VISIBLE_ROWS + '|' + shown.length + '|' + (shown[0] && shown[0].uri) + '|' + rows.length + '|' + failNote + '|' + (opened ? opened.entry.uri + (opened.note || '') + opened.loading : '');
   if (key === drawnKey) { paintSelection(); return; }
   drawnKey = key;
   const st = skinStyle();
@@ -385,23 +466,25 @@ function renderList() {
       // A section label: not a row to choose.
       row.classList.add('wp-label');
       row.style.color = st.normal;
-      row.textContent = '\u2014 ' + r.name.toUpperCase() + ' \u2014';
+      row.textContent = r.plain ? r.name : '\u2014 ' + r.name.toUpperCase() + ' \u2014';
       list.appendChild(row);
       return;
     }
     if (r.mixId) row.dataset.mix = r.mixId;
-    const isCurrent = !!currentUri && (r.uri === currentUri ||
+    const isCurrent = r.song ? r.uri === ctx.now.trackUri : !!currentUri && (r.uri === currentUri ||
       (/:collection/.test(r.uri) && /:collection/.test(currentUri)));
     row.style.color = isCurrent ? st.current : st.normal;
     if (index === selected || (picked.size > 1 && picked.has(r.uri))) row.style.background = st.selectedbg;
     const name = document.createElement('span');
     name.className = 'wp-name';
-    name.textContent = numbers[index] + '. ' + r.name;
+    name.textContent = r.back || r.playAll ? r.name : numbers[index] + '. ' + r.name;
+    if (r.song) row.dataset.song = '1';
+    if (r.song && r.playable === false) row.style.opacity = '0.5';
     // A saved mix: hovering names the playlists it came from.
     if (r.mixId) { const from = mixes.fromNames(r.mixId); if (from.length) name.dataset.tip = 'From: ' + from.join(', '); }
     const count = document.createElement('span');
     count.className = 'wp-count';
-    count.textContent = r.count == null ? '' : String(r.count);
+    count.textContent = r.song ? Math.floor(r.durationMs / 60000) + ':' + String(Math.floor(r.durationMs / 1000) % 60).padStart(2, '0') : r.count == null ? '' : String(r.count);
     row.append(name, count);
     list.appendChild(row);
   });
@@ -431,7 +514,8 @@ function renderList() {
   refresh.addEventListener('click', () => { if (loading) hurry(); else read(true); });
   bar.appendChild(refresh);
   // ".." while more is on its way.
-  if (rows.length) bar.appendChild(skinText(shown.length + '/' + rows.length + (loading ? '..' : '')));
+  if (opened) bar.appendChild(skinText(opened.songs.length + ' songs' + (opened.loading ? '..' : '')));
+  else if (rows.length) bar.appendChild(skinText(shown.length + '/' + rows.length + (loading ? '..' : '')));
   // The My playlists index, while it builds: "indexing 40/97".
   const building = index.status();
   if (building.building) bar.appendChild(skinText('indexing ' + building.done + '/' + building.total));
@@ -503,8 +587,10 @@ function build(spot) {
     if (!row || !row.dataset.index || row.classList.contains('wp-label')) return;
     const i = Number(row.dataset.index);
     filter.focus();                      // so Enter and the arrows keep working after a click
+    if (e.detail <= 1) clearTimeout(collapseTimer);   // a new click overrides an earlier one's narrowing
     if (e.metaKey || e.ctrlKey) { toggleChosen(i); return; }
     if (e.shiftKey) { chooseRange(i); return; }
+    if (shown[i].back) { goBack(); return; }
     // A click on one of several chosen: a double-click plays them together,
     // so a single click only narrows the choice if no second one follows.
     if (picked.size > 1 && picked.has(shown[i].uri)) {
@@ -517,13 +603,36 @@ function build(spot) {
     }
     select(i);
   });
+  // A song of an opened playlist: play it, or queue it.
+  list.addEventListener('contextmenu', (e) => {
+    const row = e.target.closest('.wp-row[data-song]');
+    if (!row) return;
+    e.preventDefault();
+    select(Number(row.dataset.index));
+    const r = shown[Number(row.dataset.index)];
+    showMenu(e.clientX, e.clientY, [
+      { label: 'Play', action: () => { playSong(r); } },
+      { label: 'Add to queue (Shift+Enter)', action: () => { queueSong(r); } },
+    ]);
+  });
   // A Winify mix: rename or delete it (on this Mac only).
   list.addEventListener('contextmenu', (e) => {
     const row = e.target.closest('.wp-row[data-mix]');
     if (!row) return;
     e.preventDefault();
-    select(Number(row.dataset.index));
     const id = row.dataset.mix;
+    // One of several chosen: for all of them, in list order.
+    const uri = shown[Number(row.dataset.index)].uri;
+    if (picked.size > 1 && picked.has(uri)) {
+      clearTimeout(collapseTimer);
+      const ids = rows.filter((x) => x.mixId && picked.has(x.uri)).map((x) => x.mixId);
+      showMenu(e.clientX, e.clientY, [
+        { label: 'Rename ' + ids.length + ' mixes', action: () => rename(id, ids) },
+        { label: 'Delete ' + ids.length + ' mixes', action: () => { picked.clear(); mixes.removeMany(ids); } },
+      ]);
+      return;
+    }
+    select(Number(row.dataset.index));
     showMenu(e.clientX, e.clientY, [
       // The same playlists, as many from each, fresh songs: a new mix.
       { label: 'Remix', action: () => { mixes.remix(id); } },
@@ -536,7 +645,14 @@ function build(spot) {
     clearTimeout(collapseTimer);
     const row = e.target.closest('.wp-row');
     if (picked.size > 1 && row && row.dataset.index && picked.has(shown[Number(row.dataset.index)].uri)) { playTogether(); return; }
-    if (row && row.dataset.index) pick(shown[Number(row.dataset.index)]);
+    if (!row || !row.dataset.index || Date.now() - backAt < 500) return;   // the second click of a Back
+    const r = shown[Number(row.dataset.index)];
+    if (!r || r.label) return;
+    if (r.song) playSong(r);
+    else if (r.playAll) pick(opened.entry);
+    else if (r.back) goBack();
+    else if (r.mixId) pick(r);          // a saved mix plays
+    else openPlaylist(r);
   });
   list.addEventListener('wheel', (e) => {
     e.preventDefault();
@@ -584,9 +700,17 @@ function onKey(e) {
     ArrowUp: () => select(selected - 1),
     PageDown: () => select(selected + visibleRows()),
     PageUp: () => select(selected - visibleRows()),
-    Enter: () => (picked.size > 1 ? playTogether() : pick(shown[selected])),
-    Escape: () => close(),
+    Enter: () => {
+      const r = shown[selected];
+      if (picked.size > 1) playTogether();
+      else if (r && r.song) { if (e.shiftKey) queueSong(r); else playSong(r); }
+      else if (r && r.back) goBack();
+      else if (r && r.playAll) pick(opened.entry);
+      else pick(r);
+    },
+    Escape: () => (opened ? goBack() : close()),
   };
+  if (opened && e.key === 'Backspace' && !e.target.value) { e.preventDefault(); goBack(); return; }
   if (keys[e.key]) {
     e.preventDefault();
     e.stopPropagation();
@@ -598,12 +722,18 @@ function onKey(e) {
 
 // A row that can be chosen together with others: a playlist or Liked Songs,
 // not a section label or a saved mix.
-const choosable = (r) => !!r && !r.label && !r.mixId;
+const choosable = (r) => !!r && !r.label && !r.mixId && !r.song && !r.back && !r.playAll;
+
+// Saved mixes can be chosen together too (to rename or delete them), but not
+// along with playlists: what is chosen is one kind or the other.
+const kindOf = (r) => (r && r.mixId ? 'mix' : choosable(r) ? 'playlist' : null);
+const chosenKind = () => (picked.size ? (/^winify:mix:/.test([...picked][0]) ? 'mix' : 'playlist') : null);
 
 // Cmd-click: add or remove one. The row the cursor is on joins first.
 function toggleChosen(i) {
-  if (!choosable(shown[i])) return;
-  if (!picked.size && choosable(shown[selected])) picked.add(shown[selected].uri);
+  const kind = kindOf(shown[i]);
+  if (!kind || (picked.size && chosenKind() !== kind)) return;
+  if (!picked.size && kindOf(shown[selected]) === kind) picked.add(shown[selected].uri);
   const uri = shown[i].uri;
   if (picked.has(uri)) picked.delete(uri); else picked.add(uri);
   selected = i;
@@ -618,10 +748,11 @@ function toggleChosen(i) {
 
 // Shift-click: everything from where the last click was to this row.
 function chooseRange(i) {
-  if (!choosable(shown[i])) return;
+  const kind = kindOf(shown[i]);
+  if (!kind) return;
   const [a, b] = anchor <= i ? [anchor, i] : [i, anchor];
   picked.clear();
-  for (let k = a; k <= b; k++) if (choosable(shown[k])) picked.add(shown[k].uri);
+  for (let k = a; k <= b; k++) if (kindOf(shown[k]) === kind) picked.add(shown[k].uri);
   selected = i;
   if (picked.size === 1) picked.clear();
   renderList();
@@ -750,6 +881,7 @@ export function close({ keepRecord = false } = {}) {
   closePrompt();
   clearTimeout(collapseTimer);
   picked.clear();
+  opened = null;
   hideTooltip();
   el.remove();
   el = null;
@@ -767,7 +899,7 @@ export function toggle() {
 
 // Renaming a mix in its row: Enter keeps the name, Escape leaves it as it was.
 let renaming = null;
-function rename(id) {
+function rename(id, ids = null) {
   const row = el && el.querySelector('.wp-row[data-mix="' + id + '"]');
   const mix = mixes.saved().find((m) => m.id === id);
   if (!row || !mix) return;
@@ -784,7 +916,10 @@ function rename(id) {
   const done = (keep) => {
     if (renaming !== id) return;
     renaming = null;
-    if (keep && input.value.trim()) mixes.rename(id, input.value.trim());
+    if (keep && input.value.trim()) {
+      if (ids) { picked.clear(); mixes.renameMany(ids, input.value.trim()); }
+      else mixes.rename(id, input.value.trim());
+    }
     drawnKey = null;
     showList();
     if (el) el.querySelector('.wp-filter').focus();
@@ -871,6 +1006,6 @@ export function reset() {
 
 // For inspection from DevTools and tests.
 window.WinifyPicker = { open, close, toggle, isOpen, refresh: () => read(true),
-  state: () => ({ open: !!el, rows: rows.length, shown: shown.length, selected, scroll, loading: !!loading,
+  state: () => ({ open: !!el, opened: opened && opened.entry.name, loadingSongs: !!(opened && opened.loading), rows: rows.length, shown: shown.length, selected, scroll, loading: !!loading,
     chosen: picked.size, prompt: !!prompt,
     complete: !!(lib && lib.complete), at: lib ? lib.at : null }) };

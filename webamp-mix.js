@@ -15,10 +15,11 @@
  * the playlist is in it: then the picks are random across the whole playlist,
  * with no request. A playlist not indexed yet is read as above.
  *
- * Playlists chosen together in the picker (makeFrom) are mixed from the
- * index too: N random songs from each (all of a short one), no duplicates,
- * shuffled together or playlist after playlist; a playlist not indexed yet
- * is read, just that one.
+ * Playlists chosen together in the picker (makeFrom) are mixed the same way:
+ * N random songs from each (all of a short one), no duplicates, shuffled
+ * together or playlist after playlist; from the index, or else one page at
+ * a random offset, so a mix starts at once rather than after reading whole
+ * playlists.
  *
  * Saved on this Mac only (localStorage), never on Spotify: the 20 newest
  * (the oldest dropped first), listed in the playlist picker under "Winify
@@ -26,8 +27,7 @@
  * remixed. Each remembers its playlists (`sources`), how many songs from each
  * (`perList`) and whether they were shuffled together (`together`): hovering
  * one names its playlists, and Remix makes a fresh mix of the same playlists,
- * the same number from each, from the local index only (no requests to make
- * it; a playlist not in the index yet is left out, and said).
+ * the same number from each, the same way (no request for what is indexed).
  */
 
 import * as picker from './webamp-picker.js';
@@ -75,6 +75,23 @@ export function remove(id) {
   keep(saved().filter((m) => m.id !== id));
 }
 
+// Several at once (chosen together in the picker).
+export function removeMany(ids) {
+  keep(saved().filter((m) => !ids.includes(m.id)));
+}
+
+// One name for all of them: "Name", "Name (2)", "Name (3)", in the order given.
+export function renameMany(ids, name) {
+  const all = saved();
+  ids.forEach((id, k) => {
+    const m = all.find((x) => x.id === id);
+    if (!m) return;
+    m.name = k ? name + ' (' + (k + 1) + ')' : name;
+    playlist.renamedMix(uriOf(m), m.name);
+  });
+  keep(all);
+}
+
 // The mix playing now (its uri), if any.
 export const currentUri = () => playlist.activeMixUri();
 
@@ -106,14 +123,15 @@ function pick(songs, n, seen, from) {
 
 // Up to PER_PLAYLIST songs from one playlist, from a page at a random offset
 // (and once more at another, if it came up short). Counts its requests.
-async function fromPlaylist(p, seen, count) {
+async function fromPlaylist(p, seen, count, perList = PER_PLAYLIST) {
   const indexed = index.songsOf(p.uri);
-  if (indexed) return pick(indexed, PER_PLAYLIST, seen, p.name);
+  if (indexed) return pick(indexed, perList, seen, p.name);
   const take = [];
-  const id = p.uri.split(':').pop();
+  // Liked Songs has its own endpoint.
+  const path = /:collection$/.test(p.uri) ? '/me/tracks?market=from_token' : '/playlists/' + p.uri.split(':').pop() + '/items?market=from_token';
   let total = p.count || 0;                            // as the picker last saw it
   const tried = new Set();
-  for (let attempt = 0; attempt < 2 && take.length < PER_PLAYLIST; attempt++) {
+  for (let attempt = 0; attempt < 2 && take.length < perList; attempt++) {
     const maxOffset = Math.max(0, total - PAGE);
     let offset = Math.floor(Math.random() * (maxOffset + 1));
     if (tried.has(offset)) {
@@ -124,7 +142,7 @@ async function fromPlaylist(p, seen, count) {
     count.requests++;
     let page;
     try {
-      page = await ctx.api('GET', '/playlists/' + id + '/items?market=from_token&limit=' + PAGE + '&offset=' + offset);
+      page = await ctx.api('GET', path + '&limit=' + PAGE + '&offset=' + offset);
     } catch (err) {
       ctx.warn('mix: could not read', '"' + p.name + '" -', err.message);
       break;
@@ -134,7 +152,7 @@ async function fromPlaylist(p, seen, count) {
       .map((entry) => entry && (entry.item || (typeof entry.track === 'object' ? entry.track : null)))
       .filter((t) => t && t.uri && t.type !== 'episode' && !t.is_local && !/^spotify:local:/.test(t.uri) && t.is_playable !== false && !seen.has(t.uri));
     for (const t of shuffled(songs)) {
-      if (take.length >= PER_PLAYLIST) break;
+      if (take.length >= perList) break;
       seen.add(t.uri);
       take.push({ uri: t.uri, name: (artistsOf(t) ? artistsOf(t) + ' - ' : '') + t.name, durationMs: t.duration_ms || 0, from: p.name });
     }
@@ -190,14 +208,14 @@ export async function makeFrom(chosen, perList, together) {
   busy = true;
   try {
     ctx.say('Mixing ' + chosen.length + ' playlists...');
-    const before = index.status().requests;
+    const count = { requests: 0 };
     const seen = new Set();
     let groups = [];
     const sources = [];
     for (const p of chosen) {
-      const songs = await index.ensure(p);
-      if (!songs) { ctx.warn('mix: could not read', '"' + p.name + '"'); continue; }
-      groups.push(pick(songs, perList, seen, p.name));
+      const songs = await fromPlaylist(p, seen, count, perList);
+      if (!songs.length) { ctx.warn('mix: nothing from', '"' + p.name + '"'); continue; }
+      groups.push(songs);
       sources.push({ uri: p.uri, name: p.name });
     }
     const tracks = groups.flat();
@@ -205,7 +223,7 @@ export async function makeFrom(chosen, perList, together) {
     const mix = chosenMix(sources, perList, together, tracks, groups.length);
     keep([mix].concat(saved()));
     const played = await play(mix);
-    const requests = index.status().requests - before + (played ? 1 : 0);
+    const requests = count.requests + (played ? 1 : 0);
     last = { id: mix.id, playlists: groups.length, songs: tracks.length, requests };
     ctx.log('mix:', '"' + mix.name + '" -', tracks.length, 'songs from', groups.length, 'playlists (' + perList + ' each),', requests, 'requests');
     return mix;
@@ -270,17 +288,18 @@ export async function remix(id) {
     const perList = mix.perList || (mix.header && +((mix.header.name.match(/(\d+) each/) || [])[1])) || PER_PLAYLIST;
     const together = mix.together !== false;
     const seen = new Set();
+    const count = { requests: 0 };
     const used = [], missing = [];
     let groups = [];
     for (const p of sources) {
-      const songs = p.uri && index.songsOf(p.uri);
-      if (!songs) { missing.push(p.name); continue; }
-      groups.push(pick(songs, perList, seen, p.name));
+      const songs = p.uri ? await fromPlaylist(p, seen, count, perList) : [];
+      if (!songs.length) { missing.push(p.name); continue; }
+      groups.push(songs);
       used.push(p);
     }
     const tracks = groups.flat();
-    if (missing.length) ctx.warn('mix: remix leaves out (not in the index yet):', missing.join(', '));
-    if (!tracks.length) { ctx.say(missing.length ? 'Not in the index yet: ' + missing.join(', ') : 'No songs found for a mix'); return null; }
+    if (missing.length) ctx.warn('mix: remix leaves out:', missing.join(', '));
+    if (!tracks.length) { ctx.say('No songs found for a mix'); return null; }
     const random = (mix.kind || (mix.header ? 'chosen' : 'random')) === 'random';
     const fresh = random
       ? Object.assign({ id: String(Date.now()), name: nameFor(new Date()), at: Date.now(), tracks: shuffled(tracks), playlists: used.length,
@@ -288,10 +307,10 @@ export async function remix(id) {
       : chosenMix(used, perList, together, tracks, used.length);
     keep([fresh].concat(saved()));
     const played = await play(fresh);
-    last = { id: fresh.id, playlists: used.length, songs: tracks.length, requests: played ? 1 : 0, remixOf: mix.id, missing };
-    ctx.log('mix: remix of "' + mix.name + '" -', '"' + fresh.name + '",', tracks.length, 'songs from', used.length, 'playlists (' + perList + ' each), no requests to make it' +
+    last = { id: fresh.id, playlists: used.length, songs: tracks.length, requests: count.requests + (played ? 1 : 0), remixOf: mix.id, missing };
+    ctx.log('mix: remix of "' + mix.name + '" -', '"' + fresh.name + '",', tracks.length, 'songs from', used.length, 'playlists (' + perList + ' each),', count.requests, 'requests to make it' +
       (missing.length ? '; left out: ' + missing.join(', ') : ''));
-    if (missing.length) ctx.say('Remixed; not in the index yet: ' + missing.join(', '));
+    if (missing.length) ctx.say('Remixed; left out: ' + missing.join(', '));
     return fresh;
   } finally {
     busy = false;
@@ -332,4 +351,4 @@ export function reset() {
   busy = false;
 }
 
-window.WinifyMix = { make, makeFrom, remix, fromNames, saved, playSaved, rename, remove, state: () => ({ busy, last, current: currentUri() }) };
+window.WinifyMix = { make, makeFrom, remix, fromNames, saved, playSaved, rename, remove, removeMany, renameMany, state: () => ({ busy, last, current: currentUri() }) };
