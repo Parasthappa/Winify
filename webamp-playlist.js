@@ -502,16 +502,27 @@ async function queueLabel(contextUri) {
   return null;
 }
 
-async function refreshQueue(gen, contextUri) {
+// Mid-change (right after Previous, say) Spotify can answer with nothing, or
+// fail: the list stays and it is read again shortly, rather than the window
+// going blank while a track is playing.
+const QUEUE_RETRY_MS = 1500;
+const QUEUE_RETRIES = 2;
+async function refreshQueue(gen, contextUri, attempt = 0) {
+  const noAnswer = (rateLimited) => {
+    if (!ctx.now.trackUri) { showStandIn(); return; }
+    if (rateLimited || attempt >= QUEUE_RETRIES) return;
+    clearTimeout(queueTimer);
+    queueTimer = setTimeout(() => refreshQueue(gen, contextUri, attempt + 1), QUEUE_RETRY_MS);
+  };
   try {
     const [list, label] = await Promise.all([loadQueue(), queueLabel(contextUri)]);
     if (gen !== loadGen) return;
-    if (!list.length) { showStandIn(); return; }
+    if (!list.length) { noAnswer(false); return; }
     installList(list, 'queue', contextUri, null, label);
   } catch (err) {
     if (gen !== loadGen) return;
     ctx.warn('could not read the queue -', err.message);
-    if (mode !== 'standin') showStandIn();
+    noAnswer(err.status === 429);
   }
 }
 
@@ -893,6 +904,13 @@ export function takeOverSkip(direction) {
   return true;
 }
 
+// A song about to be queued from a list that has its details: no request to
+// look them up again.
+const knownTracks = new Map();
+export function knowTrack(uri, name, durationMs) {
+  knownTracks.set(uri, { name, durationMs });
+}
+
 // Something was added to Spotify's queue (search, or a row's right-click):
 // it plays next, so it goes in right after the current track, after any
 // others queued before it.
@@ -911,7 +929,7 @@ export async function noteQueued(uri) {
   }
   if (mode !== 'list' || currentIndex < 0) return;
   pending.push(uri);
-  const known = entries.find((e) => e.uri === uri && !e.isLabel);
+  const known = entries.find((e) => e.uri === uri && !e.isLabel) || knownTracks.get(uri);
   let name = known && known.name;
   let durationMs = known && known.durationMs;
   if (!known) {
@@ -1537,6 +1555,12 @@ export function takeDoubleClick() {
 
 const OFFSET_CONTEXTS = new Set(['album', 'playlist', 'collection']);
 
+function playRowsFrom(index, deviceId) {
+  ctx.log('double-click: playing', entries[index].name, 'and the rest of the list');
+  return ctx.api('PUT', '/me/player/play?device_id=' + encodeURIComponent(deviceId),
+    { uris: entries.slice(index).filter((x) => x.playable && x.uri).map((x) => x.uri) });
+}
+
 export async function playEntry(id) {
   if (!ctx) return;
   const index = entries.findIndex((e) => e.id === id);
@@ -1562,24 +1586,22 @@ export async function playEntry(id) {
       // Same context, starting at this row (the list is the queue, whose
       // order is not the context's, so by URI).
       const offset = { uri: e.uri };
-      await ctx.api('PUT', '/me/player/play?device_id=' + encodeURIComponent(deviceId),
-        { context_uri: contextUri, offset });
-      ctx.log('double-click: playing', e.name, 'in', listName || contextUri);
-    } else if (contextUri) {
-      // Artist, radio and similar contexts take no offset; skipping forward
-      // through Up Next keeps the context.
-      // Positions count from the playing track (a label row comes before it).
-      if (e.position === 0) {
-        await window.WinifyPlayer.seek(0);
-      } else {
-        for (let i = 0; i < e.position; i++) await window.WinifyPlayer.nextTrack();
+      try {
+        await ctx.api('PUT', '/me/player/play?device_id=' + encodeURIComponent(deviceId),
+          { context_uri: contextUri, offset });
+        ctx.log('double-click: playing', e.name, 'in', listName || contextUri);
+      } catch (err) {
+        if (err.status === 429) throw err;
+        // Up Next can list songs that are not in the context (queued, or
+        // Spotify's own picks), which Spotify refuses as an offset.
+        await playRowsFrom(index, deviceId);
       }
-      ctx.log('double-click: skipped', e.position, 'ahead to', e.name);
+    } else if (contextUri && e.position === 0) {
+      await window.WinifyPlayer.seek(0);              // the playing track, from its start
     } else {
-      // No context at all: play from this row on.
-      await ctx.api('PUT', '/me/player/play?device_id=' + encodeURIComponent(deviceId),
-        { uris: entries.slice(index).filter((x) => x.playable).map((x) => x.uri) });
-      ctx.log('double-click: playing', e.name, 'and the rest of the list');
+      // Artist, radio and similar contexts take no offset, and several quick
+      // skips land only one track on: this row and the rest of the list.
+      await playRowsFrom(index, deviceId);
     }
   } catch (err) {
     ctx.warn('double-click failed -', err.message);

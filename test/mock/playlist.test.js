@@ -111,8 +111,8 @@ h.open().then(async ({ win, js }) => {
   await m('(mock.setContext("spotify:artist:ar1", 0))');
   p = await until((v) => v.pl.mode === 'queue' && v.pl.listContext === 'spotify:artist:ar1');
   check('artist -> label row, then now playing + Up Next', p.pl.mode === 'queue' && p.names[0] === '\u2014 ARTIST \u00b7 Artist ar1 \u2014' && p.names[1] === N(5000) && p.cur === 1, JSON.stringify([p.pl.mode, p.names.slice(0, 2), p.cur]));
-  await top(); await take(); await dbl(3); await h.wait(1200); cs = await take();
-  check('  double-click two tracks ahead -> skips forward twice (artist takes no offset)', cs.filter((c) => c[0] === 'nextTrack').length === 2 && !cs.some((c) => c[0] === 'api:play'), JSON.stringify(cs.map((c) => c[0])));
+  await top(); await take(); const ahead = (await P()).names[3]; await dbl(3); await h.wait(1200); cs = await take(); play = cs.find((c) => c[0] === 'api:play'); body = play && JSON.parse(play[2]);
+  check('  double-click two tracks ahead -> plays exactly that row and the rest, no skips (artist takes no offset)', body && body.uris && N(+body.uris[0].split(':').pop()) === ahead && !cs.some((c) => c[0] === 'nextTrack'), JSON.stringify([ahead, body && body.uris && body.uris[0]]));
 
   await m('(mock.context = null, mock.track = 7000, mock.position = 0)');
   p = await until((v) => v.pl.mode === 'queue' && v.pl.listContext === null && v.names[0] === N(7000));
@@ -131,6 +131,18 @@ h.open().then(async ({ win, js }) => {
   check('two songs queued: both listed after it, in order, right away, no repeats of it', JSON.stringify(p.names) === JSON.stringify([N(7000), N(7100), N(7101)]), JSON.stringify(p.names));
   check('...one read of the queue for both', cs.filter((c) => c[0] === 'api:queue').length === 1, cs.filter((c) => c[0] === 'api:queue').length);
   await m('(mock.queue = [], mock.lone = false)');
+
+  // Spotify answers with nothing, or fails, mid-change: the list stays, and is read again.
+  await m('(mock.context = null, mock.uris = null, mock.track = 7200, mock.position = 0)');
+  p = await until((v) => v.pl.mode === 'queue' && v.names[0] === N(7200));
+  await m(`(() => { const real = window.fetch; let left = 1; window.__realFetch7 = real; window.fetch = async (u, o) => { if (left && /\\/me\\/player\\/queue/.test(String(u)) && (!o || !o.method || o.method === 'GET')) { left--; return new Response(JSON.stringify({ currently_playing: null, queue: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } }); } return real(u, o); }; })()`);
+  const rows7 = (await P()).rows;
+  await m('(mock.track = 7201, mock.position = 0, mock.at = Date.now())');
+  await h.wait(1000); p = await P();
+  check('track changes and Spotify answers with nothing: the list stays', p.pl.mode === 'queue' && p.rows === rows7, JSON.stringify([p.pl.mode, p.rows]));
+  p = await until((v) => v.names[0] === N(7201), 5000);
+  check('...and shows the new track once read again', p.names[0] === N(7201), JSON.stringify(p.names.slice(0, 2)));
+  await m('(window.fetch = window.__realFetch7, null)');
 
   console.log('6. Playing track missing from the list');
   await m('(mock.setContext("spotify:playlist:big", 0))'); await until((v) => v.pl.mode === 'list' && v.rows === 500 && !v.pl.loading && v.cur === 0, 30000);
