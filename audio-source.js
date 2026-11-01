@@ -115,8 +115,7 @@
     if (stream) { log('already capturing'); return true; }
     opts = opts || {};
 
-    // macOS's answer first: a capture opened while its question is still on
-    // screen hears silence until Winify restarts, even after "Allow".
+    // macOS's answer first, so capture never races its question.
     if (window.spotify && window.spotify.microphoneAccess) {
       var access = await window.spotify.microphoneAccess().catch(function () { return 'unknown'; });
       if (access === 'denied' || access === 'restricted') {

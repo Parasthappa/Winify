@@ -66,9 +66,10 @@ its own signing is off). `packaging/vmp-verify.js` (afterSign) runs
 No hardened runtime: it would refuse the Widevine module downloaded at first
 launch. Each build is a new ad-hoc signature, so macOS asks for microphone
 (and screen-recording) access again after every build. Capture waits for
-that answer (`audio:microphone` in `main.js`, asked from `audio-source.js`):
-a BlackHole stream opened while macOS's question is still on screen stays
-silent until Winify restarts, even after "Allow" (31 Oct 2026). To check
+that answer (`audio:microphone` in `main.js`, asked from `audio-source.js`),
+so capture never races macOS's question. That race is the likely reason the
+packaged app's visualizer once stayed still, then moved on a later launch
+(31 Oct 2026); it was never reproduced or proven. To check
 capture in a packaged build without Spotify: `npm run package -- --test
 test/package/capture.js`.
 

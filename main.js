@@ -1433,9 +1433,10 @@ ipcMain.on('audio-state', (_event, capturing) => {
 });
 
 // macOS's microphone permission, which reading BlackHole needs. Asked for (and
-// answered) before capture opens: a capture opened while macOS's question is
-// still on screen hears silence for good, even after "Allow". The packaged
-// app is ad-hoc signed, so macOS asks again after every rebuild.
+// answered) before capture opens, so capture never races macOS's question
+// (the likely reason the packaged app's visualizer once stayed still; not
+// proven). The packaged app is ad-hoc signed, so macOS asks again after every
+// rebuild.
 ipcMain.handle('audio:microphone', async () => {
   if (process.platform !== 'darwin') return 'granted';
   let status = systemPreferences.getMediaAccessStatus('microphone');
