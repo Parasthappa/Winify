@@ -1,24 +1,32 @@
 /* The side panels follow the loaded skin.
  *
  * Colours and font: every panel reads panelStyle(), the skin's playlist colours
- * (pledit.txt) with a contrast check, so text stays readable on any skin, and
- * the skin's font with a sans-serif fallback.
+ * (pledit.txt) with a contrast check, and the skin's font with a sans-serif
+ * fallback. Text the skin's colours cannot make readable is black or white, so
+ * the panels keep the skin's background; one of them always reads.
  *
  * Frames: a skin with generic-window artwork (GEN.BMP) needs nothing here:
  * Webamp's own stylesheet draws Milkdrop and the panels from it. Without it,
  * Webamp falls back to the default skin's frame, so one is built from the
  * skin's playlist window (PLEDIT.BMP), with titles in its lettering (TEXT.BMP).
+ * A skin with neither keeps the default frame, which is what its playlist
+ * window has too.
  *
  * Lettering: the panels' hint bars and dialog buttons use the skin's TEXT.BMP
  * glyphs, redrawn in its playlist colours. TEXT.BMP's own colours and solid
- * background belong to the main window and can be unreadable on a panel.
+ * background belong to the main window and can be unreadable on a panel. Where
+ * letters cannot be told from the background, the default skin's letters are used.
  */
 
 const log = (...args) => console.log('[winify/skin]', ...args);
 
 // ---- Colours ----------------------------------------------------------------
 
-const MIN_CONTRAST = 3.5;
+const MIN_CONTRAST = 4.5;     // WCAG AA for small text; panel text is 9-10 px
+const MIN_TITLE_CONTRAST = 3;
+const MIN_SELECTION_CONTRAST = 1.3;
+const BLACK = '#000000', WHITE = '#FFFFFF';   // on any colour, one of these reaches 4.5:1
+const DEFAULT_COLORS = { normal: '#00FF00', current: '#FFFFFF', normalbg: '#000000', selectedbg: '#0000C6' };
 
 // [r, g, b] of any CSS colour, or null.
 function rgb(color) {
@@ -45,10 +53,10 @@ export function contrast(a, b) {
   return x && y ? ratio(x, y) : 1;
 }
 
-// The first colour readable on `bg`, else black or white, whichever is clearer.
-export function readable(bg, ...colors) {
+// The first colour readable on `bg`, or null.
+function firstReadable(bg, ...colors) {
   for (const c of colors) if (c && contrast(c, bg) >= MIN_CONTRAST) return c;
-  return contrast('#000000', bg) > contrast('#ffffff', bg) ? '#000000' : '#ffffff';
+  return null;
 }
 
 // Never the browser's default serif when the skin's font is not installed.
@@ -63,18 +71,27 @@ let lastStyle = null;
 export function panelStyle(webamp) {
   const s = webamp.store.getState().display.skinPlaylistStyle || {};
   if (s === lastSource && lastStyle) return lastStyle;
-  const normalbg = s.normalbg || '#000000';
-  const selectedbg = s.selectedbg || '#0000C6';
-  const normal = readable(normalbg, s.normal || '#00FF00', s.current);
+  const c = { normal: s.normal || DEFAULT_COLORS.normal, current: s.current || DEFAULT_COLORS.current,
+    normalbg: s.normalbg || DEFAULT_COLORS.normalbg, selectedbg: s.selectedbg || DEFAULT_COLORS.selectedbg };
+  const fallbacks = [];
+  // The skin's colours where they read, else black or white.
+  let normal = firstReadable(c.normalbg, c.normal, c.current);
+  if (!normal) { normal = firstReadable(c.normalbg, BLACK, WHITE); fallbacks.push('black or white text'); }
+  // A selection that hardly differs from the list cannot be seen: the list's
+  // text and background swapped, which reads as well as the list does.
+  if (contrast(c.selectedbg, c.normalbg) < MIN_SELECTION_CONTRAST) { c.selectedbg = normal; fallbacks.push('selection swapped'); }
+  let onSelected = firstReadable(c.selectedbg, normal, c.current, c.normalbg);
+  if (!onSelected) { onSelected = firstReadable(c.selectedbg, BLACK, WHITE); fallbacks.push('black or white on the selection'); }
   lastSource = s;
   lastStyle = {
     normal,
-    current: readable(normalbg, s.current || '#FFFFFF', normal),
-    normalbg,
-    selectedbg,
-    onSelected: readable(selectedbg, normal, s.current),
-    currentOnSelected: readable(selectedbg, s.current, normal),
+    current: firstReadable(c.normalbg, c.current) || normal,
+    normalbg: c.normalbg,
+    selectedbg: c.selectedbg,
+    onSelected,
+    currentOnSelected: firstReadable(c.selectedbg, c.current) || onSelected,
     font: fontStack(s.font),
+    fallbacks,
   };
   return lastStyle;
 }
@@ -160,20 +177,36 @@ async function frameCss(images) {
   return rules;
 }
 
-// A bitmap's average colour, as #rrggbb.
-function average(img) {
+// Where a title bar's letters sit: the colour that reads on most of those
+// pixels and on how many, and how much of them is one colour. Letters are lost
+// on busy artwork even where each pixel contrasts.
+function bestOn(img, colors) {
   const g = blank(img.width, img.height).getContext('2d');
   g.drawImage(img, 0, 0);
-  const d = g.getImageData(0, 0, img.width, img.height).data;
-  const part = (k) => { let sum = 0; for (let i = k; i < d.length; i += 4) sum += d[i]; return Math.round(sum / (d.length / 4)); };
-  return '#' + [0, 1, 2].map((k) => part(k).toString(16).padStart(2, '0')).join('');
+  const d = g.getImageData(0, TITLE_ROWS.top, img.width, TITLE_ROWS.bottom - TITLE_ROWS.top).data;
+  const counts = new Map();
+  for (let i = 0; i < d.length; i += 4) { const k = (d[i] >> 4) + ',' + (d[i + 1] >> 4) + ',' + (d[i + 2] >> 4); counts.set(k, (counts.get(k) || 0) + 1); }
+  const flat = Math.max(...counts.values()) / (d.length / 4);
+  let best = { color: colors[0], share: -1, flat };
+  for (const color of colors) {
+    const c = rgb(color);
+    let good = 0;
+    for (let i = 0; i < d.length; i += 4) if (ratio(c, [d[i], d[i + 1], d[i + 2]]) >= MIN_TITLE_CONTRAST) good++;
+    const share = good / (d.length / 4);
+    if (share > best.share) best = { color, share, flat };
+  }
+  return best;
 }
 
 // ---- Lettering in the playlist's colours ------------------------------------
 
 // A glyph as clear pixels and pixels of `color`: whatever differs from the
 // bitmap's own background by more than that background varies is ink.
-function tint(img, { background, spread }, color) {
+function tint(img, ground, color) {
+  return tintedCanvas(img, ground, color).toDataURL('image/png');
+}
+
+function tintedCanvas(img, { background, spread }, color) {
   const c = blank(img.width, img.height);
   const g = c.getContext('2d');
   g.drawImage(img, 0, 0);
@@ -185,7 +218,7 @@ function tint(img, { background, spread }, color) {
     d[i] = r; d[i + 1] = gr; d[i + 2] = b; d[i + 3] = far > Math.max(48, spread * 1.5) && d[i + 3] ? 255 : 0;
   }
   g.putImageData(data, 0, 0);
-  return c.toDataURL('image/png');
+  return c;
 }
 
 // The background of the skin's TEXT.BMP: how much it varies, and its colour.
@@ -200,36 +233,108 @@ function glyphGround(space) {
 }
 
 // Titles in the skin's TEXT.BMP letters, where it has no GEN.BMP lettering,
-// clear of TEXT.BMP's background and readable on the title bar.
-async function titleCss(images, st) {
-  if (!images.CHARACTER_32) return [];
-  const ground = glyphGround(await loadImage(images.CHARACTER_32));
-  const [tile, tileOn] = await Promise.all([images.PLAYLIST_TOP_TILE, images.PLAYLIST_TOP_TILE_SELECTED].map(loadImage));
-  const color = readable(average(tile), st.current, st.normal);
-  const colorOn = readable(average(tileOn), st.current, st.normal);
+// clear of TEXT.BMP's background. In the colour that reads best on the title
+// bar; where none reads on enough of it, on a plate in the panel's colours.
+const TITLE_CANDIDATES = (st) => [st.current, st.normal, '#000000', '#ffffff'];
+const TITLE_ROWS = { top: 2, bottom: 12 };
+const TITLE_READS_ON = 0.95, TITLE_FLAT = 0.85;
+
+async function titleCss(glyphs, images, st) {
+  if (!glyphs) return [];
   const rules = [];
-  for (let code = 97; code <= 122; code++) {
-    if (!images['CHARACTER_' + code]) continue;
-    const glyph = await loadImage(images['CHARACTER_' + code]);
-    const letter = String.fromCharCode(code);
-    rules.push(`${ROOT} .gen-text-${letter} { background-image: url("${tint(glyph, ground, color)}"); width: 5px; height: 6px; }`);
-    rules.push(`${ROOT}.selected .gen-text-${letter} { background-image: url("${tint(glyph, ground, colorOn)}"); width: 5px; height: 6px; }`);
-  }
+  const state = async (tileName, prefix) => {
+    const best = bestOn(await loadImage(images[tileName]), TITLE_CANDIDATES(st));
+    const plated = best.share < TITLE_READS_ON || best.flat < TITLE_FLAT;
+    const color = plated ? st.normal : best.color;
+    if (plated) {
+      rules.push(`${prefix} .gen-top-title { background: ${st.normalbg}; height: 9px; align-self: flex-start; margin-top: 2px; line-height: 9px; }`);
+      if (!artFallbacks.includes('title plate')) artFallbacks.push('title plate');
+    }
+    for (let code = 97; code <= 122; code++) {
+      const glyph = glyphs.images[code];
+      if (!glyph) continue;
+      rules.push(`${prefix} .gen-text-${String.fromCharCode(code)} { background-image: url("${tint(glyph, glyphs.ground, color)}"); width: 5px; height: 6px; }`);
+    }
+  };
+  await state('PLAYLIST_TOP_TILE', ROOT);
+  await state('PLAYLIST_TOP_TILE_SELECTED', ROOT + '.selected');
   return rules;
 }
 
-async function letteringCss(images, st) {
-  const names = Object.keys(images).filter((n) => /^CHARACTER_\d+$/.test(n));
-  const space = images.CHARACTER_32 ? await loadImage(images.CHARACTER_32) : null;
-  if (!space) return [];
-  const ground = glyphGround(space);
-  const glyphs = await Promise.all(names.map((n) => loadImage(images[n])));
+// How much of a glyph is ink.
+function inkShare(img, ground) {
+  const g = blank(img.width, img.height).getContext('2d');
+  g.drawImage(tintedCanvas(img, ground, '#000000'), 0, 0);
+  const d = g.getImageData(0, 0, img.width, img.height).data;
+  let ink = 0;
+  for (let i = 3; i < d.length; i += 4) if (d[i]) ink++;
+  return ink / (img.width * img.height);
+}
+
+// The default skin's letters: in Webamp's own stylesheet, ahead of any skin's.
+let defaultGlyphs = null;
+function defaultGlyphUrls() {
+  if (defaultGlyphs) return defaultGlyphs;
+  defaultGlyphs = {};
+  for (const sheet of document.styleSheets) {
+    if (sheet.ownerNode && sheet.ownerNode.id === 'winify-skin-panels') continue;
+    let rules = [];
+    try { rules = sheet.cssRules; } catch (e) { continue; }
+    for (const rule of rules) {
+      const code = /\.character-(\d+)/.exec(rule.selectorText || '');
+      const url = code && /url\("?([^")]+)"?\)/.exec(rule.style.backgroundImage || '');
+      if (url && !defaultGlyphs[code[1]]) defaultGlyphs[code[1]] = url[1];
+    }
+  }
+  return defaultGlyphs;
+}
+
+const glyphUrls = (images) => {
+  const urls = {};
+  for (const n of Object.keys(images)) { const m = /^CHARACTER_(\d+)$/.exec(n); if (m) urls[m[1]] = images[n]; }
+  return urls;
+};
+
+async function loadGlyphs(urls) {
+  if (!urls[32]) return null;
+  const ground = glyphGround(await loadImage(urls[32]));
+  const codes = Object.keys(urls);
+  const loaded = await Promise.all(codes.map((code) => loadImage(urls[code])));
+  const glyphs = {};
+  codes.forEach((code, i) => { glyphs[code] = loaded[i]; });
+  return { ground, images: glyphs };
+}
+
+// Letters that can be told from their background: most a-z have some ink and
+// are not solid. A TEXT.BMP drawn as a picture fails this.
+const LETTER_INK = { min: 0.08, max: 0.85 };
+function usable(glyphs) {
+  if (!glyphs) return false;
+  let good = 0, all = 0;
+  for (let code = 97; code <= 122; code++) {
+    if (!glyphs.images[code]) continue;
+    all++;
+    const share = inkShare(glyphs.images[code], glyphs.ground);
+    if (share >= LETTER_INK.min && share <= LETTER_INK.max) good++;
+  }
+  return all > 0 && good / all >= 0.8;
+}
+
+async function panelGlyphs(images) {
+  const own = await loadGlyphs(glyphUrls(images));
+  if (usable(own)) return own;
+  artFallbacks.push('default letters');
+  return loadGlyphs(defaultGlyphUrls());
+}
+
+function letteringCss(glyphs, st) {
+  if (!glyphs) return [];
   const rules = [];
-  names.forEach((n, i) => {
-    const code = n.slice('CHARACTER_'.length);
-    rules.push(`#webamp .winify-frame .character-${code} { background-image: url("${tint(glyphs[i], ground, st.normal)}"); }`);
-    rules.push(`#webamp .winify-frame .wq-btn[aria-pressed="true"] .character-${code} { background-image: url("${tint(glyphs[i], ground, st.onSelected)}"); }`);
-  });
+  for (const code of Object.keys(glyphs.images)) {
+    const glyph = glyphs.images[code];
+    rules.push(`#webamp .winify-frame .character-${code} { background-image: url("${tint(glyph, glyphs.ground, st.normal)}"); }`);
+    rules.push(`#webamp .winify-frame .wq-btn[aria-pressed="true"] .character-${code} { background-image: url("${tint(glyph, glyphs.ground, st.onSelected)}"); }`);
+  }
   return rules;
 }
 
@@ -259,7 +364,15 @@ export function labelOnArt(g, w, h, letters, left, top) {
   const close = (key) => key.split(',').map(Number).every((v, i) => Math.abs(v - face[i]) <= 10);
   const covered = sorted.filter(([key]) => close(key)).reduce((n, [, count]) => n + count, 0);
   if (covered / (FACE.w * FACE.h) < FLAT_ENOUGH) return null;
-  // A label running past the face would be left half cleared.
+  // Lettering running out of the sides of the face would be left half cleared:
+  // beside a clean face, each column is one colour from top to bottom.
+  for (const x of [0, 1, FACE.x + FACE.w, FACE.x + FACE.w + 1, FACE.x + FACE.w + 2]) {
+    for (let y = FACE.y + 1; y < FACE.y + FACE.h; y++) {
+      const i = (y * w + x) * 4, j = ((FACE.y) * w + x) * 4;
+      if (Math.abs(d[i] - d[j]) + Math.abs(d[i + 1] - d[j + 1]) + Math.abs(d[i + 2] - d[j + 2]) > 30) return null;
+    }
+  }
+  // Nor running out of the bottom.
   for (let x = FACE.x; x < FACE.x + FACE.w; x++) {
     const i = ((FACE.y + FACE.h) * w + x) * 4, j = ((FACE.y + FACE.h) * w + FACE.x + 1) * 4;
     if (Math.abs(d[i] - d[j]) + Math.abs(d[i + 1] - d[j + 1]) + Math.abs(d[i + 2] - d[j + 2]) > 30) return null;
@@ -295,20 +408,25 @@ let generation = 0;
 
 // Which frame the loaded skin gets, for the tests and the gallery.
 let frameSource = 'gen';
+let ready = null;       // the images last painted from
+let artFallbacks = [];  // the fallback rules this skin's artwork needed
 
 async function paint(images, st) {
   const mine = ++generation;
+  artFallbacks = [];
   const hasGen = !!images.GEN_TOP_LEFT;
   const canBuild = FRAME_SPRITES.every((n) => images[n]);
   const rules = [];
   try {
-    if (!hasGen && canBuild) rules.push(...await frameCss(images), ...await titleCss(images, st));
-    rules.push(...await letteringCss(images, st));
+    const glyphs = await panelGlyphs(images);
+    if (!hasGen && canBuild) rules.push(...await frameCss(images), ...await titleCss(glyphs, images, st));
+    rules.push(...letteringCss(glyphs, st));
   } catch (e) {
     log('could not read the skin\'s artwork:', e.message);
   }
   if (mine !== generation || !style) return;
   style.textContent = rules.join('\n');
+  ready = images;
   frameSource = hasGen ? 'gen' : canBuild ? 'pledit' : 'default';
   log('panel frames from', frameSource);
 }
@@ -341,4 +459,4 @@ export function detach() {
   generation++;
 }
 
-window.WinifySkin = { state: () => ({ frame: frameSource, style: webamp ? panelStyle(webamp) : null }), contrast };
+window.WinifySkin = { state: () => ({ frame: frameSource, style: webamp ? panelStyle(webamp) : null, ready: !!webamp && ready === webamp.store.getState().display.skinImages, fallbacks: artFallbacks.slice() }), contrast };

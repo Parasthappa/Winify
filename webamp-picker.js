@@ -415,7 +415,7 @@ function injectStyles() {
     #webamp .winify-picker .wp-refresh { cursor: pointer; padding: 2px 3px; border: 1px solid transparent; }
     #webamp .winify-picker .wp-refresh:hover { border-color: currentColor; }
     #webamp .winify-picker .wp-refresh.wp-busy { opacity: .45; cursor: default; }
-    #webamp .winify-picker .wp-row.wp-label { opacity: .85; font-size: 8px; letter-spacing: 1px; justify-content: center; }
+    #webamp .winify-picker .wp-row.wp-label { font-size: 8px; letter-spacing: 1px; justify-content: center; }
     #webamp .winify-picker .wp-sel { margin-left: auto; }
     /* Above the panels, which rise as they are clicked (webamp-panels.js focus). */
     #webamp .winify-picker-prompt { z-index: 1000000; }

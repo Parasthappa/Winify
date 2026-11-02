@@ -191,7 +191,8 @@ app.whenReady().then(async () => {
   const disp = screen.getPrimaryDisplay().bounds;
   check('full screen covers the whole display (menu bar and Dock included)', win.isSimpleFullScreen() && JSON.stringify(win.getBounds()) === JSON.stringify(disp), JSON.stringify(win.getBounds()));
   await js('document.exitFullscreen()'); for (let i = 0; i < 40 && win.isSimpleFullScreen(); i++) await wait(100); await wait(800);
-  check('...and back to the usable area after', !win.isSimpleFullScreen() && JSON.stringify(win.getBounds()) === JSON.stringify(area), JSON.stringify(win.getBounds()));
+  // The usable area now: the Dock can change size during a run.
+  check('...and back to the usable area after', !win.isSimpleFullScreen() && JSON.stringify(win.getBounds()) === JSON.stringify(screen.getPrimaryDisplay().workArea), JSON.stringify(win.getBounds()));
   await js('WinifyMilkdrop.toggle()');
 
   console.log('9. A layout saved by the old fitted window');

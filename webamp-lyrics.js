@@ -187,7 +187,7 @@ function injectStyles() {
     #webamp .winify-lyrics .wl-head { margin-bottom: 8px; }
     #webamp .winify-lyrics .wl-track { font-weight: bold; }
     #webamp .winify-lyrics .wl-text { white-space: pre-wrap; overflow-wrap: anywhere; }
-    #webamp .winify-lyrics .wl-note { opacity: .85; white-space: pre-wrap; }
+    #webamp .winify-lyrics .wl-note { white-space: pre-wrap; }
     #webamp .winify-lyrics .wl-retry { cursor: pointer; text-decoration: underline; }
     #webamp .winify-lyrics .wl-handle { position: absolute; left: 0; width: 8px; height: 18px; }
     ${FRAME_CSS}
