@@ -33,7 +33,8 @@ const BUDGET = Number(process.env.SMOKE_BUDGET) || 30;
 const PLAYER_BUDGET = 60;
 const PLAYER_PATH = /^\/v1\/(melody|track-playback|storage-resolve|widevine-license)\//;
 const TIME_LIMIT_MS = 120000;
-const SEARCH = 'Blinding Lights The Weeknd';
+// A song in the account's playlists (search reads the index), with words on LRCLIB.
+const SEARCH = 'Call Out My Name The Weeknd';
 
 // Winify's own settings: the development copy's, or the packaged app's when
 // run from a test build of it (npm run package -- --smoke; main.js sets the same).
@@ -231,8 +232,9 @@ app.whenReady().then(async () => {
   await wait(1500);
   const mic = systemPreferences.getMediaAccessStatus('microphone');
   check('macOS allows Winify audio input (Privacy & Security > Microphone)', mic === 'granted', mic);
-  const level = await js(`(() => { const a = window.WinifyAudio && WinifyAudio.getAnalyser(); if (!a) return -1;
-    const b = new Uint8Array(a.fftSize); let peak = 0; for (let k = 0; k < 5; k++) { a.getByteTimeDomainData(b); peak = Math.max(peak, Math.max(...b) - Math.min(...b)); } return peak; })()`);
+  // The loudest moment in about a second: a track can start quietly, or be between beats.
+  const level = await js(`(async () => { const a = window.WinifyAudio && WinifyAudio.getAnalyser(); if (!a) return -1;
+    const b = new Uint8Array(a.fftSize); let peak = 0; for (let k = 0; k < 10; k++) { a.getByteTimeDomainData(b); peak = Math.max(peak, Math.max(...b) - Math.min(...b)); await new Promise((r) => setTimeout(r, 100)); } return peak; })()`);
   check('the visualizer receives the music', level > 10, level < 0 ? 'audio capture not running' : 'signal ' + level +
     (level <= 10 ? ' (silence: is the Multi-Output Device the sound output?)' : ''));
   // ...and the small visualizer in the main window draws it: its canvas changes. Checked apart from
@@ -264,14 +266,14 @@ app.whenReady().then(async () => {
   guard();
   check('search finds "' + SEARCH + '"', !!results, results + ' results');
   await js(`document.querySelector('.winify-search .ws-query').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))`);
-  const playing = await until(`(() => { const n = WinifyControls.state(); return /blinding lights/i.test(n.title || '') && !n.paused ? n.title + ' - ' + n.artist : null; })()`, 12000);
+  const playing = await until(`(() => { const n = WinifyControls.state(); return /call out my name/i.test(n.title || '') && !n.paused ? n.title + ' - ' + n.artist : null; })()`, 12000);
   guard();
   check('Enter plays it on Winify', !!playing, playing);
 
   // 5b. The chassis shows it: cover (loaded from Spotify's image server), title, artist, Spotify's
   // logo and the link back. From the player's own state: no Web API requests. Photographed.
   const np = await until(`(() => { const q = (s) => document.querySelector('#login-screen ' + s); const c = q('.sa-np-cover');
-    return c && c.complete && c.naturalWidth > 0 && /^https:/.test(c.src) && /blinding lights/i.test(q('.sa-np-title').textContent) && q('.sa-np-logo').getBoundingClientRect().width >= 70
+    return c && c.complete && c.naturalWidth > 0 && /^https:/.test(c.src) && /call out my name/i.test(q('.sa-np-title').textContent) && q('.sa-np-logo').getBoundingClientRect().width >= 70
       ? { title: q('.sa-np-title').textContent, artist: q('.sa-np-artist').textContent, cover: c.naturalWidth + 'x' + c.naturalHeight, link: q('.sa-np-link').textContent.trim() } : null; })()`, 10000);
   check('the chassis shows it: album cover, title, artist, Spotify logo, link back', !!np, np ? np.title + ' - ' + np.artist + ', cover ' + np.cover + ', "' + np.link + '"' : 'not shown');
   try {
@@ -284,7 +286,10 @@ app.whenReady().then(async () => {
   if (!(await js(`WinifyLyrics.isOpen()`))) await js(`document.querySelector('#webamp #button-i').dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
   const lyr = await until(`(() => { const s = WinifyLyrics.state(); return s.entry && s.entry.state === 'found' && s.text && s.text.length > 200 ? s.entry.source : null; })()`, 20000);
   guard();
-  check('lyrics found and shown for it (LRCLIB)', !!lyr, lyr ? 'via /api/' + lyr : JSON.stringify(await js('WinifyLyrics.state()')).slice(0, 160));
+  const lyricState = lyr ? null : await js('WinifyLyrics.state()');
+  // LRCLIB being down is told apart from Winify failing, though lyrics were still not seen working.
+  const lyricsDown = lyricState && /LRCLIB is overloaded|error 5\d\d/.test(JSON.stringify(lyricState));
+  check('lyrics found and shown for it (LRCLIB)', !!lyr, lyr ? 'via /api/' + lyr : lyricsDown ? 'LRCLIB IS DOWN (not Winify): ' + (lyricState.text || '').slice(0, 120) : JSON.stringify(lyricState).slice(0, 160));
   await js(`WinifyLyrics.close(false)`);
 
   // 7. A random mix (the Winamp logo makes one of 10 playlists; 3 here, to
