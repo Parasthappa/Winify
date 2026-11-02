@@ -1,6 +1,7 @@
 // Skin gallery: every skin in test/skins/ (.wsz, kept out of git) loaded into Winify's player
-// against the fake Spotify (no Spotify requests), the main window and playlist photographed, and
-// all of them put on one contact sheet with each skin's name.
+// against the fake Spotify (no Spotify requests), with the side panels open (Lyrics, Jump to track,
+// Playlists, Milkdrop, the Play Together box), photographed and put on one contact sheet with each
+// skin's name and where its panel frames come from.
 //
 //   npm run gallery            -> test/.output/skin-gallery/contact-sheet.png (+ one PNG per skin)
 const { app } = require('electron'); const h = require('../lib/harness');
@@ -16,8 +17,21 @@ h.open().then(async ({ win, js }) => {
   await h.wait(1500);
   await js('(mock.active = "winify", mock.setContext("spotify:album:a1", 3), mock.setPaused(false))'); await h.wait(1500);
   await js(`WinifyWebamp.getInstance().store.dispatch({ type: 'SET_VOLUME', volume: 70 })`);
-  const area = () => js(`(() => { const r = (s) => document.querySelector('#webamp ' + s).getBoundingClientRect(); const a = r('#main-window'), b = r('#playlist-window');
-    const x = Math.min(a.left, b.left), y = Math.min(a.top, b.top); return { x: Math.round(x), y: Math.round(y), width: Math.round(Math.max(a.right, b.right) - x), height: Math.round(Math.max(a.bottom, b.bottom) - y) }; })()`);
+  // Every window on screen.
+  const area = () => js(`(() => { const rs = [...document.querySelectorAll('#webamp #main-window, #webamp #playlist-window, #webamp .gen-window')].map((e) => e.getBoundingClientRect());
+    const x = Math.min(...rs.map((r) => r.left)), y = Math.min(...rs.map((r) => r.top)); return { x: Math.round(x), y: Math.round(y), width: Math.round(Math.max(...rs.map((r) => r.right)) - x), height: Math.round(Math.max(...rs.map((r) => r.bottom)) - y) }; })()`);
+  // The panels, and the Play Together box asked for from two chosen playlists.
+  await js('WinifyPicker.open()'); await js('WinifySearch.open()'); await js('WinifyLyrics.open()'); await js('WinifyMilkdrop.toggle()');
+  await h.wait(2500);
+  const rowAt = (i) => js(`(() => { const b = document.querySelectorAll('.winify-picker .wp-row[data-index]')[${i}].getBoundingClientRect(); return { x: Math.round(b.left + 20), y: Math.round(b.top + b.height / 2) }; })()`);
+  for (const [i, modifiers] of [[0, []], [1, ['meta']]]) {
+    const p = await rowAt(i);
+    for (const type of ['mouseDown', 'mouseUp']) win.webContents.sendInputEvent({ type, x: p.x, y: p.y, button: 'left', clickCount: 1, modifiers });
+    await h.wait(300);
+  }
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' }); win.webContents.sendInputEvent({ type: 'char', keyCode: 'Return' }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' });
+  await h.wait(500);
+  console.log('Play Together box open: ' + (await js('WinifyPicker.state().prompt')));
   const shots = [];
   for (const f of ['(default skin)'].concat(files)) {
     let note = '';
@@ -36,14 +50,15 @@ h.open().then(async ({ win, js }) => {
       const err = await js('window.__skinError');
       if (err) note = (note ? note + '; ' : '') + 'error: ' + err;
     }
-    await h.click(win, js, '#main-window #title-bar', 0.3, 0.5); await h.wait(500);   // focused title bar
+    await h.wait(800);   // the panel frames are drawn from the skin's images
+    const look = await js(`(() => { const s = WinifySkin.state(); const misc = !!document.querySelector('#winify-lyric-button').textContent; const viz = !!(document.getElementById('winify-viz-button') || {}).textContent; return { frame: s.frame, lyric: misc, viz, font: s.style.font }; })()`);
     const r = await area();
     const img = await win.webContents.capturePage(r);
     const name = f.replace(/\.(wsz|zip)$/i, '');
     const file = path.join(OUT, String(shots.length).padStart(2, '0') + '-' + name.replace(/[^\w.-]+/g, '_') + '.png');
     fs.writeFileSync(file, img.toPNG());
-    shots.push({ name, file, note });
-    console.log((note ? 'PROBLEM ' : 'ok   ') + name + (note ? '  (' + note + ')' : ''));
+    shots.push({ name: name + '  [frame: ' + look.frame + ', LYRIC: ' + (look.lyric ? 'drawn' : 'own') + ', VIZ: ' + (look.viz ? 'drawn' : 'own') + ']', file, note });
+    console.log((note ? 'PROBLEM ' : 'ok   ') + name + '  frame: ' + look.frame + '  LYRIC: ' + (look.lyric ? 'drawn' : 'own') + '  VIZ: ' + (look.viz ? 'drawn' : 'own') + (note ? '  (' + note + ')' : ''));
   }
   // The contact sheet: 3 across, each photo at 2x with its name above it.
   const sheet = await js(`(async () => {

@@ -25,6 +25,7 @@ import { makeDraggable, makeResizable, attachTooltips, hideTooltip } from './web
 import { makeFrame, FRAME_CSS } from './webamp-frame.js';
 import * as panels from './webamp-panels.js';
 import * as index from './webamp-library-index.js';
+import { panelStyle, paintRow, onPanelStyle } from './webamp-skin.js';
 
 const RESULTS_PER_REQUEST = 10;     // Spotify's search maximum since February 2026
 const PAGES = 3;                    // about 30 results
@@ -302,16 +303,17 @@ const placesText = (r) => r.places.map((p, i) => (r.places.length > 1 && i === r
 
 // ---- Drawing ------------------------------------------------------------------
 
-function skinStyle() {
-  const s = ctx.webamp.store.getState().display.skinPlaylistStyle || {};
-  return {
-    normal: s.normal || '#00FF00',
-    current: s.current || '#FFFFFF',
-    normalbg: s.normalbg || '#000000',
-    selectedbg: s.selectedbg || '#0000C6',
-    font: s.font || 'Arial',
-  };
+const skinStyle = () => panelStyle(ctx.webamp);
+
+// The parts drawn once when built, again when the skin changes.
+function paintSkin(root) {
+  const st = skinStyle();
+  for (const part of ['.ws-scroll', '.ws-info', '.ws-body']) root.querySelector(part).style.background = st.normalbg;
+  root.querySelector('.ws-body').style.fontFamily = st.font;
+  Object.assign(root.querySelector('.ws-query').style, { background: st.normalbg, color: st.normal, borderColor: st.normal, fontFamily: st.font });
 }
+
+onPanelStyle(() => { if (el) { paintSkin(el); drawnKey = null; render(); } });
 
 // Text in the skin's marquee font. Webamp keys its glyphs by lowercase code.
 function skinText(text) {
@@ -362,7 +364,7 @@ function paintSelection() {
   const st = skinStyle();
   el.querySelectorAll('.ws-list .ws-row[data-index]').forEach((row) => {
     const at = Number(row.dataset.index);
-    row.style.background = at === selected || (picked.size > 1 && results[at] && picked.has(results[at].uri)) ? st.selectedbg : '';
+    paintRow(row, st, at === selected || (picked.size > 1 && results[at] && picked.has(results[at].uri)), false);
   });
 }
 
@@ -405,8 +407,7 @@ function render() {
       const row = document.createElement('div');
       row.className = 'ws-row' + (r.playable ? '' : ' ws-unplayable');
       row.dataset.index = String(index);
-      row.style.color = st.normal;
-      if (index === selected || (picked.size > 1 && picked.has(r.uri))) row.style.background = st.selectedbg;
+      paintRow(row, st, index === selected || (picked.size > 1 && picked.has(r.uri)), false);
       const cells = [
         ['ws-title-col', (index + 1) + '. ' + r.title],
         ['ws-artist-col', r.artist],
@@ -478,12 +479,8 @@ function build(spot) {
       <div class="ws-scroll"><div class="ws-handle playlist-scrollbar-handle"></div></div>
     </div>
     <div class="ws-info"></div>`;
-  for (const part of ['.ws-scroll', '.ws-info']) frame.content.querySelector(part).style.background = st.normalbg;
-  const body = d.querySelector('.ws-body');
-  body.style.background = st.normalbg;
-  body.style.fontFamily = st.font;
   const input = d.querySelector('.ws-query');
-  Object.assign(input.style, { background: st.normalbg, color: st.normal, borderColor: st.normal, fontFamily: st.font });
+  paintSkin(d);
 
   place(d, spot);
   makeDraggable(d, frame.top, { ignore: '.ws-close', onMoved: (rect) => panels.placed('search', rect) });

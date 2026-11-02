@@ -21,6 +21,7 @@
 import { makeDraggable, makeResizable } from './webamp-dialog.js';
 import { makeFrame, FRAME_CSS } from './webamp-frame.js';
 import * as panels from './webamp-panels.js';
+import { panelStyle, labelOnArt, onPanelStyle } from './webamp-skin.js';
 
 const TITLE = 'Lyrics';
 const CREDIT = 'Lyrics from LRCLIB';
@@ -145,15 +146,18 @@ async function lookUp(d) {
 
 // ---- The window -----------------------------------------------------------------------
 
-function skinStyle() {
-  const s = ctx.webamp.store.getState().display.skinPlaylistStyle || {};
-  return {
-    normal: s.normal || '#00FF00',
-    current: s.current || '#FFFFFF',
-    normalbg: s.normalbg || '#000000',
-    font: s.font || 'Arial',
-  };
+const skinStyle = () => panelStyle(ctx.webamp);
+
+// The parts drawn once when built, again when the skin changes.
+function paintSkin(root) {
+  const st = skinStyle();
+  for (const part of ['.wl-scroll', '.wl-info']) root.querySelector(part).style.background = st.normalbg;
+  Object.assign(root.querySelector('.wl-body').style, { background: st.normalbg, color: st.normal, fontFamily: st.font });
+  const title = root.querySelector('.wl-track');
+  if (title) title.style.color = st.current;
 }
+
+onPanelStyle(() => { if (el) paintSkin(el); });
 
 // Text in the skin's marquee font. Webamp keys its glyphs by lowercase code.
 function skinText(text) {
@@ -183,7 +187,7 @@ function injectStyles() {
     #webamp .winify-lyrics .wl-head { margin-bottom: 8px; }
     #webamp .winify-lyrics .wl-track { font-weight: bold; }
     #webamp .winify-lyrics .wl-text { white-space: pre-wrap; overflow-wrap: anywhere; }
-    #webamp .winify-lyrics .wl-note { opacity: .75; white-space: pre-wrap; }
+    #webamp .winify-lyrics .wl-note { opacity: .85; white-space: pre-wrap; }
     #webamp .winify-lyrics .wl-retry { cursor: pointer; text-decoration: underline; }
     #webamp .winify-lyrics .wl-handle { position: absolute; left: 0; width: 8px; height: 18px; }
     ${FRAME_CSS}
@@ -203,10 +207,9 @@ function build(spot) {
       <div class="wl-scroll"><div class="wl-handle playlist-scrollbar-handle"></div></div>
     </div>
     <div class="wl-info"></div>`;
-  for (const part of ['.wl-scroll', '.wl-info']) frame.content.querySelector(part).style.background = st.normalbg;
   d.querySelector('.wl-info').appendChild(skinText(CREDIT));
   const body = d.querySelector('.wl-body');
-  Object.assign(body.style, { background: st.normalbg, color: st.normal, fontFamily: st.font });
+  paintSkin(d);
   place(d, spot);
   makeDraggable(d, frame.top, { ignore: '.wl-close', onMoved: (rect) => panels.placed('lyrics', rect) });
   makeResizable(d, { grip: frame.grip, minWidth: panels.MIN_SIZE.w, minHeight: panels.MIN_SIZE.h, onResize: placeHandle,
@@ -411,7 +414,8 @@ function onKeyDown(e) {
 // MISC's label is part of the skin's playlist bitmap (bottom-left corner,
 // 125x38). In the default skin it is redrawn as LYRIC, in the same 5 px
 // lettering and the bitmap's own colours, with a pressed state. Other skins
-// keep their own art. Every skin gets the "Lyrics" tooltip.
+// get it on their own art where that works (webamp-skin.js), and keep their
+// own label where not. Every skin gets the "Lyrics" tooltip.
 
 const BUTTON = { x: 101, y: 8, w: 22, h: 18 };        // MISC within that bitmap
 // The default skin's MISC button, pixel for pixel (see COLORS).
@@ -508,10 +512,11 @@ function relabel() {
     const g = c.getContext('2d');
     g.drawImage(img, BUTTON.x, BUTTON.y, BUTTON.w, BUTTON.h, 0, 0, BUTTON.w, BUTTON.h);
     const isDefault = img.width === 125 && isDefaultMisc(g.getImageData(0, 0, BUTTON.w, BUTTON.h).data);
-    lyricStyle.textContent = isDefault ? `
-      #webamp #playlist-misc-menu { background: url("${drawLyric(false)}") no-repeat; image-rendering: pixelated; }
-      #webamp #playlist-misc-menu:active { background-image: url("${drawLyric(true)}"); }` : '';
-    log('MISC button:', isDefault ? 'default skin - relabelled LYRIC' : 'skin\'s own art kept');
+    const art = isDefault ? { normal: drawLyric(false), pressed: drawLyric(true) } : labelOnArt(g, BUTTON.w, BUTTON.h, LYRIC, LETTER_LEFT, LETTER_TOP);
+    lyricStyle.textContent = art ? `
+      #webamp #playlist-misc-menu { background: url("${art.normal}") no-repeat; image-rendering: pixelated; }
+      #webamp #playlist-misc-menu:active { background-image: url("${art.pressed}"); }` : '';
+    log('MISC button:', isDefault ? 'default skin - relabelled LYRIC' : art ? 'relabelled LYRIC on the skin\'s art' : 'skin\'s own label kept');
   };
   img.src = url;
 }

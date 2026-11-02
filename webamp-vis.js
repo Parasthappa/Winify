@@ -116,6 +116,7 @@ const OFF = 2;
 let webamp = null;
 let styleBeforeHiding = null;
 let listeningForVisibility = false;
+let unsubscribeOverlay = null;
 
 function style() {
   return webamp.store.getState().display.visualizerStyle;
@@ -140,10 +141,115 @@ function onVisibility(visible) {
   }
 }
 
+// ---- The small visualizer while Milkdrop is open ----------------------------
+// Webamp reports its visualizer mode as "Milkdrop" whenever its Milkdrop window
+// is open, and paints nothing on the small visualizer in that mode; its window
+// only draws in that mode too, so the two cannot be separated from outside. So
+// while Milkdrop is open, bars and oscilloscope are drawn here, from the same
+// analyser and the skin's own colours, on a canvas laid over Webamp's. Clicks
+// pass through to Webamp's canvas, so clicking still cycles the style.
+
+const STYLE_BARS = 0, STYLE_OSCILLOSCOPE = 1;
+const BARS = 19;
+const BAR_FALL = 0.7, PEAK_FALL = 0.15;     // pixels per frame
+let overlay = null;
+let overlayLoop = null;
+let bars = [];
+let peaks = [];
+
+function milkdropOpen(state) {
+  const m = state.windows.genWindows.milkdrop;
+  return !!(m && m.open);
+}
+
+function paintBars(g, colors, w, h) {
+  const data = new Uint8Array(analyserHandle.frequencyBinCount);
+  analyserHandle.getByteFrequencyData(data);
+  for (let i = 0; i < BARS; i++) {
+    // Evenly spaced by pitch, as a spectrum sounds, up to about 16 kHz.
+    const from = Math.floor(Math.pow(data.length * 0.75, i / BARS));
+    const to = Math.max(from + 1, Math.floor(Math.pow(data.length * 0.75, (i + 1) / BARS)));
+    let level = 0;
+    for (let k = from; k < to; k++) level = Math.max(level, data[k]);
+    bars[i] = Math.max((level / 255) * h, (bars[i] || 0) - BAR_FALL);
+    peaks[i] = Math.max(bars[i], (peaks[i] || 0) - PEAK_FALL);
+    const x = i * 4;
+    for (let y = 0; y < Math.round(bars[i]); y++) {
+      // Row 0 is the bottom; the skin's colours 2-17 run from the top down.
+      g.fillStyle = colors[17 - Math.floor((y / h) * 16)];
+      g.fillRect(x, h - 1 - y, 3, 1);
+    }
+    if (peaks[i] >= 1) {
+      g.fillStyle = colors[23];
+      g.fillRect(x, h - 1 - Math.min(h - 1, Math.round(peaks[i])), 3, 1);
+    }
+  }
+}
+
+function paintOscilloscope(g, colors, w, h) {
+  const data = new Uint8Array(fftSize);
+  analyserHandle.getByteTimeDomainData(data);
+  const row = (i) => Math.max(0, Math.min(h - 1, Math.floor((data[i * 7] / 256) * h)));
+  let last = row(0);
+  for (let x = 0; x < Math.min(w, 75); x++) {
+    const y = row(x);
+    const top = Math.min(y, last), height = Math.abs(y - last) + 1;
+    // Brightest in the middle (the skin's colours 18-22).
+    g.fillStyle = colors[18 + Math.min(4, Math.floor(Math.abs(y - h / 2) / (h / 10)))];
+    g.fillRect(x, top, 1, height);
+    last = y;
+  }
+}
+
+function removeOverlay() {
+  if (overlayLoop !== null) cancelAnimationFrame(overlayLoop);
+  overlayLoop = null;
+  if (overlay) overlay.remove();
+  overlay = null;
+  bars = [];
+  peaks = [];
+}
+
+function drawOverlay() {
+  overlayLoop = null;
+  if (!webamp) return;
+  const state = webamp.store.getState();
+  const under = document.querySelector('#webamp #visualizer');
+  if (!under || !milkdropOpen(state)) { removeOverlay(); return; }
+  if (!overlay || overlay.parentElement !== under.parentElement) {
+    if (overlay) overlay.remove();
+    overlay = document.createElement('canvas');
+    overlay.id = 'winify-small-vis';
+    overlay.style.cssText = 'position: absolute; pointer-events: none; image-rendering: pixelated;';
+    under.parentElement.appendChild(overlay);
+  }
+  if (overlay.width !== under.width || overlay.height !== under.height) { overlay.width = under.width; overlay.height = under.height; }
+  overlay.style.left = under.offsetLeft + 'px';
+  overlay.style.top = under.offsetTop + 'px';
+  overlay.style.width = under.style.width;
+  overlay.style.height = under.style.height;
+  // Paused holds the last picture, as Webamp's own drawing does.
+  if (state.media.status === 'PLAYING') {
+    const g = overlay.getContext('2d');
+    g.clearRect(0, 0, overlay.width, overlay.height);
+    if (style() === STYLE_BARS) paintBars(g, state.display.skinColors, overlay.width, overlay.height);
+    else if (style() === STYLE_OSCILLOSCOPE) paintOscilloscope(g, state.display.skinColors, overlay.width, overlay.height);
+  }
+  overlayLoop = requestAnimationFrame(drawOverlay);
+}
+
+function watchOverlay() {
+  if (webamp && overlayLoop === null && milkdropOpen(webamp.store.getState()) && document.querySelector('#webamp #visualizer')) {
+    overlayLoop = requestAnimationFrame(drawOverlay);
+  }
+}
+
 // ---- Lifecycle --------------------------------------------------------------
 
 export function attach(instance) {
   webamp = instance;
+  unsubscribeOverlay = webamp.store.subscribe(watchOverlay);
+  watchOverlay();
   const audio = window.WinifyAudio;
   if (audio) {
     if (audio.isActive()) connect();
@@ -169,6 +275,8 @@ export function attach(instance) {
 
 export function detach() {
   if (unsubscribeAudio) { unsubscribeAudio(); unsubscribeAudio = null; }
+  if (unsubscribeOverlay) { unsubscribeOverlay(); unsubscribeOverlay = null; }
+  removeOverlay();
   node = null;
   webamp = null;
   styleBeforeHiding = null;

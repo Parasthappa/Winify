@@ -16,6 +16,7 @@ import { SpotifyMedia, middleware, handleTrackDropEvent, attach, detach } from '
 import { open as openPicker } from './webamp-picker.js';
 import * as inert from './webamp-inert.js';
 import * as vis from './webamp-vis.js';
+import * as skin from './webamp-skin.js';
 import * as milkdrop from './webamp-milkdrop.js';
 import * as panels from './webamp-panels.js';
 import * as frame from './webamp-frame.js';
@@ -549,6 +550,7 @@ async function doMount(containerId) {
   vis.attach(webamp);
   milkdrop.attach(webamp);
   frame.attach(webamp);
+  skin.attach(webamp);
   ontop.attach(webamp);
   await panels.attach(webamp);
   log('rendered into #' + containerId, 'doubled =', isDoubled());
@@ -566,6 +568,7 @@ function unmount() {
   frame.detach();
   milkdrop.detach();
   vis.detach();
+  skin.detach();
   inert.detach();
   detach();
   try { webamp.dispose(); } catch (e) { /* already gone */ }

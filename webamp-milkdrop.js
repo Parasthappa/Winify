@@ -46,6 +46,7 @@
 
 import * as yours from './webamp-milkdrop-presets.js';
 import * as panels from './webamp-panels.js';
+import { labelOnArt } from './webamp-skin.js';
 
 const log = (...args) => console.log('[winify/milkdrop]', ...args);
 
@@ -754,7 +755,8 @@ function onClickCapture(e) {
 // LIST OPTS's label is part of the skin's playlist bitmap (bottom-right
 // corner, 150x38). In the default skin it is redrawn as VIZ, in the same 5 px
 // lettering and the bitmap's own colours, with a pressed state (as LYRIC is,
-// in webamp-lyrics.js). Other skins keep their own art. Every skin gets the
+// in webamp-lyrics.js). Other skins get it on their own art where that works
+// (webamp-skin.js), and keep their own label where not. Every skin gets the
 // "Visualizer" tooltip.
 
 const VIZ_BUTTON = { x: 106, y: 8, w: 22, h: 18 };   // LIST OPTS within that bitmap
@@ -847,10 +849,11 @@ function relabelViz() {
     const g = c.getContext('2d');
     g.drawImage(img, VIZ_BUTTON.x, VIZ_BUTTON.y, VIZ_BUTTON.w, VIZ_BUTTON.h, 0, 0, VIZ_BUTTON.w, VIZ_BUTTON.h);
     const isDefault = img.width === 150 && isDefaultList(g.getImageData(0, 0, VIZ_BUTTON.w, VIZ_BUTTON.h).data);
-    vizStyle.textContent = isDefault ? `
-      #webamp #playlist-list-menu { background: url("${drawViz(false)}") no-repeat; image-rendering: pixelated; }
-      #webamp #playlist-list-menu:active { background-image: url("${drawViz(true)}"); }` : '';
-    log('LIST OPTS button:', isDefault ? 'default skin - relabelled VIZ' : 'skin\'s own art kept');
+    const art = isDefault ? { normal: drawViz(false), pressed: drawViz(true) } : labelOnArt(g, VIZ_BUTTON.w, VIZ_BUTTON.h, VIZ, VIZ_LEFT, VIZ_TOP);
+    vizStyle.textContent = art ? `
+      #webamp #playlist-list-menu { background: url("${art.normal}") no-repeat; image-rendering: pixelated; }
+      #webamp #playlist-list-menu:active { background-image: url("${art.pressed}"); }` : '';
+    log('LIST OPTS button:', isDefault ? 'default skin - relabelled VIZ' : art ? 'relabelled VIZ on the skin\'s art' : 'skin\'s own label kept');
   };
   img.src = url;
 }
@@ -926,6 +929,7 @@ export function attach(instance) {
     styleEl.textContent = STYLE;
     document.head.appendChild(styleEl);
     vizStyle = document.createElement('style');
+    vizStyle.id = 'winify-viz-button';
     document.head.appendChild(vizStyle);
   }
   let wasOpen = isOpen();

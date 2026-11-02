@@ -32,6 +32,7 @@ import * as playlist from './webamp-playlist.js';
 import * as mixes from './webamp-mix.js';
 import { showMenu } from './webamp-search.js';
 import * as index from './webamp-library-index.js';
+import { panelStyle, paintRow, onPanelStyle } from './webamp-skin.js';
 
 const PAGE = 50;                    // the /me/playlists maximum
 const PAGE_GAP_MS = 2000;           // background pace: one page every 2 s
@@ -364,16 +365,21 @@ function showList() {
 
 // ---- Drawing --------------------------------------------------------------------
 
-function skinStyle() {
-  const s = ctx.webamp.store.getState().display.skinPlaylistStyle || {};
-  return {
-    normal: s.normal || '#00FF00',
-    current: s.current || '#FFFFFF',
-    normalbg: s.normalbg || '#000000',
-    selectedbg: s.selectedbg || '#0000C6',
-    font: s.font || 'Arial',
-  };
+const skinStyle = () => panelStyle(ctx.webamp);
+
+// The parts drawn once when built, again when the skin changes.
+function paintSkin(root) {
+  const st = skinStyle();
+  for (const part of ['.wp-body', '.wp-scroll', '.wp-info']) root.querySelector(part).style.background = st.normalbg;
+  root.querySelector('.wp-body').style.fontFamily = st.font;
+  Object.assign(root.querySelector('.wp-filter').style, { background: st.normalbg, color: st.normal, borderColor: st.normal, fontFamily: st.font });
 }
+
+let repaintPrompt = null;
+onPanelStyle(() => {
+  if (el) { paintSkin(el); drawnKey = null; renderList(); }
+  if (repaintPrompt) repaintPrompt();
+});
 
 // Text in the skin's marquee font (text.bmp), as Webamp draws it.
 function skinText(text) {
@@ -409,7 +415,7 @@ function injectStyles() {
     #webamp .winify-picker .wp-refresh { cursor: pointer; padding: 2px 3px; border: 1px solid transparent; }
     #webamp .winify-picker .wp-refresh:hover { border-color: currentColor; }
     #webamp .winify-picker .wp-refresh.wp-busy { opacity: .45; cursor: default; }
-    #webamp .winify-picker .wp-row.wp-label { opacity: .6; font-size: 8px; letter-spacing: 1px; justify-content: center; }
+    #webamp .winify-picker .wp-row.wp-label { opacity: .85; font-size: 8px; letter-spacing: 1px; justify-content: center; }
     #webamp .winify-picker .wp-sel { margin-left: auto; }
     /* Above the panels, which rise as they are clicked (webamp-panels.js focus). */
     #webamp .winify-picker-prompt { z-index: 1000000; }
@@ -434,7 +440,7 @@ function paintSelection() {
   const st = skinStyle();
   el.querySelectorAll('.wp-list .wp-row[data-index]').forEach((row) => {
     const i = Number(row.dataset.index);
-    row.style.background = i === selected || (picked.size > 1 && shown[i] && picked.has(shown[i].uri)) ? st.selectedbg : '';
+    paintRow(row, st, i === selected || (picked.size > 1 && shown[i] && picked.has(shown[i].uri)), row.dataset.current === '1');
   });
   selectionNote();
 }
@@ -481,8 +487,8 @@ function renderList() {
     if (r.mixId) row.dataset.mix = r.mixId;
     const isCurrent = r.song ? r.uri === ctx.now.trackUri : !!currentUri && (r.uri === currentUri ||
       (/:collection/.test(r.uri) && /:collection/.test(currentUri)));
-    row.style.color = isCurrent ? st.current : st.normal;
-    if (index === selected || (picked.size > 1 && picked.has(r.uri))) row.style.background = st.selectedbg;
+    if (isCurrent) row.dataset.current = '1';
+    paintRow(row, st, index === selected || (picked.size > 1 && picked.has(r.uri)), isCurrent);
     const name = document.createElement('span');
     name.className = 'wp-name';
     name.textContent = r.back || r.playAll ? r.name : numbers[index] + '. ' + r.name;
@@ -574,11 +580,8 @@ function build(spot) {
       <div class="wp-scroll"><div class="wp-handle playlist-scrollbar-handle"></div></div>
     </div>
     <div class="wp-info"></div>`;
-  for (const part of ['.wp-body', '.wp-scroll', '.wp-info']) frame.content.querySelector(part).style.background = st.normalbg;
-  const body = p.querySelector('.wp-body');
-  body.style.fontFamily = st.font;
   const filter = p.querySelector('.wp-filter');
-  Object.assign(filter.style, { background: st.normalbg, color: st.normal, borderColor: st.normal, fontFamily: st.font });
+  paintSkin(p);
 
   place(p, spot);
   makeDraggable(p, frame.top, { ignore: '.wp-close', onMoved: (rect) => panels.placed('picker', rect) });
@@ -779,6 +782,7 @@ function chooseRange(i) {
 let prompt = null;                  // the "Play together" window
 
 function closePrompt() {
+  repaintPrompt = null;
   if (!prompt) return;
   document.removeEventListener('keydown', prompt.onKey, true);
   prompt.root.remove();
@@ -799,14 +803,11 @@ function playTogether() {
   let together = true;
   const body = document.createElement('div');
   body.className = 'wq-body';
-  body.style.background = st.normalbg;
-  body.style.color = st.normal;
   const line = () => { const d = document.createElement('div'); d.className = 'wq-line'; body.appendChild(d); return d; };
   const button = (parent, text, on) => {
     const b = document.createElement('span');
     b.className = 'wq-btn';
     b.setAttribute('role', 'button');
-    b.style.borderColor = st.normal;
     b.appendChild(skinText(text));
     b.addEventListener('click', on);
     parent.appendChild(b);
@@ -823,15 +824,20 @@ function playTogether() {
   button(actions, 'play', () => go());
   button(actions, 'cancel', () => closePrompt());
   function paint() {
+    const st = skinStyle();
+    body.style.background = st.normalbg;
+    body.style.color = st.normal;
+    body.querySelectorAll('.wq-btn').forEach((b) => { b.style.borderColor = st.normal; });
     [10, 20, 50].forEach((n, k) => {
       amountBtns[k].style.background = n === per ? st.selectedbg : '';
-      amountBtns[k].style.color = n === per ? st.current : st.normal;
+      amountBtns[k].style.color = n === per ? st.onSelected : st.normal;
       amountBtns[k].setAttribute('aria-pressed', String(n === per));
     });
     shuffleBtn.textContent = '';
     shuffleBtn.appendChild(skinText(together ? 'x' : ' '));
     shuffleBtn.setAttribute('aria-checked', String(together));
   }
+  repaintPrompt = paint;
   function go() {
     closePrompt();
     picked.clear();

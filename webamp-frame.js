@@ -77,6 +77,7 @@ export const FRAME_CSS = `
      frame, past the windows beside it, with a dark notch between them. */
   #webamp .winify-frame .gen-top, #webamp .winify-frame .gen-bottom { flex-shrink: 0; }
   #webamp .winify-frame .winify-frame-content { display: flex; flex-direction: column; overflow: hidden; min-width: 0; min-height: 0; }
+  #webamp .winify-frame input::placeholder { color: inherit; opacity: .7; }
   #webamp .winify-frame .winify-resize { position: absolute; right: 0; bottom: 0; width: 20px; height: 20px; }
 `;
 

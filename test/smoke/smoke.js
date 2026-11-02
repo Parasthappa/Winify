@@ -235,18 +235,24 @@ app.whenReady().then(async () => {
     const b = new Uint8Array(a.fftSize); let peak = 0; for (let k = 0; k < 5; k++) { a.getByteTimeDomainData(b); peak = Math.max(peak, Math.max(...b) - Math.min(...b)); } return peak; })()`);
   check('the visualizer receives the music', level > 10, level < 0 ? 'audio capture not running' : 'signal ' + level +
     (level <= 10 ? ' (silence: is the Multi-Output Device the sound output?)' : ''));
-  // ...and the small visualizer in the main window draws it: its canvas changes.
-  const visFrames = await js(`(async () => { const c = document.querySelector('#webamp #visualizer'); if (!c) return -1;
-    const seen = new Set(); for (let k = 0; k < 10; k++) { seen.add(c.toDataURL()); await new Promise((r) => setTimeout(r, 100)); } return seen.size; })()`);
-  check('the small visualizer moves', visFrames > 3, visFrames < 0 ? 'no visualizer on the main window' : visFrames + ' different pictures in 1 s');
+  // ...and the small visualizer in the main window draws it: its canvas changes. Checked apart from
+  // Milkdrop, and both ways: Webamp draws it with Milkdrop closed, Winify with it open.
+  const smallVis = async (label, canvas) => {
+    const r = await js(`(async () => { const c = document.querySelector('#webamp ${canvas}'); const s = WinifyWebamp.getInstance().store.getState(); const about = 'status ' + s.media.status + ', style ' + s.display.visualizerStyle; if (!c) return { n: -1, about };
+      const seen = new Set(); for (let k = 0; k < 10; k++) { seen.add(c.toDataURL()); await new Promise((r) => setTimeout(r, 100)); } return { n: seen.size, about }; })()`);
+    check(label, r.n > 3, (r.n < 0 ? 'no canvas' : r.n + ' different pictures in 1 s') + ' (' + r.about + ')');
+  };
+  const mdWasOpen = await js('WinifyMilkdrop.state().open');
+  if (mdWasOpen) { await js('WinifyMilkdrop.toggle()'); await wait(800); }
+  await smallVis('the small visualizer moves (Milkdrop closed)', '#visualizer');
 
   // 4b. Milkdrop draws it (opened and closed again; no requests)
-  const mdWasOpen = await js('WinifyMilkdrop.state().open');
-  if (!mdWasOpen) await js('WinifyMilkdrop.toggle()');
+  await js('WinifyMilkdrop.toggle()');
   await until('WinifyMilkdrop.state().open && WinifyMilkdrop.state().index != null', 8000);
   await wait(500);
   const m0 = (await js('WinifyMilkdrop.state()')).renders; await wait(1000); const m1 = (await js('WinifyMilkdrop.state()')).renders;
   check('Milkdrop draws the music', m1 - m0 > 30, (m1 - m0) + ' frames/s');
+  await smallVis('the small visualizer moves (Milkdrop open)', '#winify-small-vis');
   if (!mdWasOpen) await js('WinifyMilkdrop.toggle()');
 
   // 5. Playing from search

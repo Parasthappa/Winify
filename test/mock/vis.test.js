@@ -50,6 +50,24 @@ h.open().then(async ({ win, js }) => {
   await clickVis(); await js('window.spotify.setVisibleForTest(false)'); await h.wait(200); await js('window.spotify.setVisibleForTest(true)'); await h.wait(300);
   check('a chosen oscilloscope also survives hide/show', (await style()) === 1); await clickVis(); await clickVis();
 
+  console.log('4b. Milkdrop open: Webamp stops drawing on the small visualizer, so Winify does');
+  const small = () => js(`(() => { const c = document.querySelector('#webamp #winify-small-vis'); if (!c) return null; const u = document.querySelector('#webamp #visualizer'); const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0, h = 0; for (let i = 0; i < d.length; i += 4) { if (d[i + 3]) n++; h = (h * 31 + d[i] + d[i + 1] + d[i + 2]) | 0; } const a = c.getBoundingClientRect(), b = u.getBoundingClientRect(); return { lit: n, hash: h, over: a.left === b.left && a.top === b.top && a.width === b.width && a.height === b.height, clickable: getComputedStyle(c).pointerEvents === 'none' }; })()`);
+  await js('WinifyMilkdrop.toggle()'); await h.wait(1500);
+  const w1 = await frame(); await h.wait(250); const w2 = await frame();
+  check('Milkdrop open: Webamp\'s own canvas stays still with music playing (the fault)', (await js('WinifyMilkdrop.state().open')) && w1.hash === w2.hash, JSON.stringify([w1, w2]));
+  const o1 = await small(); await h.wait(250); const o2 = await small();
+  check('bars are drawn over Webamp\'s canvas, and they move', o1 && o2 && o1.lit > 10 && o1.hash !== o2.hash, JSON.stringify([o1, o2]));
+  check('in exactly the same place, and clicks still reach Webamp\'s canvas', o1 && o1.over && o1.clickable, JSON.stringify(o1));
+  const before = await style();
+  await clickVis(); check('click -> oscilloscope, with Milkdrop open', (await style()) === (before + 1) % 3);
+  const osc = await small(); await h.wait(250); const osc2 = await small();
+  check('oscilloscope drawn and moving', osc && osc.lit > 20 && osc.hash !== osc2.hash, JSON.stringify(osc));
+  await clickVis(); const off = await small();
+  check('click -> off: nothing drawn', (await style()) === (before + 2) % 3 && off && off.lit === 0, JSON.stringify(off));
+  await clickVis();
+  await js('WinifyMilkdrop.toggle()'); await h.wait(800);
+  check('Milkdrop closed: Winify\'s canvas is gone and Webamp draws again', (await small()) === null && (await litVs('window.__silent')) > 30);
+
   console.log('5. Capture stops, restarts (new AudioContext), or is unavailable');
   await js('WinifyAudio.stop()'); await h.wait(1800);
   check('capture stopped: visualizer falls quiet, nothing thrown', (await litVs('window.__silent')) === 0);
