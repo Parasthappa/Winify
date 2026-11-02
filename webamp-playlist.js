@@ -74,6 +74,8 @@ const PLAN_WAIT_MS = 10000;         // how long a Play track may take to start
 // account: 30 s ahead, the switch is as quick as Spotify's own (~0.4 s);
 // 10 s ahead it took about a second longer (not preloaded in time).
 const QUEUE_LEAD_MS = 30000;
+const SKIP_SETTLE_MS = 2500;         // a skip that has not moved by now did nothing
+const MIX_STOP_LEAD_MS = 250;       // a mix's last song is stopped this close to its end
 const RESTART_MS = 3000;            // Previous further in than this restarts the track
 const SHUFFLE_TAKEOVER_MS = 4000;   // after turning Spotify's shuffle off, ignore stale reports
 const AUTOPLAY_LABEL = 'AUTOPLAY \u00b7 FROM SPOTIFY';
@@ -698,8 +700,9 @@ function nextIndex(from) {
   return -1;
 }
 
+// Queued rows are not gone back to: only the list's own.
 function prevIndex(from) {
-  for (let j = from - 1; j >= 0; j--) if (playable(entries[j])) return j;
+  for (let j = from - 1; j >= 0; j--) if (playable(entries[j]) && entries[j].position != null) return j;
   return -1;
 }
 
@@ -724,8 +727,12 @@ function setOrder(list, cur) {
 // A track started while the order runs. True when it has been placed.
 function followOrder() {
   const n = ctx.now;
-  if (ending) return false;
   const fromQueue = pending.findIndex((u) => u === n.trackUri || u === n.linkedFromUri);
+  if (expectId == null && fromQueue < 0 && mixWrapped()) {
+    stopMix();
+    return true;
+  }
+  if (ending) return false;
   // Spotify plays its queue first, so anything listed before this one was
   // played or dropped; and if this one was not queued at all, nothing was
   // (unless Winify itself just started a track, which keeps the queue).
@@ -775,11 +782,25 @@ function followOrder() {
     }
   }
   preparedFor = null;
-  currentIndex = idx;
-  makeCurrent(entries[idx].id);
-  scrollTo(idx);
+  const placed = entries[idx];
+  makeCurrent(placed.id);
+  // A queued track plays once: its row goes when the next track starts.
+  if (cur !== placed && cur.inserted) {
+    ctx.dispatch({ type: 'REMOVE_TRACKS', ids: [cur.id] });
+    entries = entries.filter((e) => e !== cur);
+  }
+  currentIndex = entries.indexOf(placed);
+  scrollTo(currentIndex);
   paintSkips();
   return true;
+}
+
+// A mix is sent as a window starting at the row it was played from, and at the
+// end of the window Spotify can go back to that window's first song. That is
+// the end of the mix, not a jump back up the list.
+function mixWrapped() {
+  return kind(listContext) === 'mix' && ctx.now.repeat !== 'context' && nextIndex(currentIndex) < 0 &&
+    !matches(entries[currentIndex]) && entries.some((e, i) => i < currentIndex && !e.isLabel && matches(e));
 }
 
 // Called on every poll: arrange what happens when this track ends.
@@ -797,7 +818,8 @@ function scheduleOrder() {
   if (nextIndex(currentIndex) >= 0) {
     if (preparedFor !== cur.id) orderTimer = setTimeout(prepareNext, Math.max(0, left - QUEUE_LEAD_MS));
   } else if (n.repeat === 'off' && !pending.length) {
-    orderTimer = setTimeout(() => endOrder('the order is ending'), Math.max(0, left - END_LEAD_MS));
+    if (kind(listContext) === 'mix') orderTimer = setTimeout(stopMix, Math.max(0, left - MIX_STOP_LEAD_MS));
+    else orderTimer = setTimeout(() => endOrder('the order is ending'), Math.max(0, left - END_LEAD_MS));
   }
 }
 
@@ -838,6 +860,7 @@ async function prepareNext() {
 // and Spotify's Autoplay follows (as Play track does).
 async function endOrder(why) {
   if (ending || !ordering()) return;
+  if (kind(listContext) === 'mix') { stopMix(); return; }
   const cur = entries[currentIndex];
   const last = entries.reduce((a, e) => (e.position != null && !e.isLabel && (!a || e.position > a.position) ? e : a), null);
   if (!last) return;
@@ -880,17 +903,27 @@ async function startEntry(k) {
 }
 
 // Next/Previous while an order runs (or a Play track). True when handled.
+let skipBusy = false;                // a skip is on its way: more presses would only pile up
 export function takeOverSkip(direction) {
   if (direction === 1 && takeOverNext()) return true;
+  resumeMix();
   if (!ordering() || currentIndex < 0) return false;
-  const run = (p, what) => p.then(ctx.refreshSoon).catch((err) => {
-    ctx.warn('play order:', what, 'failed -', err.message);
-    ctx.say('Could not skip');
-  });
+  if (skipBusy) return true;
+  const run = (p, what) => {
+    skipBusy = true;
+    return p.then(ctx.refreshSoon).catch((err) => {
+      ctx.warn('play order:', what, 'failed -', err.message);
+      ctx.say('Could not skip');
+    }).finally(() => { skipBusy = false; });
+  };
   if (direction === 1) {
     if (pending.length) {
-      // Already in Spotify's queue: Spotify's own skip reaches it.
+      // Already in Spotify's queue: Spotify's own skip reaches it. If nothing
+      // moves, Winify's idea of the queue was out of date: the next press
+      // follows the order instead.
+      const from = ctx.now.trackUri;
       run(window.WinifyPlayer.nextTrack(), 'Next');
+      setTimeout(() => { if (ctx && ctx.now.trackUri === from) pending = []; }, SKIP_SETTLE_MS);
       return true;
     }
     const k = nextIndex(currentIndex);
@@ -1360,6 +1393,24 @@ function finishMix(how) {
   }
 }
 
+// The end of the mix, stopped by Winify: left to itself Spotify can repeat the
+// last song (one sent alone reports itself as next) or go back up the list.
+// It rests at the song's start, so Play plays it again.
+function stopMix() {
+  if (!mix || mix.done) return;
+  clearTimeout(orderTimer);
+  window.WinifyPlayer.pause().then(() => window.WinifyPlayer.seek(0)).then(ctx.refreshSoon);
+  finishMix('stopped');
+}
+
+// A finished mix still on show: Play, Previous or a row picks it up again.
+export function resumeMix() {
+  if (!mix || !mix.done || listContext !== mix.uri || mode !== 'list' || realContext(ctx.now.contextUri)) return;
+  mix.done = false;
+  seenContext = mix.uri;
+  finalLeftMs = Infinity;
+}
+
 // Called on every poll while a mix plays: has the last song ended by itself?
 function watchMixEnd() {
   const n = ctx.now;
@@ -1575,6 +1626,7 @@ export async function playEntry(id) {
   const deviceId = ctx.deviceId();
   if (!deviceId) { ctx.say('Winify device not ready'); return; }
 
+  resumeMix();
   const contextUri = listContext;
   const k = kind(contextUri);
   try {

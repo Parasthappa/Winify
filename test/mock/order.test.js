@@ -90,6 +90,7 @@ h.open().then(async ({ win, js }) => {
   check('at the end Winify adds nothing itself (your queue plays first); 2010 plays', t.q.filter((c) => c[1] !== 'spotify:track:6013').length === 0 && t.p.track === 2010, show(t.p) + JSON.stringify(t.cs));
   t = await transition();
   check('then 6013', t.p.track === 6013 && t.q.length === 0, show(t.p));
+  check('2010 played once, so its queued row is gone (the album\'s own stays)', nums(t.p).filter((n) => n === 2010).length === 1 && t.p.rows.length === 13, show(t.p));
   const resume = nums(await PL())[(await PL()).cur + 1];
   t = await transition();
   check('then the order carries on where it was (' + resume + ', dragged there earlier)', t.q.length === 1 && nums(t.p)[t.p.cur] === resume && resume === 2008, show(t.p) + JSON.stringify(t.q));
@@ -222,6 +223,26 @@ h.open().then(async ({ win, js }) => {
   t = await transition();
   // In the original order Spotify moves on itself (see 1.); Winify must not end the list there.
   check('...its end: track 51 is next, Autoplay is not started', t.q.length === 0 && !t.cs.some((c) => c[0] === 'api:play' || c[0] === 'pause') && t.p.track === 4050 && t.p.cur === 50, show(t.p) + JSON.stringify(t.cs));
+
+  console.log('11. Queued tracks with Next and Previous');
+  await js('(mock.pageDelay = 0, mock.queue.length = 0, mock.autoplayOn = false, mock.setContext("spotify:album:a1", 3), mock.setPaused(false))');
+  p = await until((v) => v.state.listContext === 'spotify:album:a1' && !v.state.loading && v.rows[v.cur] === N(2003));
+  await js(`(mock.queue.push(2010, 2011), WinifyPlaylist.noteQueued('spotify:track:2010'), WinifyPlaylist.noteQueued('spotify:track:2011'))`); await h.wait(500);
+  p = await PL();
+  check('two queued: their rows follow the current track', nums(p)[p.cur + 1] === 2010 && nums(p)[p.cur + 2] === 2011 && p.rows.length === 14, show(p));
+  await h.click(win, js, '#webamp #next');
+  p = await until((v) => v.track === 2010 && nums(v)[v.cur] === 2010);
+  check('Next: the first queued track plays, nothing removed yet', p.track === 2010 && p.rows.length === 14, show(p));
+  await h.click(win, js, '#webamp #next');
+  p = await until((v) => v.track === 2011 && nums(v)[v.cur] === 2011);
+  check('Next: the second plays, the first has gone', p.track === 2011 && p.rows.length === 13, show(p));
+  await take(); await h.click(win, js, '#webamp #previous');
+  p = await until((v) => v.track === 2003 && nums(v)[v.cur] === 2003);
+  cs = await take();
+  check('Previous: back to the list\'s own track, not a queued one again; both rows gone', p.track === 2003 && p.rows.length === 12 && !cs.some((c) => c[0] === 'api:addToQueue'), show(p) + JSON.stringify(cs));
+  await h.click(win, js, '#webamp #next');
+  p = await until((v) => v.track === 2004 && nums(v)[v.cur] === 2004);
+  check('Next: on down the list, no queued track repeats', p.track === 2004 && p.rows.length === 12, show(p));
 
   const errs = JSON.parse(await js('JSON.stringify(errors)'));
   check('no page errors', errs.length === 0, JSON.stringify(errs));

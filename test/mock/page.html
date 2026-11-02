@@ -31,8 +31,10 @@ window.mock = {
   uris: null,                // a list of songs played with no context (uris)
   autoplayAfterUris: false,  // does Autoplay follow a list of songs? (the smoke run finds out)
   // The end of a list of songs: it stops (showing its first song), or Autoplay follows.
+  wrapAfterUris: false,      // does a list of songs carry on from its first song?
   urisEnded() {
     if (this.autoplayAfterUris && !this.lone) { this.startAutoplay(false); return; }
+    if (this.wrapAfterUris && !this.lone) { this.idx = 0; this.track = this.uris[0]; this.position = 0; this.at = Date.now(); return; }
     this.setPaused(true); this.position = 0;
     if (!this.lone) { this.idx = 0; this.track = this.uris[0]; }
   },

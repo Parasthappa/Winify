@@ -421,7 +421,8 @@ async function pollApi() {
 let refreshTimer = null;
 function refreshSoon() {
   clearTimeout(refreshTimer);
-  refreshTimer = setTimeout(() => { pollSdk(); pollApi(); }, 400);
+  // While Winify plays, the local SDK state is enough: no request.
+  refreshTimer = setTimeout(async () => { await pollSdk(); if (now.where !== 'winify') pollApi(); }, 400);
 }
 
 // ---- Commands -------------------------------------------------------------
@@ -491,6 +492,7 @@ function startHere() {
 
 async function commandPlay() {
   stoppedByUser = false;
+  playlist.resumeMix();
   if (now.where === 'winify' && now.trackUri) {
     hold('status');
     now.paused = false;
