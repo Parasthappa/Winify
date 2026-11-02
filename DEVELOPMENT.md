@@ -265,12 +265,16 @@ chassis, the Webamp windows and Winify's own windows are drawn in it.
 | `webamp-playlist.js` | The playlist window, Winify's play order, the header row |
 | `webamp-picker.js` | The playlist picker |
 | `webamp-search.js` | Jump to track |
+| `webamp-library-index.js` | "My playlists" search: a local index of your playlists and Liked Songs, kept on this Mac |
 | `webamp-lyrics.js` | The lyrics window and the LYRIC button |
 | `webamp-dialog.js` | Dragging, resizing and tooltips for Winify's own windows |
 | `webamp-frame.js` | The panels' frame (Webamp's generic window, as Milkdrop's) and consistent cursors |
+| `webamp-skin.js` | The side panels follow the loaded skin: colours and font with a contrast check, frames, titles |
 | `webamp-panels.js` | The side panels (picker, search, lyrics, Milkdrop): default stack, remembered placements, Escape |
 | `webamp-inert.js` | Keeps Webamp controls with no Spotify meaning quiet |
-| `webamp-vis.js` | Feeds Webamp's visualizer from the audio capture |
+| `webamp-ontop.js` | Always on top: the main window's A button |
+| `webamp-mix.js` | Random mix: the Winamp logo makes a temporary shuffled mix from your own playlists |
+| `webamp-vis.js` | Feeds Webamp's visualizer from the audio capture; draws the small visualizer itself while Milkdrop is open |
 | `webamp-milkdrop.js` | Webamp's Milkdrop window, drawn by Butterchurn from the audio capture; its menu, keys and the VIZ button |
 | `webamp-milkdrop-presets.js` | Presets you add: converted, test-loaded, kept in IndexedDB |
 | `milkdrop-desktop.html` | Milkdrop's desktop mode: the wallpaper window's page (drawn into from webamp-milkdrop.js) |
