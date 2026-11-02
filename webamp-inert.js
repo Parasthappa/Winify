@@ -69,15 +69,13 @@ const DEAD_MENU_CSS = `
   #webamp #playlist-list-menu li:has(.new-list),
   #webamp #playlist-list-menu li:has(.save-list) { display: none; }`;
 
-// The main menu's first item, Webamp's "Webamp..." (its own about page on
-// webamp.org), becomes "Winify..." and links to Winify's project page.
+// The main menu's first item (webamp-brand.js names it "Winify...") links to
+// Webamp's about page on webamp.org; here it goes to Winify's project page.
+// In the app it opens the About box, which has that link and the credits.
 const PROJECT_URL = 'https://github.com/Parasthappa/Winify';
 function linkProject() {
   for (const a of document.querySelectorAll('#webamp-context-menu li > a[href*="webamp.org"]')) {
     a.href = PROJECT_URL;
-    // The text node's value, not textContent: Webamp's React owns that node,
-    // and replacing it breaks Webamp's next redraw.
-    for (const t of a.childNodes) if (t.nodeType === Node.TEXT_NODE && t.nodeValue.trim() === 'Webamp...') t.nodeValue = 'Winify...';
   }
 }
 
@@ -141,6 +139,11 @@ function onClickCapture(e) {
   if (e.target.closest('#webamp #presets-context')) {
     e.preventDefault();
     e.stopPropagation();
+    return;
+  }
+  if (window.spotify.showAbout && e.target.closest('#webamp-context-menu li > a[href="' + PROJECT_URL + '"]')) {
+    e.preventDefault();
+    window.spotify.showAbout();
     return;
   }
   // Clearing the list sends STOP first; it must not pause Spotify.

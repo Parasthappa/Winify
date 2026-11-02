@@ -242,6 +242,31 @@ const WORKER_CSP = "default-src 'none'; script-src 'self' 'unsafe-eval' 'wasm-un
 // must not push each other onto another port and an empty store.
 const APP_PORTS = app.isPackaged ? [8909, 8910, 8911, 8912, 8913] : [8899, 8900, 8901, 8902, 8903];
 
+// Webamp with Winify's names and default-skin art (webamp-brand.js).
+const WEBAMP_BUNDLE = '/node_modules/webamp/built/webamp.bundle.min.mjs';
+let branded = null;
+function brandedWebamp(data) {
+  if (branded) return branded;
+  const { bundle, missing } = require('./webamp-brand.js').brand(data.toString('utf8'));
+  if (missing.length) console.error('[app] *** not found in Webamp, so not renamed:', missing.join(' | '));
+  branded = bundle;
+  return branded;
+}
+
+// About Winify: the main menu's first item and the menu-bar menu.
+async function showAbout() {
+  const { response } = await dialog.showMessageBox({
+    message: 'Winify ' + require('./package.json').version,
+    detail: require('./credits.js').ABOUT,
+    icon: nativeImage.createFromPath(path.join(__dirname, 'assets', 'icon.png')),
+    buttons: ['OK', 'Project page'],
+    defaultId: 0,
+    cancelId: 0,
+  });
+  if (response === 1) shell.openExternal(require('./package.json').homepage);
+}
+ipcMain.on('about:show', showAbout);
+
 function startAppServer() {
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
@@ -273,6 +298,7 @@ function startAppServer() {
           res.writeHead(404).end();
           return;
         }
+        if (pathname === WEBAMP_BUNDLE) data = brandedWebamp(data);
         const headers = { 'Content-Type': MIME[ext], 'Cache-Control': 'no-store' };
         // Milkdrop's preset converter: a worker with a policy of its own (its
         // loader builds code from text, which the page forbids) and no network.
@@ -859,6 +885,10 @@ function buildTray() {
     },
     { type: 'separator' },
     {
+      label: 'About Winify...',
+      click: showAbout,
+    },
+    {
       label: 'Quit Winify',
       accelerator: 'Command+Q',
       click: () => {
@@ -873,8 +903,8 @@ function buildTray() {
 // as bytes.
 async function chooseSkin() {
   const result = await dialog.showOpenDialog({
-    title: 'Load a Winamp skin',
-    filters: [{ name: 'Winamp skin', extensions: ['wsz', 'zip'] }],
+    title: 'Load a skin',
+    filters: [{ name: 'Skin', extensions: ['wsz', 'zip'] }],
     properties: ['openFile'],
   });
   if (result.canceled || !result.filePaths.length) return;
@@ -1376,7 +1406,7 @@ ipcMain.handle('lrclib', async (_event, path, params) => {
   if (!LRCLIB_PATHS.has(path)) throw new Error('not an LRCLIB lookup: ' + path);
   const res = await fetch(LRCLIB + path + '?' + new URLSearchParams(params), {
     // LRCLIB asks for the app's name, version and a link to its project page.
-    headers: { 'User-Agent': 'Winify/' + require('./package.json').version + ' (Winamp-style Spotify player; ' + require('./package.json').homepage + ')' },
+    headers: { 'User-Agent': 'Winify/' + require('./package.json').version + ' (Spotify player; ' + require('./package.json').homepage + ')' },
     signal: AbortSignal.timeout(LRCLIB_TIMEOUT_MS),
   });
   // Busy (429/503): how long LRCLIB asks clients to wait before trying again.

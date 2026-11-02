@@ -4,9 +4,14 @@ Winify's own code is released under the MIT License (see LICENSE). Winify is
 built on, and ships with, the work of others, listed here with their licences.
 Their licences, not Winify's, apply to their parts.
 
-Winify is not affiliated with, endorsed by, or sponsored by Spotify or by
-Winamp. Spotify is a trademark of Spotify AB. Winamp is a trademark of its
-owner, Winamp Group.
+Winify is an independent fan project and a tribute to Winamp, by Nullsoft: the
+original player, interface and classic skin. It is built on Webamp, by Jordan
+Eldredge and contributors, the open-source recreation of Winamp. Thank you to
+both, and to everyone listed here.
+
+Winify is not affiliated with, endorsed by, or sponsored by Spotify, or by
+Winamp or its current owner, Winamp Group. Spotify is a trademark of Spotify AB.
+Winamp is a trademark of Winamp Group.
 
 ## Included in Winify
 
@@ -23,8 +28,10 @@ owner, Winamp Group.
 
 ### The player
 
-- **Webamp** 2.3.1: MIT License, Copyright (c) 2015 Jordan Eldredge.
+- **Webamp** 2.3.1, by Jordan Eldredge and contributors: MIT License,
+  Copyright (c) 2015 Jordan Eldredge.
   https://github.com/captbaritone/webamp
+  (licence: https://github.com/captbaritone/webamp/blob/master/LICENSE.txt)
   Webamp's build (`webamp.bundle.min.mjs`, the file Winify loads) includes
   these, listed from its source map:
   - MIT License: React 19.1.0, React DOM 19.1.0, react-is 18.3.1, scheduler
@@ -68,7 +75,9 @@ owner, Winamp Group.
     THE POSSIBILITY OF SUCH DAMAGE.
 - **Winamp's classic skin** ("base 2.91"), which Webamp includes and Winify
   shows by default: artwork by Nullsoft, now owned by Winamp Group. It is not
-  covered by Winify's or Webamp's MIT License. As Webamp puts it: "the Winamp
+  covered by Winify's or Webamp's MIT License. Winify redraws its title text and
+  logos as Winify's, in `assets/brand/`, from the skin's own letters; those
+  redrawn images are derived from this artwork. As Webamp puts it: "the Winamp
   name, interface, and, sample audio file are surely property of Nullsoft".
 
 ### Milkdrop (the visualizer)
@@ -122,5 +131,9 @@ owner, Winamp Group.
 - **LRCLIB** (https://lrclib.net): a free, community-made lyrics library,
   queried for the lyrics window. Lyrics belong to their songwriters and
   publishers; Winify shows them and stores none.
+- **Skins shown in Winify's pictures**, not included in the app and belonging to
+  their authors: Blue Jeans by Robson Moraes, EJL Classic by Edward J. Lackey,
+  Pup, Inc. (Grey) by Pup, Purple Glow by Homocianu Luis Gabriel and SoundLair
+  by Roman Kondratyev.
 - **Fonts**, loaded from Google Fonts: Archivo, JetBrains Mono, Saira
   Condensed and Source Code Pro, each under the SIL Open Font License 1.1.

@@ -260,7 +260,9 @@ chassis, the Webamp windows and Winify's own windows are drawn in it.
 | `player.js` | Web Playback SDK wiring (`window.WinifyPlayer`) |
 | `audio-source.js` | System-audio capture for the visualizers |
 | `renderer.js` | Player view wiring |
+| `credits.js` | The About box's thanks |
 | `webamp-ui.js` | Mounts the Winamp interface (Webamp) and its layout |
+| `webamp-brand.js` | Webamp as served to the page: Winify's name in its text, and its default skin's title bars and logos from `assets/brand/` |
 | `webamp-spotify.js` | Connects Webamp's controls and display to Spotify |
 | `webamp-playlist.js` | The playlist window, Winify's play order, the header row |
 | `webamp-picker.js` | The playlist picker |
@@ -273,7 +275,7 @@ chassis, the Webamp windows and Winify's own windows are drawn in it.
 | `webamp-panels.js` | The side panels (picker, search, lyrics, Milkdrop): default stack, remembered placements, Escape |
 | `webamp-inert.js` | Keeps Webamp controls with no Spotify meaning quiet |
 | `webamp-ontop.js` | Always on top: the main window's A button |
-| `webamp-mix.js` | Random mix: the Winamp logo makes a temporary shuffled mix from your own playlists |
+| `webamp-mix.js` | Random mix: the Wi logo makes a temporary shuffled mix from your own playlists |
 | `webamp-vis.js` | Feeds Webamp's visualizer from the audio capture; draws the small visualizer itself while Milkdrop is open |
 | `webamp-milkdrop.js` | Webamp's Milkdrop window, drawn by Butterchurn from the audio capture; its menu, keys and the VIZ button |
 | `webamp-milkdrop-presets.js` | Presets you add: converted, test-loaded, kept in IndexedDB |
@@ -281,7 +283,7 @@ chassis, the Webamp windows and Winify's own windows are drawn in it.
 | `milkdrop-convert-worker.js` | Turns .milk and .json files into Butterchurn presets, off the page |
 | `drm-debug.js` | DRM diagnostics, inactive unless `--drm-debug` |
 | `drm-redact.js` | Keeps tokens and signed links out of the DRM diagnostics |
-| `packaging/` | `npm run package`: the build, VMP and ad-hoc signing, verification |
+| `packaging/` | `npm run package`: the build, VMP and ad-hoc signing, verification; `brand-art.js` makes `assets/brand/` |
 
 Playback goes through `window.WinifyPlayer` (`play()`, `pause()`,
 `nextTrack()`, `previousTrack()`, `setVolume()`, `getVolume()`, `seek()`), so

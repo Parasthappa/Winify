@@ -59,6 +59,7 @@ contextBridge.exposeInMainWorld('spotify', {
   setWindowLevel: (level) => ipcRenderer.send('window-level', level),
   // Menu-bar actions arrive here now that the test buttons are gone.
   onCommand: on('ui:command'),
+  showAbout: () => ipcRenderer.send('about:show'),
   audioStateChanged: (capturing) => ipcRenderer.send('audio-state', capturing),
   // macOS's microphone permission, asked for if not yet answered:
   // 'granted', 'denied' or 'restricted'.

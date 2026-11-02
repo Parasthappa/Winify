@@ -1,9 +1,9 @@
 # Winify
 
-Spotify, played through a classic Winamp-style player on your Mac.
+Spotify, played through a classic desktop music player on your Mac.
 
-Winify plays your Spotify music in its own window, with Winamp's buttons,
-playlist window and visualizer. Spotify sees it as a device called **Winify**,
+Winify plays your Spotify music in its own window, with classic buttons,
+a playlist window and a visualizer. Spotify sees it as a device called **Winify**,
 just like a speaker or your phone.
 
 ## What you need
@@ -186,7 +186,7 @@ outside its filter box (in the box, L just types).
 
 ### A random mix
 
-Click the Winamp logo (bottom right of the main window). Winify picks 10 of
+Click the Wi logo (bottom right of the main window). Winify picks 10 of
 your own playlists at random, takes 10 random songs from each, shuffles them
 and plays them. Skip, reorder, queue and shuffle work as with any playlist.
 Hover over a song to see which playlist it came from. Click the logo again
@@ -270,7 +270,7 @@ the player, as many at once as you like.
   window. Close to another window's edge, or the screen's, the corner snaps
   to it, so the panel ends level with its neighbours. Winify then remembers
   where you put it and opens it there next time.
-- Dragging the main Winamp window takes every panel snapped to it along.
+- Dragging the main window takes every panel snapped to it along.
 - Each stays open until you close it with its **x** or **Escape** (Escape
   closes the panel you last clicked or typed in), also after you choose a
   playlist or play a track from it.
@@ -294,7 +294,7 @@ it off. Or keep Winify **behind other apps**, sitting on the desktop like a
 widget: tick **Keep behind other apps** in the menu-bar menu. Clicking
 Winify then leaves it behind the other apps' windows. Only one of the two can
 be on: turning one on turns the other off. Winify remembers the setting. (The main
-Winamp window's title bar has no buttons of its own: double-click it to
+window's title bar has no buttons of its own: double-click it to
 switch to the slim windowshade view and back.)
 
 ### Menu-bar icon
@@ -346,7 +346,7 @@ Good to know:
 
 ## Milkdrop
 
-Winamp's big visualizer, Milkdrop, has its own window. Press the **V** button
+The big visualizer, Milkdrop, has its own window. Press the **V** button
 on the left edge of the main window or the playlist window's **VIZ** button,
 or choose **Milkdrop visualizer** from Winify's menu-bar icon. It needs the
 same setup as the small visualizer (above).
@@ -453,13 +453,36 @@ When you sign in, Winify asks Spotify for permission to see your account type
 (to check for Premium), play music, see and control what is playing, read your
 playlists, and read your Liked Songs.
 
+## Credits & thanks
+
+Winify is an independent fan project, and it wouldn't exist without these people:
+
+- **[Winamp](https://winamp.com), by Nullsoft:** the original player, interface
+  and classic skin that Winify is a tribute to. Winify is not affiliated with
+  or endorsed by Winamp or its current owner, Winamp Group.
+- **[Webamp](https://github.com/captbaritone/webamp), by Jordan Eldredge and
+  contributors:** the open-source recreation of Winamp that Winify is built on,
+  under the [MIT License](https://github.com/captbaritone/webamp/blob/master/LICENSE.txt).
+- **[Butterchurn](https://github.com/jberg/butterchurn), by Jordan Berg:** the
+  Milkdrop visualizer, and the **Milkdrop preset authors**, credited by name in
+  each preset's title.
+- **The skin authors**, whose skins appear in Winify's pictures. These are not
+  included with Winify and belong to their authors: **Blue Jeans** by Robson
+  Moraes, **EJL Classic** by Edward J. Lackey, **Pup, Inc. (Grey)** by Pup,
+  **Purple Glow** by Homocianu Luis Gabriel and **SoundLair** by Roman Kondratyev.
+- **[LRCLIB](https://lrclib.net):** the free, community-made lyrics library.
+
+The same thanks are in the app, under **About Winify...** in the menu-bar menu.
+Everything else Winify uses is listed in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
 ## Not affiliated with Spotify or Winamp
 
 Winify is an independent, free, open-source project. It is not affiliated
 with, endorsed by, or sponsored by Spotify or Winamp. Spotify is a trademark
 of Spotify AB, and Winamp is a trademark of its owner, Winamp Group. The
 classic skin Winify shows is Winamp's own, by Nullsoft, as included in
-Webamp. Music, cover art and song details come from Spotify; lyrics come
+Webamp, with its title text and logos redrawn for Winify. Music, cover art and song details come from Spotify; lyrics come
 from LRCLIB and belong to their songwriters and publishers. Everything else
 Winify uses is credited in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 

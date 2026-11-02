@@ -24,6 +24,7 @@ exports.open = () => new Promise((resolve) => {
       const file = p === '/__test.html' ? PAGE : path.join(ROOT, p);
       if (p === '/__webamp.css') { const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8'); res.writeHead(200, { 'Content-Type': 'text/css' }).end(html.split('\n').filter((l) => /#webamp/.test(l) && !/webamp-root/.test(l)).join('\n')); return; }
       fs.readFile(file, (err, data) => { if (err) { res.writeHead(404).end(); return; }
+        if (p === '/node_modules/webamp/built/webamp.bundle.min.mjs') data = require(path.join(ROOT, 'webamp-brand.js')).brand(data.toString('utf8')).bundle;   // as main.js serves it
         res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' }).end(data); });
     }).listen(PORT, '127.0.0.1', async () => {
       const win = new BrowserWindow({ width: 1200, height: 1000, show: true, webPreferences: { backgroundThrottling: false } });
