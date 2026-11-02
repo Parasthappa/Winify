@@ -1,4 +1,5 @@
 // The whole onboarding in the real app (main.js, preload, sign-in screen), Spotify faked on both sides.
+require('../lib/no-network');
 const { app, BrowserWindow, shell, dialog, session } = require('electron'); const fs = require('fs'), path = require('path');
 const profile = path.join(__dirname, '..', '.profiles', 'app-onboarding'); fs.rmSync(profile, { recursive: true, force: true }); fs.mkdirSync(profile, { recursive: true });
 app.setPath('userData', profile);

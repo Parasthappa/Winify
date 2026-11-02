@@ -1,4 +1,5 @@
 // Shared: isolated profile, static server for the project + mock page, real input events.
+require('./no-network');
 const { app, BrowserWindow } = require('electron');
 const http = require('http'), fs = require('fs'), path = require('path');
 const ROOT = path.resolve(__dirname, '..', '..');

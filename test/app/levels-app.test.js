@@ -1,5 +1,6 @@
 // Real Winify app, a remembered sign-in, Spotify faked: where Winify's window sits among other apps' windows.
 // The window level is read back from macOS itself (test/lib/window-layers.swift).
+require('../lib/no-network');
 const electron = require('electron'); const { app, BrowserWindow, session, net } = electron; const fs = require('fs'), path = require('path');
 const { execFileSync } = require('child_process');
 const profile = path.join(__dirname, '..', '.profiles', 'app-levels-app'); fs.rmSync(profile, { recursive: true, force: true }); fs.mkdirSync(profile, { recursive: true });

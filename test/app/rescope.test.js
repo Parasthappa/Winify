@@ -1,4 +1,5 @@
 // Real main.js + real sign-in screen, isolated profile seeded with an old-scope token.
+require('../lib/no-network');
 const { app, BrowserWindow } = require('electron'); const fs = require('fs'), path = require('path');
 const profile = path.join(__dirname, '..', '.profiles', 'app-rescope'); fs.rmSync(profile, { recursive: true, force: true }); fs.mkdirSync(profile, { recursive: true });
 app.setPath('userData', profile);

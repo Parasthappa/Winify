@@ -1,4 +1,5 @@
 // Real Winify (main.js, preload, sign-in screen), fresh profile, no Client ID; Spotify's accounts service faked.
+require('../lib/no-network');
 const { app, BrowserWindow, shell, dialog } = require('electron'); const fs = require('fs'), path = require('path');
 const profile = path.join(__dirname, '..', '.profiles', 'app-setup-app'); fs.rmSync(profile, { recursive: true, force: true }); fs.mkdirSync(profile, { recursive: true });
 app.setPath('userData', profile);

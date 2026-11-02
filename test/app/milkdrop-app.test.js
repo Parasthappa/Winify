@@ -1,6 +1,7 @@
 // Real Winify app (main.js, preload, page, CSP, audio capture, GPU), isolated profile, Spotify faked locally
 // ("Blinding Lights" playing on another device). Milkdrop under the real page's security policy, and what it
 // costs in CPU/GPU: closed, open, and with Winify minimized.
+require('../lib/no-network');
 const { app, BrowserWindow, session, net, protocol } = require('electron'); const fs = require('fs'), path = require('path');
 const profile = path.join(__dirname, '..', '.profiles', 'app-milkdrop-app'); fs.rmSync(profile, { recursive: true, force: true }); fs.mkdirSync(profile, { recursive: true });
 app.setPath('userData', profile);

@@ -1,6 +1,7 @@
 // Real Winify app (main.js, preload, page), isolated profile, a remembered sign-in, Spotify faked locally:
 // Winify's one see-through window - its bounds, the chassis staying, click-through, minimize/close/restore,
 // Disconnect, layouts as screen positions, Milkdrop full screen.
+require('../lib/no-network');
 const { app, BrowserWindow, session, net, protocol } = require('electron'); const fs = require('fs'), path = require('path');
 const profile = path.join(__dirname, '..', '.profiles', 'app-window-app'); fs.rmSync(profile, { recursive: true, force: true }); fs.mkdirSync(profile, { recursive: true });
 app.setPath('userData', profile);

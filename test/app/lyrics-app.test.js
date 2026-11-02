@@ -1,5 +1,6 @@
 // Real Winify app (main.js, preload, page, CSP), isolated profile, Spotify faked locally ("Blinding Lights"
-// playing on another device), everything else real - including LRCLIB through the main process.
+// playing on another device), LRCLIB faked too, asked through the main process.
+require('../lib/no-network');
 const { app, BrowserWindow, session, net, protocol } = require('electron'); const fs = require('fs'), path = require('path');
 const profile = path.join(__dirname, '..', '.profiles', 'app-lyrics-app'); fs.rmSync(profile, { recursive: true, force: true }); fs.mkdirSync(profile, { recursive: true });
 app.setPath('userData', profile);
@@ -30,9 +31,8 @@ global.fetch = async (u, o = {}) => {
   const url = String(u);
   if (/^https:\/\/(api|accounts)\.spotify\.com\//.test(url)) { const r = spotify(o.method || 'GET', url); return new Response(r.body == null ? null : JSON.stringify(r.body), { status: r.status, headers: { 'Content-Type': 'application/json' } }); }
   if (/^https:\/\/lrclib\.net\//.test(url)) {
-    const res = await realFetch(u, o);
-    lrclibSeen.push({ url, status: res.status, ua: o.headers && o.headers['User-Agent'] });
-    return res;
+    lrclibSeen.push({ url, status: 200, ua: o.headers && o.headers['User-Agent'] });
+    return new Response(JSON.stringify({ trackName: 'Blinding Lights', artistName: 'The Weeknd', albumName: 'After Hours', duration: 200, instrumental: false, plainLyrics: 'Fake line, tryna call\nFake line two', syncedLyrics: '[00:00.00] Fake line, tryna call\n[00:05.00] Fake line two' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
   }
   return realFetch(u, o);
 };

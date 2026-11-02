@@ -1,6 +1,7 @@
 // The Spotify request governor (spotify-governor.js), with a 1 s "minute" and
 // a 5 s "hour", in a scratch folder standing in for the shared one. Nothing
 // is sent anywhere: it only decides when requests may go.
+require('../lib/no-network');
 const { app } = require('electron'); const fs = require('fs'), os = require('os'), path = require('path');
 const { create, CAPS } = require(path.join(__dirname, '..', '..', 'spotify-governor.js'));
 let fails = 0; setTimeout(() => { console.log('WATCHDOG'); app.exit(2); }, 60000);

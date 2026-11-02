@@ -1,5 +1,6 @@
 // Real Winify app, a remembered sign-in, Spotify faked locally: the chassis's now-playing display (cover, title,
 // artist, Spotify's logo and a link back, per Spotify's Developer Policy and design guidelines) and the tagline.
+require('../lib/no-network');
 const electron = require('electron'); const { app, BrowserWindow, session, net } = electron; const fs = require('fs'), path = require('path');
 const profile = path.join(__dirname, '..', '.profiles', 'app-nowplaying-app'); fs.rmSync(profile, { recursive: true, force: true }); fs.mkdirSync(profile, { recursive: true });
 app.setPath('userData', profile);
@@ -29,6 +30,7 @@ const realFetch = global.fetch;
 global.fetch = async (u, o = {}) => {
   const url = String(u);
   if (/^https:\/\/(api|accounts)\.spotify\.com\//.test(url)) { const r = spotify(o.method || 'GET', url); return new Response(r.body == null ? null : JSON.stringify(r.body), { status: r.status, headers: { 'Content-Type': 'application/json' } }); }
+  if (/^https:\/\/lrclib\.net\//.test(url)) return new Response('{}', { status: 404 });
   return realFetch(u, o);
 };
 // The Spotify app, there or not; and what Winify asks macOS to open.

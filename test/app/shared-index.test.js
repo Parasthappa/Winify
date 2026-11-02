@@ -1,6 +1,7 @@
 // The My playlists index shared by both copies (main.js keeps it in the shared
 // folder; webamp-library-index.js), and its build lock: the real app, Spotify
 // faked in the main process, Spotify's player script blocked.
+require('../lib/no-network');
 const { app, BrowserWindow, Menu, session } = require('electron'); const fs = require('fs'), path = require('path');
 const profile = path.join(__dirname, '..', '.profiles', 'app-shared-index'); fs.rmSync(profile, { recursive: true, force: true }); fs.mkdirSync(profile, { recursive: true });
 app.setPath('userData', profile);

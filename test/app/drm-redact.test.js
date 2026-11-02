@@ -1,4 +1,5 @@
 // The DRM diagnostics (npm start -- --drm-debug) never write tokens or signed links.
+require('../lib/no-network');
 const { app } = require('electron'); const path = require('path');
 const { redact } = require(path.join(__dirname, '..', '..', 'drm-redact.js'));
 let fails = 0;
