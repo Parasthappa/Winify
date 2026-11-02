@@ -145,6 +145,17 @@ function bottomPiece(tile, corner, side) {
   return c.toDataURL('image/png');
 }
 
+// The playlist's top-right corner holds its shade box as well as its close box.
+// Panels have nothing to shade, so the box is painted out with the title bar.
+const SHADE_BOX = { x: 4, y: 3, w: 9, h: 9 };   // Webamp's #playlist-shade-button in that corner
+function withoutShadeBox(corner, tile) {
+  const c = blank(corner.width, corner.height);
+  const g = c.getContext('2d');
+  g.drawImage(corner, 0, 0);
+  g.drawImage(tile, SHADE_BOX.x, SHADE_BOX.y, SHADE_BOX.w, SHADE_BOX.h, SHADE_BOX.x, SHADE_BOX.y, SHADE_BOX.w, SHADE_BOX.h);
+  return c.toDataURL('image/png');
+}
+
 function crop(img, x, y, w, h) {
   const c = blank(w, h);
   c.getContext('2d').drawImage(img, x, y, w, h, 0, 0, w, h);
@@ -163,8 +174,8 @@ async function frameCss(images) {
   ruleOn(fill, `background-image: ${url(tileOn.src)};`);
   rule(['.gen-top-left'], `background-image: ${url(topLeft.src)};`);
   ruleOn(['.gen-top-left'], `background-image: ${url(topLeftOn.src)};`);
-  rule(['.gen-top-right'], `background-image: ${url(topRight.src)};`);
-  ruleOn(['.gen-top-right'], `background-image: ${url(topRightOn.src)};`);
+  rule(['.gen-top-right'], `background-image: ${url(withoutShadeBox(topRight, tile))};`);
+  ruleOn(['.gen-top-right'], `background-image: ${url(withoutShadeBox(topRightOn, tileOn))};`);
   // The close box is part of that corner's artwork.
   rule(['.gen-close', '.gen-close.winamp-active'], 'background-image: none !important;');
   const leftEdge = url(crop(left, 0, 0, LEFT, left.height));

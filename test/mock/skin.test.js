@@ -11,7 +11,7 @@ h.open().then(async ({ js }) => {
     const art = (w, h, c) => { const k = document.createElement('canvas'); k.width = w; k.height = h; const g = k.getContext('2d'); g.fillStyle = c; g.fillRect(0, 0, w, h); return k.toDataURL(); };
     const d = WinifyWebamp.getInstance().store.getState().display;
     const images = {};
-    for (const [n, w, ht] of [['TOP_TILE', 25, 20], ['TOP_LEFT_CORNER', 25, 20], ['TOP_RIGHT_CORNER', 25, 20], ['TOP_TILE_SELECTED', 25, 20], ['TOP_LEFT_SELECTED', 25, 20], ['TOP_RIGHT_CORNER_SELECTED', 25, 20], ['LEFT_TILE', 12, 29], ['RIGHT_TILE', 20, 29], ['BOTTOM_TILE', 25, 38], ['BOTTOM_LEFT_CORNER', 125, 38], ['BOTTOM_RIGHT_CORNER', 150, 38]]) images['PLAYLIST_' + n] = art(w, ht, '#336699');
+    for (const [n, w, ht] of [['TOP_TILE', 25, 20], ['TOP_LEFT_CORNER', 25, 20], ['TOP_RIGHT_CORNER', 25, 20], ['TOP_TILE_SELECTED', 25, 20], ['TOP_LEFT_SELECTED', 25, 20], ['TOP_RIGHT_CORNER_SELECTED', 25, 20], ['LEFT_TILE', 12, 29], ['RIGHT_TILE', 20, 29], ['BOTTOM_TILE', 25, 38], ['BOTTOM_LEFT_CORNER', 125, 38], ['BOTTOM_RIGHT_CORNER', 150, 38]]) images['PLAYLIST_' + n] = art(w, ht, n.startsWith('TOP_RIGHT') ? '#ff0000' : '#336699');
     images.CHARACTER_32 = art(5, 6, '#000000'); images.CHARACTER_97 = art(5, 6, '#ffffff');
     if (${gen}) images.GEN_TOP_LEFT = art(25, 20, '#993333');
     WinifyWebamp.getInstance().store.dispatch({ type: 'SET_SKIN_DATA', data: { skinImages: images, skinColors: d.skinColors, skinCursors: d.skinCursors, skinPlaylistStyle: ${JSON.stringify(style)}, skinRegion: d.skinRegion, skinGenLetterWidths: d.skinGenLetterWidths, skinGenExColors: d.skinGenExColors } });
@@ -23,6 +23,11 @@ h.open().then(async ({ js }) => {
   check('the frame comes from the playlist window', (await js('WinifySkin.state().frame')) === 'pledit');
   const rules = await css();
   check('frame pieces and the title lettering are drawn', /\.gen-top-left \{ background-image/.test(rules) && /\.gen-bottom-right \{ background-image/.test(rules) && /\.gen-text-a \{ background-image/.test(rules));
+
+  const corner = await js(`(async () => { const u = /url\\("([^"]+)"\\)/.exec(getComputedStyle(document.querySelector('.winify-lyrics .gen-top-right')).backgroundImage)[1];
+    const i = new Image(); i.src = u; await i.decode(); const k = document.createElement('canvas'); k.width = i.width; k.height = i.height; const g = k.getContext('2d'); g.drawImage(i, 0, 0);
+    const at = (x, y) => [...g.getImageData(x, y, 1, 1).data].slice(0, 3).join(','); return { shade: at(8, 7), close: at(18, 7) }; })()`);
+  check('the shade box is painted out with the title bar; the close box stays', corner.shade === '51,102,153' && corner.close === '255,0,0', JSON.stringify(corner));
 
   console.log('2. Readable colours, no serif');
   const seen = await js(`(() => { const read = (s) => { const e = document.querySelector(s); const c = getComputedStyle(e); return { color: c.color, bg: c.backgroundColor, font: c.fontFamily }; };
