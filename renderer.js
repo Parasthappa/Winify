@@ -52,14 +52,15 @@ window.spotify.onCommand(async (command) => {
     case 'audio-stop':
       window.WinifyAudio.stop();
       break;
+    // The menu bar's items work from sign-in, which is before the player is ready: they wait for it.
     case 'index-build':
-      if (window.WinifyIndex) window.WinifyIndex.startBuild();
+      if (window.WinifyIndex && await window.WinifyWebamp.mount('webamp-root')) window.WinifyIndex.startBuild();
       break;
     case 'index-pause':
       if (window.WinifyIndex) window.WinifyIndex.pauseBuild();
       break;
     case 'jump-to-track':
-      if (window.WinifySearch) window.WinifySearch.open();
+      if (window.WinifySearch && await window.WinifyWebamp.mount('webamp-root')) window.WinifySearch.open();
       break;
     case 'reset-layout':
       window.WinifyWebamp.resetLayout();

@@ -289,6 +289,16 @@ h.open().then(async ({ win, js }) => {
   console.log('   requests: full build ' + first + ', resumed build ' + resumed + ', a launch ' + launch + ', opening the picker on a list days old ' + pickerOpen + ', playing a 60-song playlist ' + played + ' (index: none extra)');
 
   const loud = JSON.parse(await js('JSON.stringify(loud)')); const errs = JSON.parse(await js('JSON.stringify(errors)'));
+  console.log('Before the saved index is read');
+  await js('WinifySearch.close()'); await take();
+  const early = JSON.parse(await js(`(() => { window.__said = []; const realLog = console.log; console.log = (...a) => { window.__said.push(a.join(' ')); realLog(...a); }; const p = WinifyIndex.restart({ gapMs: 50 }); window.__loaded = p; const loading = WinifyIndex.status(); WinifySearch.open(); WinifyIndex.startBuild();
+    const box = document.querySelector('.winify-search'); return JSON.stringify({ ready: loading.ready, loading: loading.loading, note: box ? box.innerText : null }); })()`));
+  check('the search says "Index loading…", not that nothing is indexed', early.loading === true && early.ready === false && /Index loading/.test(early.note) && !/Nothing indexed/.test(early.note), JSON.stringify(early));
+  await js('window.__loaded.then(() => 1)');
+  check('then it is ready, and the note moves on', await until(`WinifyIndex.status().ready && !/Index loading/.test(document.querySelector('.winify-search').innerText)`, 3000));
+  check('a build asked for meanwhile starts once it is ready, not before', await until(`window.__said.some((l) => /build full index - started/.test(l))`, 3000), JSON.stringify(await js('window.__said.filter((l) => /index:/.test(l)).slice(0, 4)')));
+  await js('WinifyIndex.pauseBuild(); WinifySearch.close()');
+
   check('no alerts, downloads, file prompts or new windows', loud.length === 0, JSON.stringify(loud));
   check('no page errors', errs.length === 0, JSON.stringify(errs));
   console.log(fails ? 'RESULT: ' + fails + ' FAILED' : 'RESULT: ALL PASSED');

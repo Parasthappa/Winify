@@ -43,7 +43,7 @@ app.whenReady().then(async () => {
   const logs = []; win.webContents.on('console-message', (e) => logs.push(e.message || ''));
   const js = (c) => win.webContents.executeJavaScript(c, true);
   const until = async (expr, ms) => { const t = Date.now(); let v; while (!(v = await js(expr).catch(() => false)) && Date.now() - t < ms) await wait(200); return v; };
-  await until('!!(window.WinifyWebamp && WinifyWebamp.isMounted())', 20000);
+  await until('!!(window.WinifyIndex && WinifyIndex.status().ready)', 20000);   // not just mounted: the index is attached after that
   await js('WinifyIndex.restart({ gapMs: 100 })'); await js('WinifyIndex.startBuild()');
 
   console.log('1. Built into the shared folder');
@@ -122,6 +122,11 @@ app.whenReady().then(async () => {
   // Up to a minute: the sections above used this minute's background allowance (the governor at work).
   await until('WinifyIndex.status().indexed === 3 && !WinifyIndex.status().buildOn', 90000); await wait(300);
   check('finished: "Index complete (3 of 3)"', !!item(/^Index complete \(3 of 3\)$/), (trayMenu.find((i) => /ndex/.test(i.label || '')) || {}).label + ' ' + JSON.stringify(await js('WinifyIndex.status()')) + ' ' + logs.filter((m) => /index/i.test(m)).slice(-4).join(' | '));
+
+  console.log('The menu bar, while the player is still starting');
+  await js(`WinifyWebamp.unmount(); WinifyWebamp.mount('webamp-root'); 0`);
+  win.webContents.send('ui:command', { name: 'jump-to-track' });
+  check('Jump to track waits and opens, not ignored', await until('window.WinifySearch && WinifySearch.isOpen()', 8000));
 
   console.log(fails ? 'RESULT: ' + fails + ' FAILED' : 'RESULT: ALL PASSED');
   app.exit(fails ? 1 : 0);

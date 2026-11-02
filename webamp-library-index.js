@@ -37,6 +37,8 @@ const MAX_RESULTS = 300;
 const PAUSED_KEY = 'winify.index.paused';
 
 let ctx = null;                      // { api, log, warn }
+let loading = false;                 // reading the saved index, at launch
+let buildWanted = false;             // "Build full index" while that was going on
 let gen = 0;                         // a newer start (or reset) stops an older run
 let meId = null;
 let lists = new Map();               // playlist URI -> its saved record
@@ -193,7 +195,8 @@ function setBuild(on) {
 }
 
 export async function startBuild() {
-  if (!ctx) return;
+  // Planned from what is saved, so not before that is read: it would read every playlist again.
+  if (!ctx || loading) { buildWanted = true; return; }
   setBuild(true);
   ctx.log('index: build full index - started');
   changed();
@@ -451,7 +454,7 @@ export const current = (uri) => !!(lists.get(uri) && lists.get(uri).complete && 
 // `indexed` of `playlists` (your own and Liked Songs) are in and current;
 // `buildOn`: "Build full index" asked for and not finished or paused.
 export function status() {
-  return { songs: songCount(), lists: lists.size, indexed: indexedCount(), playlists: wanted.length, buildOn: buildOn(),
+  return { ready: !!ctx && !loading, loading, songs: songCount(), lists: lists.size, indexed: indexedCount(), playlists: wanted.length, buildOn: buildOn(),
     building: reading_(), waiting: pending.length > 0 && !reading_(), done: round.done, total: round.total, requests };
 }
 
@@ -492,6 +495,8 @@ function paused() {
 export async function init(c) {
   ctx = c;
   const g = ++gen;
+  loading = true;
+  changed();
   try {
     const recs = await loadAll();
     if (g !== gen) return;
@@ -500,18 +505,23 @@ export async function init(c) {
   } catch (err) {
     ctx.warn('index: could not open the saved index -', err && err.message);
   }
+  loading = false;
   table = null;
+  if (buildWanted) { buildWanted = false; startBuild(); return; }
   if (paused()) { ctx.log('index: paused (no requests) -', songCount(), 'songs saved'); changed(); return; }
   // What there is to index: the picker's saved list, as it is (nothing read
   // at launch). A build asked for and not finished carries on.
   if (buildOn()) { startBuild(); return; }
   const src = picker.savedList();
-  if (src) plan(src); else changed();
+  if (src) plan(src);
+  changed();
 }
 
 // Signed out: stop. The index stays; another account's sign-in replaces it.
 export function reset() {
   gen++;
+  loading = false;
+  buildWanted = false;
   if (waking) waking();
   pending = [];
   planned = null;

@@ -46,7 +46,7 @@ const visibleRows = () => {
 function scope() {
   if (mode !== 'mine') return null;
   const st = index.status();
-  if (!st.playlists || st.indexed >= st.playlists) return null;
+  if (st.loading || !st.playlists || st.indexed >= st.playlists) return null;
   return 'Searching ' + st.indexed + ' of ' + st.playlists + ' playlists \u00b7 ' +
     (!st.buildOn ? 'Build full index' : st.building ? 'building the index\u2026' : 'index build waiting its turn');
 }
@@ -100,6 +100,7 @@ const TAB_HINT = 'Press Tab to search all of Spotify';
 // Lines are separate rows. `typed`: a search found nothing.
 function indexNote(typed) {
   const st = index.status();
+  if (st.loading) return 'Index loading\u2026\n' + TAB_HINT;
   if (st.building) {
     return index.progressNote() + (st.songs ? ' (' + st.songs + ' songs so far)' : '') + '\n' +
       (typed ? 'Nothing found yet - the rest is still being read' : 'Type to search what is in already') + '\n' + TAB_HINT;

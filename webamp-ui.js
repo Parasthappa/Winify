@@ -512,9 +512,11 @@ let mounting = null;
 let generation = 0;
 
 function mount(containerId) {
+  // Sign-in can be reported twice (connected, then restored); mount once. Whoever asks while
+  // that is going on waits for all of it: `mounted` comes before the rest is attached.
+  if (mounting) return mounting;
   if (mounted) { log('already mounted'); return Promise.resolve(true); }
-  // Sign-in can be reported twice (connected, then restored); mount once.
-  if (!mounting) mounting = doMount(containerId).finally(() => { mounting = null; });
+  mounting = doMount(containerId).finally(() => { mounting = null; });
   return mounting;
 }
 
