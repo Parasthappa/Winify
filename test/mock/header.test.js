@@ -63,7 +63,8 @@ h.open().then(async ({ win, js }) => {
   v = await until((x) => x.header && /ARTIST/.test(x.header));
   check('artist: "— ARTIST · Artist ar1 —", the playing track numbered 1', v.header === '— ARTIST · Artist ar1 —' && v.cur === 1 && /^ ?1\. /.test(v.rows[1]), JSON.stringify([v.header, v.rows.slice(0, 2)]));
   await js('mock.setContext("spotify:playlist:notmine", 0)');
-  v = await until((x) => x.header && x.state.listContext === 'spotify:playlist:notmine');
+  // The list's source is set at once; the pinned header is drawn a frame later, so wait for the header itself.
+  v = await until((x) => x.header && !/ARTIST/.test(x.header) && x.state.listContext === 'spotify:playlist:notmine');
   check('a playlist you only follow (Up Next): its name', v.header === '— Playlist notmine —', v.header);
   await js('mock.setContext("spotify:album:a1", 11)'); await until((x) => x.header && /ALBUM/.test(x.header) && x.cur === 12);
   await js('mock.startAutoplay(true)');
