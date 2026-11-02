@@ -138,7 +138,8 @@ function currentLayout() {
   };
 }
 
-const nextFrame = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
+// A page the system counts as hidden gets no frames; start-up must not wait on them for good.
+const nextFrame = () => new Promise((resolve) => { requestAnimationFrame(() => resolve()); setTimeout(resolve, 100); });
 
 // The app screen is display:none until sign-in completes, and sign-in is
 // reported before it is shown. Laying windows out in a 0x0 container put the

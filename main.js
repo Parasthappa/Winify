@@ -151,6 +151,9 @@ const maskClientId = (id) => (id ? id.slice(0, 4) + '\u2026' + id.slice(-4) : nu
 // Loopback audio capture is behind Chromium feature flags on macOS, and they
 // have to be set before the app is ready. Without them getDisplayMedia rejects
 // the audio: 'loopback' constraint outright.
+// A page loaded while something covers the window would count as hidden, get no
+// frames, and stay that way after it is uncovered.
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 app.commandLine.appendSwitch('enable-features', [
   'MacLoopbackAudioForScreenShare',
   'MacSckSystemAudioLoopbackOverride',
