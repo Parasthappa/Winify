@@ -3,7 +3,7 @@
 // load, are the panels framed, is their text readable, is no serif font used as a fallback, and are
 // LYRIC and VIZ drawn or left as the skin's own.
 //
-//   electron test/gallery/skin-check.js        (SKIN_ONLY=name: only skins with that in their name, with a photo of each)
+//   electron test/gallery/skin-check.js        (SKIN_ONLY=name,name: only skins with one of those in their name, with a photo of each)
 //     -> test/.output/skin-check/failures.png (only the skins that fail, with the reasons),
 //        report.json, and the count here.
 const { app } = require('electron'); const h = require('../lib/harness');
@@ -139,7 +139,7 @@ h.open().then(async ({ win, js }) => {
   const errors = [];
   win.webContents.on('console-message', (e) => { const m = e.message || ''; if (e.level === 'error' || e.level === 3 || /could not read the skin/.test(m)) errors.push(m.slice(0, 160)); });
   const list = (dir, prefix) => (fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => /\.(wsz|zip)$/i.test(f)).sort().map((f) => prefix + f) : []);
-  const files = [...list(SKINS, ''), ...list(path.join(SKINS, 'named'), 'named/'), ...list(path.join(SKINS, 'museum'), 'museum/')].filter((f) => !ONLY || f.toLowerCase().includes(ONLY.toLowerCase()));
+  const files = [...list(SKINS, ''), ...list(path.join(SKINS, 'named'), 'named/'), ...list(path.join(SKINS, 'museum'), 'museum/')].filter((f) => !ONLY || ONLY.toLowerCase().split(',').some((n) => f.toLowerCase().includes(n)));
   await h.wait(1500);
   await js('(mock.active = "winify", mock.setContext("spotify:album:a1", 3), mock.setPaused(false))'); await h.wait(1500);
   await js('WinifyPicker.open()'); await js('WinifySearch.open()'); await js('WinifyLyrics.open()'); await js('WinifyMilkdrop.toggle()');
