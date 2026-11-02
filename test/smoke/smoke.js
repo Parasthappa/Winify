@@ -216,16 +216,27 @@ app.whenReady().then(async () => {
     await js('WinifyControls.refresh()'); await wait(500);
   }
 
-  // 3. Next / Previous
+  // 3. Next / Previous, with track 2 removed first: Next lands on track 3. No
+  // requests of its own: removing and undoing stay on this Mac.
   const t1 = await js('WinifyControls.state().trackUri');
+  const rowsBefore = await js('WinifyPlaylist.state().count');
+  const rowTwo = await js('WinifyPlaylist.state().order.names[2]');
+  const hover = await until(`document.querySelectorAll('#webamp .playlist-track-titles .track-cell')[2].title`, 3000);
+  check('hover over a song: its album', /^Album: /.test(hover || ''), hover);
+  await js(`(() => { const st = WinifyWebamp.getInstance().store; st.dispatch({ type: 'CLICKED_TRACK', index: 2 }); document.querySelector('#webamp #playlist-remove-menu').click(); })()`);
+  const gone = await until(`WinifyPlaylist.state().count === ${rowsBefore - 1} && !WinifyPlaylist.state().order.names.includes(${JSON.stringify(rowTwo)})`, 3000);
+  check('REM: track 2 leaves the list', !!gone, rowTwo);
   await js(`document.querySelector('#webamp #next').dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
   const n2 = await until(`(() => { const n = WinifyControls.state(); return n.trackUri && n.trackUri !== ${JSON.stringify(t1)} && WinifyPlaylist.state().currentIndex === 2 ? n.title : null; })()`, 10000);
   guard();
-  check('Next: track 2 of the playlist', !!n2, n2);
+  check('Next: passes over the removed track, to the next row', !!n2 && !rowTwo.endsWith(' - ' + n2), n2);
   await js(`document.querySelector('#webamp #previous').dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
   const n1 = await until(`WinifyControls.state().trackUri === ${JSON.stringify(t1)} && WinifyPlaylist.state().currentIndex === 1`, 10000);
   guard();
   check('Previous: back to track 1', !!n1);
+  await js(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', metaKey: true, bubbles: true }))`);
+  const back = await until(`WinifyPlaylist.state().count === ${rowsBefore} && WinifyPlaylist.state().order.names[2] === ${JSON.stringify(rowTwo)}`, 3000);
+  check('Cmd+Z: track 2 back where it was', !!back);
 
   // 4. The visualizer hears the music (macOS must allow audio input: reading
   // BlackHole counts as the microphone)

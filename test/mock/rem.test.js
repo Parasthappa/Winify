@@ -1,4 +1,4 @@
-// REM skips/restores at once (no sub-menu), Delete toggles, Cmd+Z undoes; the Autoplay list is read-only.
+// REM and Delete remove tracks at once (no sub-menu), Cmd+Z puts them back; only this list changes; hover; the Autoplay list is read-only.
 const { app } = require('electron'); const h = require('../lib/harness');
 let fails = 0; setTimeout(() => { console.log('WATCHDOG'); app.exit(2); }, 240000);
 h.open().then(async ({ win, js }) => {
@@ -10,7 +10,12 @@ h.open().then(async ({ win, js }) => {
       msg: s.userInput.userMessage, menuOpen: !!document.querySelector('#playlist-remove-menu ul, #playlist-remove-menu.selected'), track: mock.track }; })()`);
   const until = async (fn, ms = 8000) => { const t0 = Date.now(); let v; while (Date.now() - t0 < ms) { v = await PL(); if (fn(v)) return v; await h.wait(150); } return v; };
   const N = (n) => 'Artist ' + n + ' - Song ' + n;
-  const skipped = (p) => (p.state.order ? p.state.order.skipped : []).map((x) => +x.match(/\d+$/)[0]).sort();
+  const nums = (p) => p.rows.slice().map((r) => +(r.match(/Song (\d+)/) || [0, 0])[1]);
+  const removed = (p) => (p.state.order ? p.state.order.removed : []).map((x) => +x.match(/\d+$/)[0]).sort();
+  const ALBUM = [2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011];
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const type = async (t) => { for (const ch of t) { win.webContents.sendInputEvent({ type: 'keyDown', keyCode: ch }); win.webContents.sendInputEvent({ type: 'char', keyCode: ch }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: ch }); await h.wait(40); } };
+  const tips = () => js(`[...document.querySelectorAll('#webamp .playlist-track-titles .track-cell')].slice(0, 3).map((c) => c.title)`);
   const select = (...idx) => js(`(() => { const st = WinifyWebamp.getInstance().store; st.dispatch({ type: 'CLICKED_TRACK', index: ${idx[0]} + __hdr() }); ${idx.slice(1).map((i) => `st.dispatch({ type: 'CTRL_CLICKED_TRACK', index: ${i} + __hdr() });`).join('')} })()`);
   const rem = async () => { await h.click(win, js, '#webamp #playlist-remove-menu'); await h.wait(250); };
   const focusPl = () => h.click(win, js, '#playlist-window', 0.5, 0.02);
@@ -20,44 +25,49 @@ h.open().then(async ({ win, js }) => {
   await js('(mock.active = "winify", mock.setContext("spotify:album:a1", 0), mock.setPaused(false))');
   await until((v) => v.state.mode === 'list' && v.cur === 0 && v.rows.length === 12);
 
-  console.log('1. REM: skips the selection at once, no sub-menu');
+  console.log('1. REM: removes the selection at once, no sub-menu');
   await focusPl(); await select(3); await rem();
   let p = await PL();
-  check('REM skips the selected track (2003), still listed', JSON.stringify(skipped(p)) === '[2003]' && p.rows.length === 12, JSON.stringify(skipped(p)));
+  check('REM takes the selected track (2003) out of the list and the order', same(nums(p), ALBUM.filter((n) => n !== 2003)) && same(removed(p), [2003]), JSON.stringify(nums(p)));
   check('...no REM SEL / CROP / REM ALL menu opens', !p.menuOpen, p.menuOpen);
-  check('...title says so', /Skipping: Artist 2003/.test(p.msg), p.msg);
-  await rem(); p = await PL();
-  check('REM again on the same (skipped) track restores it', skipped(p).length === 0 && /Not skipping: Artist 2003/.test(p.msg), JSON.stringify([skipped(p), p.msg]));
+  check('...title says so', /Removed: Artist 2003/.test(p.msg), p.msg);
+  check('...nothing dimmed or struck through', !(await js(`!!document.getElementById('winify-skipped') || [...document.querySelectorAll('#webamp .playlist-track-titles .track-cell')].some((c) => /line-through/.test(getComputedStyle(c).textDecoration) || getComputedStyle(c).opacity !== '1')`)));
+  check('...the rows renumber: 2004 is now track 4', await js(`/^ ?4\\. .*Song 2004/.test(document.querySelectorAll('#webamp .playlist-track-titles .track-cell')[4].textContent.replace(/\\u00a0/g, ' '))`));
   await key('Z', ['meta']); p = await PL();
-  check('Cmd+Z undoes the restore (skipped again)', JSON.stringify(skipped(p)) === '[2003]', JSON.stringify(skipped(p)));
+  check('Cmd+Z puts it back where it was', same(nums(p), ALBUM) && removed(p).length === 0 && /Put back: Artist 2003/.test(p.msg), JSON.stringify([nums(p), p.msg]));
   await key('Z', ['meta']); p = await PL();
-  check('Cmd+Z again undoes the skip', skipped(p).length === 0, JSON.stringify(skipped(p)));
+  check('Cmd+Z with nothing left to undo: a note, nothing changes', p.msg === 'Nothing to undo' && same(nums(p), ALBUM), p.msg);
   await js(`WinifyWebamp.getInstance().store.dispatch({ type: 'SELECT_ZERO' })`); await h.wait(100);
   await rem(); p = await PL();
-  check('REM with nothing selected: a note, nothing skipped', p.msg === 'Select tracks to skip' && skipped(p).length === 0 && !p.menuOpen, p.msg);
+  check('REM with nothing selected: a note, nothing removed', p.msg === 'Select tracks to remove' && same(nums(p), ALBUM) && !p.menuOpen, p.msg);
 
   // The shut REM / MISC menus' invisible bars reach up over the list's last rows: a click there is the row's.
   for (const m of ['#playlist-remove-menu', '#playlist-misc-menu']) {
     const bar = await js(`(() => { const b = document.querySelector('#webamp ${m} .bar').getBoundingClientRect(); return { x: Math.round(b.left + b.width / 2), y: Math.round(b.top + 4) }; })()`);
     const hit = await js(`(() => { const e = document.elementFromPoint(${bar.x}, ${bar.y}); return e ? (e.closest('.track-cell') ? 'row' : e.className || e.nodeName) : null; })()`);
-    const before = JSON.stringify(skipped(await PL())); const lyr = await js('WinifyLyrics.isOpen()');
+    const before = JSON.stringify(nums(await PL())); const lyr = await js('WinifyLyrics.isOpen()');
     await focusPl(); await select(1); await h.click(win, js, '#webamp ' + m + ' .bar', 0.5, 0.05); await h.wait(250);
     p = await PL();
-    check(m.replace('#playlist-', '').replace('-menu', '').toUpperCase() + ' bar over the rows: the click reaches the list, not the button', (hit === 'row' || /playlist-track/.test(hit)) && JSON.stringify(skipped(p)) === before && (await js('WinifyLyrics.isOpen()')) === lyr, JSON.stringify([hit, before, skipped(p)]));
+    check(m.replace('#playlist-', '').replace('-menu', '').toUpperCase() + ' bar over the rows: the click reaches the list, not the button', (hit === 'row' || /playlist-track/.test(hit)) && JSON.stringify(nums(p)) === before && (await js('WinifyLyrics.isOpen()')) === lyr, JSON.stringify([hit, before, nums(p)]));
   }
 
-  console.log('2. Toggle with mixed selections (Delete)');
-  await focusPl(); await select(4); await key('Delete');
-  await select(4, 5, 6); await key('Delete'); p = await PL();
-  check('mixed (4 skipped, 5 and 6 not): skips the unskipped ones', JSON.stringify(skipped(p)) === '[2004,2005,2006]', JSON.stringify(skipped(p)));
-  await key('Delete'); p = await PL();
-  check('all selected already skipped: restores them all', skipped(p).length === 0, JSON.stringify(skipped(p)));
+  console.log('2. Several at once (Delete, Backspace), undone last first');
+  await focusPl(); await select(4, 5, 6); await key('Delete'); p = await PL();
+  check('Delete removes all three', same(nums(p), ALBUM.filter((n) => n < 2004 || n > 2006)), JSON.stringify(nums(p)));
+  await select(1); await key('Backspace'); p = await PL();
+  check('Backspace removes too', same(nums(p), ALBUM.filter((n) => n !== 2001 && (n < 2004 || n > 2006))), JSON.stringify(nums(p)));
+  const left = await js(`WinifyWebamp.getInstance().store.getState().playlist.selectedTracks.length`);
+  check('...nothing stays selected', left === 0, left);
+  await select(3); await js(`WinifyWebamp.getInstance().store.dispatch({ type: 'DRAG_SELECTED', offset: 2 })`); await h.wait(150); p = await PL();
+  const dragged = nums(p);
   await key('Z', ['meta']); p = await PL();
-  check('Cmd+Z: undoes that restore (all three skipped again)', JSON.stringify(skipped(p)) === '[2004,2005,2006]', JSON.stringify(skipped(p)));
+  check('Cmd+Z after a drag: 2001 back after 2000, the drag kept', same(nums(p).filter((n) => n !== 2001), dragged) && nums(p)[1] === 2001, JSON.stringify(nums(p)));
   await key('Z', ['meta']); p = await PL();
-  check('Cmd+Z: undoes the mixed skip (only 2004 left)', JSON.stringify(skipped(p)) === '[2004]', JSON.stringify(skipped(p)));
-  const css = await js(`document.getElementById('winify-skipped').textContent`);
-  check('skipped rows still drawn dimmed / struck through', /line-through/.test(css), css);
+  check('Cmd+Z again: the three back together, in their order', nums(p).join().includes('2004,2005,2006') && p.rows.length === 12 && removed(p).length === 0, JSON.stringify(nums(p)));
+
+  console.log('2b. Hover: the album, in albums and playlists');
+  let tip = await tips();
+  check('album: the header row has none; a song shows its album', !tip[0] && tip[1] === 'Album: Album a1' && tip[2] === 'Album: Album a1', JSON.stringify(tip));
 
   console.log('3. The Autoplay list is read-only, and says so');
   await js('mock.startAutoplay(false)');
@@ -81,6 +91,9 @@ h.open().then(async ({ win, js }) => {
   check('...back to normal on release, nothing moved', !after.cls && after.cursor !== 'not-allowed' && JSON.stringify(p.rows) === before, JSON.stringify(after));
   check('Cmd+Z in Autoplay does nothing to the list', (await key('Z', ['meta']), JSON.stringify((await PL()).rows) === before));
 
+  tip = await tips();
+  check('Autoplay: no album hover', !tip[1] && !tip[2], JSON.stringify(tip));
+
   console.log('4. Back in an order, dragging is normal');
   await js('mock.setContext("spotify:album:a1", 0)'); await until((v) => v.state.mode === 'list' && v.rows.length === 12 && v.cur === 0);
   const c2 = await js(`(() => { const r = document.querySelectorAll('#webamp .playlist-track-titles .track-cell')[3].getBoundingClientRect(); return { x: Math.round(r.left + 30), y: Math.round(r.top + r.height / 2) }; })()`);
@@ -90,6 +103,26 @@ h.open().then(async ({ win, js }) => {
   win.webContents.sendInputEvent({ type: 'mouseUp', x: c2.x, y: c2.y + 30, button: 'left', clickCount: 1 }); await h.wait(200);
   p = await PL();
   check('no not-allowed cursor; the row moved', !d2 && p.rows[3] !== N(2003), JSON.stringify(p.rows.slice(0, 6)));
+
+  console.log('5. A playlist: only this list changes, playing it again brings every song back');
+  await js(`document.querySelector('#webamp #eject').dispatchEvent(new MouseEvent('click', { bubbles: true }))`); await h.wait(700);
+  const playIt = async () => { await js(`document.querySelector('.winify-picker .wp-filter').focus()`); await key('Return'); };
+  await type('road'); await h.wait(200); await key('Down'); await playIt();
+  p = await until((v) => v.state.listContext === 'spotify:playlist:pl77' && v.state.mode === 'list' && v.rows.length === 30 && v.cur === 0);
+  check('a playlist from the picker: all 30', p.rows.length === 30, JSON.stringify(p.state.listContext));
+  tip = await tips();
+  check('playlist: a song shows its album', tip[1] === 'Album: Album', JSON.stringify(tip));
+  await calls();
+  await focusPl(); await select(2, 3); await key('Delete'); p = await PL();
+  check('two removed: 28 left', p.rows.length === 28, p.rows.length);
+  const cs = await calls();
+  check('...and nothing sent to Spotify', !cs.some((c) => /^api:/.test(c[0]) && !/^api:(me|state|player|devices|recent)/.test(c[0]) && c[0] !== 'api:lrc'), JSON.stringify(cs.filter((c) => /^api:/.test(c[0]))));
+  await playIt();
+  p = await until((v) => v.rows.length === 30 && removed(v).length === 0);
+  check('playing the playlist again from the picker: all 30 again', p.rows.length === 30 && removed(p).length === 0, p.rows.length);
+  await js('WinifyPicker.close()'); await h.wait(200);
+  await focusPl(); await key('Z', ['meta']); p = await PL();
+  check('...and there is nothing left to undo', p.msg === 'Nothing to undo' && p.rows.length === 30, p.msg);
 
   const loud = JSON.parse(await js('JSON.stringify(loud)')); const errs = JSON.parse(await js('JSON.stringify(errors)'));
   check('no alerts or prompts', loud.length === 0, JSON.stringify(loud));

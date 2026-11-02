@@ -29,14 +29,14 @@
  * on, the track repeats instead; Next still moves on to Autoplay.
  *
  * A full list played on Winify is Winify's own running order (see "Winify's
- * own running order" below): rows can be dragged into a new order, skipped
- * or restored (REM, Delete; Cmd+Z undoes), and tracks queued play next.
+ * own running order" below): rows can be dragged into a new order, removed
+ * (REM, Delete; Cmd+Z undoes), and tracks queued play next.
  * Shuffle shuffles that order, visibly, instead of Spotify's.
  *
  * Every list starts with a header row naming its source ("— ALBUM · name —",
  * a playlist's name, "— LIKED SONGS —", "— ARTIST · name —", "— AUTOPLAY ·
  * FROM SPOTIFY —", "— UP NEXT —"). It is a label, not a track: unnumbered
- * (the first track is 1), never matched, played, dragged, skipped or queued;
+ * (the first track is 1), never matched, played, dragged, removed or queued;
  * double-clicking it plays the list from its first track. A pinned copy of it
  * stays at the top of the list while it scrolls (see "The header").
  *
@@ -83,7 +83,7 @@ const DRAG_THRESHOLD_PX = 4;
 
 let ctx = null;                     // { webamp, dispatch, api, now, say, log, warn, refreshSoon, deviceId }
 let mode = 'standin';               // 'standin' | 'list' | 'queue' | 'single'
-let entries = [];                   // [{ id, uri, linkedUri, name, durationMs, position, playable, skipped, inserted }]
+let entries = [];                   // [{ id, uri, linkedUri, name, durationMs, position, playable, inserted, from, album }]
 let listContext = null;             // context URI the list belongs to
 let listName = null;
 let currentIndex = -1;
@@ -116,9 +116,10 @@ let preparedFor = null;             // the entry whose end has been prepared
 let expectId = null;                // the entry Winify just started
 let ending = false;                 // the order ran out; Autoplay is being started
 let orderTimer = null;
-let skipUndo = [];                  // skips and restores ({ entries, skip }), for Cmd+Z
+let removeUndo = [];                // removals ({ rows, entries, order }), for Cmd+Z
+let removed = [];                   // rows removed from this list: its source still has them
+let removedPlaying = null;          // the playing track, its row removed: entries[currentIndex] is then the row before its place
 let shuffleTakenAt = 0;
-let skipStyle = null;               // <style> dimming the skipped rows on screen
 let headerEl = null;                // the pinned header, over the list's top row
 let numberObserver = null;          // renumbers rows as Webamp redraws them
 let observedTitles = null;
@@ -160,6 +161,7 @@ export function showStandIn() {
   entries = [];
   listContext = null;
   currentIndex = -1;
+  removedPlaying = null;
 }
 
 // The header for a list: { prefix, name }, shown as "— prefix name —".
@@ -186,6 +188,7 @@ function installList(list, newMode, contextUri, name, label) {
   listContext = contextUri;
   listName = name;
   currentIndex = -1;
+  removedPlaying = null;
   ctx.dispatch({ type: 'SET_PLAYLIST_SCROLL_POSITION', position: 0 });
   if (newMode === 'list') startOrder();
   highlight(true);
@@ -193,7 +196,7 @@ function installList(list, newMode, contextUri, name, label) {
     if (stillComing()) { shuffleWaiting = true; hurry(true); } else applyShuffle();
   }
   if (newMode === 'queue' && shuffleOn && h.name !== AUTOPLAY_LABEL && ctx.now.where === 'winify') handShuffleBack();
-  paintSkips();
+  paintRows();
 }
 
 // Keep the current row on screen, but only when the track changes, so it
@@ -245,6 +248,7 @@ function highlight(trackChanged) {
   if (index !== currentIndex || ctx.webamp.store.getState().playlist.currentTrack !== entries[index].id) {
     currentIndex = index;
     makeCurrent(entries[index].id);
+    forgetRemovedPlaying();
     if (trackChanged) scrollTo(index);
   }
 }
@@ -301,6 +305,7 @@ function row(t) {
     name: (artistsOf(t) ? artistsOf(t) + ' - ' : '') + t.name,
     durationMs: t.duration_ms || 0,
     playable: t.is_playable !== false && !t.is_local,
+    album: t.album && t.album.name,
   };
 }
 
@@ -316,7 +321,9 @@ async function loadAlbum(uri) {
   const id = idOf(uri);
   const path = '/albums/' + id + '/tracks?market=from_token';
   const [album, first] = await Promise.all([ctx.api('GET', '/albums/' + id + '?market=from_token'), page(path, 0)]);
-  return { name: album && album.name, list: first.items.map(row), total: first.total, path, map: row };
+  // An album's own track list does not name the album.
+  const map = (t) => Object.assign(row(t), { album: album && album.name });
+  return { name: album && album.name, list: first.items.map(map), total: first.total, path, map };
 }
 
 // February 2026 names: /playlists/{id}/items, each entry's track under `item`.
@@ -379,7 +386,7 @@ async function readMore(m) {
       shuffleWaiting = false;
       if (shuffleOn) applyShuffle();
     }
-    if (currentIndex < 0 || !matches(entries[currentIndex])) highlight(true);
+    if (currentIndex < 0 || !matches(playingEntry())) highlight(true);
     scheduleOrder();
   } catch (err) {
     if (more !== m) return;
@@ -405,11 +412,11 @@ function appendRows(m, rows) {
   const overflow = ctx.webamp.store.getState().playlist.trackOrder.length - visible;
   if (overflow > 0) ctx.dispatch({ type: 'SET_PLAYLIST_SCROLL_POSITION', position: (top / overflow) * 100 });
   // The playing track may have just arrived.
-  if (mode === 'list' && (currentIndex < 0 || !matches(entries[currentIndex]))) {
+  if (mode === 'list' && (currentIndex < 0 || !matches(playingEntry()))) {
     const found = entries.some((e) => !e.isLabel && matches(e));
     if (found) { m.hurry = false; highlight(true); }
   }
-  paintSkips();
+  paintRows();
 }
 
 async function loadQueue() {
@@ -565,6 +572,7 @@ function showSingle() {
   clearTimeout(queueTimer);
   const n = ctx.now;
   plan.line = lineFor(n);
+  removedPlaying = null;
   ctx.dispatch({ type: 'REMOVE_ALL_TRACKS' });
   entries = [
     { uri: n.trackUri, linkedUri: n.linkedFromUri, name: (n.artist ? n.artist + ' - ' : '') + n.title,
@@ -690,7 +698,8 @@ function takeOverNext() {
 // track does it, and Spotify's Autoplay carries on.
 
 const ordering = () => !!ctx && mode === 'list' && ctx.now.where === 'winify' && listContext === contextNow();
-const playable = (e) => !!e && !e.isLabel && e.playable && !e.skipped && !!e.uri;
+const playable = (e) => !!e && !e.isLabel && e.playable && !!e.uri;
+const playingEntry = () => removedPlaying || entries[currentIndex];
 
 function nextIndex(from) {
   for (let j = from + 1; j < entries.length; j++) if (playable(entries[j])) return j;
@@ -712,7 +721,8 @@ function startOrder() {
   preparedFor = null;
   expectId = null;
   ending = false;
-  skipUndo = [];
+  removeUndo = [];
+  removed = [];
   clearTimeout(orderTimer);
 }
 
@@ -721,7 +731,7 @@ function setOrder(list, cur) {
   entries = list;
   ctx.dispatch({ type: 'SET_TRACK_ORDER', trackOrder: entries.map((e) => e.id) });
   currentIndex = entries.indexOf(cur);
-  paintSkips();
+  paintRows();
 }
 
 // A track started while the order runs. True when it has been placed.
@@ -732,13 +742,22 @@ function followOrder() {
     stopMix();
     return true;
   }
-  if (ending) return false;
+  // (The removed last row: a moment of it ends the source, and the list stays.)
+  if (ending) return removed.some(matches);
   // Spotify plays its queue first, so anything listed before this one was
   // played or dropped; and if this one was not queued at all, nothing was
   // (unless Winify itself just started a track, which keeps the queue).
   if (fromQueue >= 0) pending.splice(0, fromQueue + 1);
   else if (expectId == null) pending = [];
-  const cur = entries[currentIndex];
+  const cur = playingEntry();
+  const here = entries[currentIndex];
+  // A removed song Spotify played anyway: it was in Spotify's queue by then,
+  // or another device asked for it. It stays out of the list: on past it.
+  if (expectId == null && !matches(cur) && removed.some(matches) && !entries.some((e) => !e.isLabel && matches(e))) {
+    ctx.log('play order: Spotify played a removed song, moving on');
+    takeOverSkip(1);
+    return true;
+  }
   let idx = -1;
   if (expectId != null) {
     const k = entries.findIndex((e) => e.id === expectId);
@@ -749,7 +768,10 @@ function followOrder() {
     const k = nextIndex(currentIndex);
     if (k >= 0 && matches(entries[k])) idx = k;
   }
-  if (idx < 0 && matches(cur)) idx = currentIndex;
+  if (idx < 0 && matches(cur)) {
+    if (cur === removedPlaying) return true;
+    idx = currentIndex;
+  }
   if (idx < 0) {
     const hits = [];
     entries.forEach((e, i) => { if (!e.isLabel && matches(e)) hits.push(i); });
@@ -758,8 +780,8 @@ function followOrder() {
       // it is what plays: it moves up to play now, and the order carries on.
       const e = entries[hits.find((i) => i > currentIndex) ?? hits[0]];
       const list = entries.filter((x) => x !== e);
-      list.splice(list.indexOf(cur) + 1, 0, e);
-      setOrder(list, cur);
+      list.splice(list.indexOf(here) + 1, 0, e);
+      setOrder(list, here);
       idx = entries.indexOf(e);
       ctx.log('play order: Spotify played', e.name, 'from its queue, out of turn - moved up to play now');
     } else if (hits.length) {
@@ -775,7 +797,7 @@ function followOrder() {
       // Queued on another device: it joins the order here.
       const e = { id: nextId++, uri: n.trackUri, linkedUri: n.linkedFromUri,
         name: (n.artist ? n.artist + ' - ' : '') + n.title, durationMs: n.durationMs,
-        position: null, playable: true, inserted: true };
+        album: n.album, position: null, playable: true, inserted: true };
       addRow(e.id, e.uri, e.name, e.durationMs, currentIndex + 1);
       entries.splice(currentIndex + 1, 0, e);
       idx = currentIndex + 1;
@@ -785,13 +807,14 @@ function followOrder() {
   const placed = entries[idx];
   makeCurrent(placed.id);
   // A queued track plays once: its row goes when the next track starts.
-  if (cur !== placed && cur.inserted) {
+  if (cur !== placed && cur === removedPlaying) forgetRemovedPlaying();
+  else if (cur !== placed && cur.inserted) {
     ctx.dispatch({ type: 'REMOVE_TRACKS', ids: [cur.id] });
     entries = entries.filter((e) => e !== cur);
   }
   currentIndex = entries.indexOf(placed);
   scrollTo(currentIndex);
-  paintSkips();
+  paintRows();
   return true;
 }
 
@@ -800,7 +823,7 @@ function followOrder() {
 // the end of the mix, not a jump back up the list.
 function mixWrapped() {
   return kind(listContext) === 'mix' && ctx.now.repeat !== 'context' && nextIndex(currentIndex) < 0 &&
-    !matches(entries[currentIndex]) && entries.some((e, i) => i < currentIndex && !e.isLabel && matches(e));
+    !matches(playingEntry()) && entries.some((e, i) => i < currentIndex && !e.isLabel && matches(e));
 }
 
 // Called on every poll: arrange what happens when this track ends.
@@ -808,7 +831,7 @@ function scheduleOrder() {
   clearTimeout(orderTimer);
   const n = ctx.now;
   if (!ordering() || currentIndex < 0 || n.paused || ending || !n.durationMs || n.repeat === 'track') return;
-  const cur = entries[currentIndex];
+  const cur = playingEntry();
   if (!matches(cur)) return;
   const left = n.durationMs - ctx.positionMs();
   if (nextIndex(currentIndex) < 0 && stillComing()) {
@@ -841,7 +864,7 @@ async function queueUri(uri) {
 // Shortly before the end: the order's next track goes into Spotify's queue.
 async function prepareNext() {
   if (!ordering() || currentIndex < 0) return;
-  const cur = entries[currentIndex];
+  const cur = playingEntry();
   const k = nextIndex(currentIndex);
   if (preparedFor === cur.id || !matches(cur) || k < 0) return;
   preparedFor = cur.id;
@@ -861,8 +884,9 @@ async function prepareNext() {
 async function endOrder(why) {
   if (ending || !ordering()) return;
   if (kind(listContext) === 'mix') { stopMix(); return; }
-  const cur = entries[currentIndex];
-  const last = entries.reduce((a, e) => (e.position != null && !e.isLabel && (!a || e.position > a.position) ? e : a), null);
+  const cur = playingEntry();
+  // The source's real last track, removed or not: that is where Spotify's runs out.
+  const last = entries.concat(removed).reduce((a, e) => (e.position != null && !e.isLabel && (!a || e.position > a.position) ? e : a), null);
   if (!last) return;
   if (last === cur && why !== 'Next') return;          // it ends by itself
   ending = true;
@@ -931,7 +955,7 @@ export function takeOverSkip(direction) {
     else run(startEntry(k), 'Next');
     return true;
   }
-  const k = prevIndex(currentIndex);
+  const k = prevIndex(removedPlaying ? currentIndex + 1 : currentIndex);
   if (ctx.positionMs() > RESTART_MS || k < 0) run(window.WinifyPlayer.seek(0), 'Previous');
   else run(startEntry(k), 'Previous');
   return true;
@@ -940,8 +964,8 @@ export function takeOverSkip(direction) {
 // A song about to be queued from a list that has its details: no request to
 // look them up again.
 const knownTracks = new Map();
-export function knowTrack(uri, name, durationMs) {
-  knownTracks.set(uri, { name, durationMs });
+export function knowTrack(uri, name, durationMs, album) {
+  knownTracks.set(uri, { name, durationMs, album });
 }
 
 // Something was added to Spotify's queue (search, or a row's right-click):
@@ -965,19 +989,20 @@ export async function noteQueued(uri) {
   const known = entries.find((e) => e.uri === uri && !e.isLabel) || knownTracks.get(uri);
   let name = known && known.name;
   let durationMs = known && known.durationMs;
+  let album = known && known.album;
   if (!known) {
     try {
       const t = await ctx.api('GET', '/tracks/' + idOf(uri) + '?market=from_token');
-      ({ name, durationMs } = row(t));
+      ({ name, durationMs, album } = row(t));
     } catch (e) { name = uri; durationMs = 0; }
     if (mode !== 'list' || currentIndex < 0) return;
   }
   let at = currentIndex + 1;
   while (entries[at] && entries[at].inserted) at++;
-  const e = { id: nextId++, uri, name, durationMs, position: null, playable: true, inserted: true };
+  const e = { id: nextId++, uri, name, durationMs, album, position: null, playable: true, inserted: true };
   addRow(e.id, uri, name, durationMs, at);
   entries.splice(at, 0, e);
-  paintSkips();
+  paintRows();
   ctx.log('play order: queued', name, '- plays after the current track');
 }
 
@@ -1006,40 +1031,91 @@ export function reordered() {
   }
   entries = list;
   currentIndex = entries.indexOf(cur);
-  paintSkips();
+  paintRows();
 }
 
-// Skip (skip = true) or restore entries; recorded for Cmd+Z.
-function setSkipped(list, skip) {
-  const changed = list.filter((e) => e && !e.isLabel && !!e.skipped !== skip);
-  if (!changed.length) return;
-  changed.forEach((e) => { e.skipped = skip; });
-  skipUndo.push({ entries: changed, skip });
-  paintSkips();
-  const verb = skip ? 'Skipping' : 'Not skipping';
-  ctx.say(changed.length === 1 ? verb + ': ' + changed[0].name : verb + ' ' + changed.length + ' tracks');
-  ctx.log('play order:', verb.toLowerCase(), changed.map((e) => e.name).join(', '));
-  scheduleOrder();
+// Keep the same top row while the list's length changes (Webamp keeps the
+// scroll position as a percentage).
+function keepingTop(change) {
+  const before = ctx.webamp.store.getState();
+  const visible = visibleCapacity(before);
+  const top = Math.round((before.display.playlistScrollPosition / 100) * Math.max(0, before.playlist.trackOrder.length - visible));
+  change();
+  const overflow = ctx.webamp.store.getState().playlist.trackOrder.length - visible;
+  if (overflow > 0) ctx.dispatch({ type: 'SET_PLAYLIST_SCROLL_POSITION', position: Math.min(100, (top / overflow) * 100) });
 }
 
-// REM, Delete: a toggle. Skipped tracks stay listed. If every selected
-// track is skipped already, they are restored; otherwise the rest are skipped.
-export function skipIds(ids) {
+// The playing track has moved on from a row that was removed.
+function forgetRemovedPlaying() {
+  if (removedPlaying) ctx.dispatch({ type: 'REMOVE_TRACKS', ids: [removedPlaying.id] });
+  removedPlaying = null;
+}
+
+// REM, Delete: the rows leave this list and its order, and nothing else: a
+// saved mix or Spotify's playlist keeps them, so positions in the source stay
+// right. The playing track plays on to its end, without a row (Webamp still
+// reads its title and time, so it stays Webamp's current track).
+export function removeIds(ids) {
   const set = new Set(ids.map(Number));
-  const chosen = entries.filter((e) => set.has(e.id) && !e.isLabel);
-  if (!chosen.length) return;
-  setSkipped(chosen, !chosen.every((e) => e.skipped));
+  const rows = entries.filter((e) => set.has(e.id) && !e.isLabel);
+  if (!rows.length) return;
+  const gone = new Set(rows);
+  removeUndo.push({ rows, entries: entries.slice(), order: origOrder.slice() });
+  removed.push(...rows);
+  let k = currentIndex;
+  if (!removedPlaying && gone.has(entries[k])) removedPlaying = entries[k];
+  while (gone.has(entries[k])) k--;
+  const here = entries[k];
+  keepingTop(() => {
+    entries = entries.filter((e) => !gone.has(e));
+    origOrder = origOrder.filter((e) => !gone.has(e));
+    currentIndex = entries.indexOf(here);
+    ctx.dispatch({ type: 'SET_TRACK_ORDER', trackOrder: entries.map((e) => e.id) });
+    const rowless = rows.filter((e) => e !== removedPlaying).map((e) => e.id);
+    if (rowless.length) ctx.dispatch({ type: 'REMOVE_TRACKS', ids: rowless });
+    ctx.dispatch({ type: 'SELECT_ZERO' });
+  });
+  paintRows();
+  ctx.say(rows.length === 1 ? 'Removed: ' + rows[0].name : 'Removed ' + rows.length + ' tracks');
+  ctx.log('play order: removed', rows.map((e) => e.name).join(', '));
+  scheduleOrder();
 }
 
-// Cmd+Z: undo the last skip or restore.
-function undoSkip() {
-  const last = skipUndo.pop();
+// Rows back in a list, each after the nearest row that came before it in `was`.
+function putBack(list, rows, was) {
+  const out = list.slice();
+  rows.forEach((e) => {
+    let i = was.indexOf(e) - 1;
+    while (i >= 0 && !out.includes(was[i])) i--;
+    out.splice(i >= 0 ? out.indexOf(was[i]) + 1 : 0, 0, e);
+  });
+  return out;
+}
+
+// Cmd+Z: undo the last removal, each song back where it was.
+function undoRemove() {
+  const last = removeUndo.pop();
   if (!last) { ctx.say('Nothing to undo'); return; }
-  last.entries.forEach((e) => { e.skipped = !last.skip; });
-  paintSkips();
-  const verb = last.skip ? 'Not skipping' : 'Skipping';
-  ctx.say(last.entries.length === 1 ? verb + ': ' + last.entries[0].name : verb + ' ' + last.entries.length + ' tracks');
+  const back = new Set(last.rows);
+  const here = back.has(removedPlaying) ? removedPlaying : entries[currentIndex];
+  keepingTop(() => {
+    entries = putBack(entries, last.rows, last.entries);
+    origOrder = putBack(origOrder, last.rows.filter((e) => last.order.includes(e)), last.order);
+    removed = removed.filter((e) => !back.has(e));
+    currentIndex = entries.indexOf(here);
+    last.rows.forEach((e) => { if (e !== removedPlaying) addRow(e.id, e.uri || 'winify:unavailable', e.name, e.durationMs, entries.indexOf(e)); });
+    if (back.has(removedPlaying)) removedPlaying = null;
+    ctx.dispatch({ type: 'SET_TRACK_ORDER', trackOrder: entries.map((e) => e.id) });
+  });
+  paintRows();
+  ctx.say(last.rows.length === 1 ? 'Put back: ' + last.rows[0].name : 'Put back ' + last.rows.length + ' tracks');
   scheduleOrder();
+}
+
+// The list is about to be played from outside it (the picker, Jump to track):
+// one with rows removed comes back whole.
+export function willPlay(uri) {
+  if (removed.length && listContext === uri) seenContext = undefined;
 }
 
 function onKeyDown(e) {
@@ -1050,15 +1126,15 @@ function onKeyDown(e) {
   if ((e.key === 'Delete' || e.key === 'Backspace') && !e.metaKey) {
     if (state.windows.focused !== 'playlist' || !state.playlist.selectedTracks.length) return;
     e.preventDefault();
-    if (mode === 'list') skipIds(state.playlist.selectedTracks);
+    if (mode === 'list') removeIds(state.playlist.selectedTracks);
     else readOnlyNote();
   } else if (mode === 'list' && (e.key === 'z' || e.key === 'Z') && e.metaKey && !e.shiftKey) {
     e.preventDefault();
-    undoSkip();
+    undoRemove();
   }
 }
 
-// REM skips (or restores) the selected rows at once, like Delete, in place
+// REM removes the selected rows at once, like Delete, in place
 // of Webamp's REM SEL / CROP / REM ALL menu.
 function onRemClick(e) {
   if (!ctx || !(e.target instanceof Element) || !e.target.closest('#webamp #playlist-remove-menu')) return;
@@ -1066,8 +1142,8 @@ function onRemClick(e) {
   e.stopPropagation();
   if (mode !== 'list') { readOnlyNote(); return; }
   const selected = ctx.webamp.store.getState().playlist.selectedTracks;
-  if (!selected.length) { ctx.say('Select tracks to skip'); return; }
-  skipIds(selected);
+  if (!selected.length) { ctx.say('Select tracks to remove'); return; }
+  removeIds(selected);
 }
 
 // Lists that are Spotify's own (Autoplay, Up Next) cannot be edited; say so.
@@ -1099,32 +1175,19 @@ function visibleOffset(cells) {
   return Math.round((state.display.playlistScrollPosition / 100) * overflow);
 }
 
-// Skipped rows are dimmed and struck through, rewritten for whatever is on
-// screen after each redraw; the pinned header is kept in place.
-function paintSkips() {
+// After each redraw: the numbers and hover text, the pinned header kept in
+// place, and more of a list still coming in when its end is near.
+function paintRows() {
   if (paintFrame) return;
   paintFrame = requestAnimationFrame(() => {
     paintFrame = 0;
-    if (!skipStyle) return;
+    if (!ctx) return;
     watchNumbers();
     drawHeader();
-    const rules = [];
-    if (mode === 'list') {
-      const cells = document.querySelectorAll('#webamp .playlist-track-titles .track-cell');
-      const first = visibleOffset(cells);
-      for (let i = 0; i < cells.length; i++) {
-        if (entries[first + i] && entries[first + i].skipped) {
-          rules.push(`#webamp .playlist-track-titles .track-cell:nth-child(${i + 1})`,
-            `#webamp .playlist-track-durations .track-cell:nth-child(${i + 1})`);
-        }
-      }
-    }
     if (stillComing()) {
       const cells = document.querySelectorAll('#webamp .playlist-track-titles .track-cell');
       if (visibleOffset(cells) + cells.length >= entries.length - NEAR_END_ROWS) hurry();
     }
-    const css = rules.length ? rules.join(',\n') + ' { opacity: 0.45; text-decoration: line-through; }' : '';
-    if (skipStyle.textContent !== css) skipStyle.textContent = css;
   });
 }
 
@@ -1145,9 +1208,10 @@ function renumber() {
     const nodes = cell.firstElementChild ? cell.firstElementChild.childNodes : [];
     if (nodes.length < 3 || nodes[0].nodeType !== Node.TEXT_NODE || nodes[1].nodeType !== Node.TEXT_NODE) return;
     const index = offset + i;
-    // A mix's songs say which playlist they came from.
-    const from = entries[index] && entries[index].from ? 'From ' + entries[index].from : null;
-    if (from) { if (cell.title !== from) cell.title = from; } else if (cell.hasAttribute('title')) cell.removeAttribute('title');
+    // A mix's songs say which playlist they came from, a full list's their album.
+    const e = entries[index];
+    const hover = e && e.from ? 'From ' + e.from : e && e.album && mode === 'list' ? 'Album: ' + e.album : null;
+    if (hover) { if (cell.title !== hover) cell.title = hover; } else if (cell.hasAttribute('title')) cell.removeAttribute('title');
     const number = index === 0 ? '' : String(index).padStart(width, '\u00a0');
     const dot = index === 0 ? '' : '. ';
     if (nodes[0].nodeValue !== number) nodes[0].nodeValue = number;
@@ -1240,16 +1304,17 @@ function shuffle(list) {
 
 // Shuffle on: the current track, then the rest of the source in random order.
 // Off: the source's own order, carrying on from the current track's place in
-// it. Skips are kept either way.
+// it. Removed tracks stay out either way.
 function applyShuffle() {
   // The playing track, even if this poll has not placed it yet.
-  const cur = matches(entries[currentIndex]) ? entries[currentIndex] : entries.find((e) => !e.isLabel && matches(e)) || entries[currentIndex];
+  const gone = removedPlaying;
+  const cur = gone || (matches(entries[currentIndex]) ? entries[currentIndex] : entries.find((e) => !e.isLabel && matches(e)) || entries[currentIndex]);
   if (!cur) return;
-  currentIndex = entries.indexOf(cur);
+  if (!gone) currentIndex = entries.indexOf(cur);
   // Queued tracks are not part of the source and are never shuffled: those
   // already played stay before the current track, the rest come right after.
   const extra = entries.filter((e) => !origOrder.includes(e) && e !== cur);
-  const played = extra.filter((e) => entries.indexOf(e) < currentIndex);
+  const played = extra.filter((e) => entries.indexOf(e) < (gone ? currentIndex + 1 : currentIndex));
   const toCome = extra.filter((e) => entries.indexOf(e) > currentIndex);
   let list;
   const header = origOrder.filter((e) => e.isHeader);
@@ -1257,12 +1322,20 @@ function applyShuffle() {
     list = header.concat(played, [cur], toCome, shuffle(origOrder.filter((e) => e !== cur && !e.isLabel)));
   } else {
     list = origOrder.slice();
-    if (!list.includes(cur)) list.splice(header.length, 0, cur);         // a queued track: under the header
+    if (!list.includes(cur)) {
+      // Removed and still playing: its own place. A queued track: under the header.
+      const at = cur.position != null ? list.findIndex((e) => e.position > cur.position) : header.length;
+      list.splice(at < 0 ? list.length : at, 0, cur);
+    }
     list.splice(list.indexOf(cur), 0, ...played);
     list.splice(list.indexOf(cur) + 1, 0, ...toCome);
   }
   preparedFor = null;
-  setOrder(list, cur);
+  if (gone) {
+    const k = list.indexOf(gone);
+    list.splice(k, 1);
+    setOrder(list, list[k - 1]);
+  } else setOrder(list, cur);
   makeCurrent(cur.id);
   ctx.dispatch({ type: 'SET_PLAYLIST_SCROLL_POSITION', position: 0 });
   scrollTo(currentIndex);
@@ -1321,7 +1394,7 @@ function handShuffleBack() {
 // ---- Mixes ------------------------------------------------------------------------
 // A mix (webamp-mix.js) plays as a list of songs, which Spotify reports with
 // no context. While one plays, its own uri stands in as the context, so the
-// order, skips, queue and shuffle treat it like a playlist. It starts when
+// order, removing, queue and shuffle treat it like a playlist. It starts when
 // one of its songs plays without a context, and lasts until a real context
 // plays, another source is started, or it has finished.
 
@@ -1373,7 +1446,7 @@ export function renamedMix(uri, name) {
     listName = name;
     entries[0].headerName = name;
     entries[0].name = '— ' + entries[0].headerPrefix + name + ' —';
-    paintSkips();
+    paintRows();
   }
 }
 
@@ -1441,9 +1514,6 @@ export function init(c) {
   document.addEventListener('pointerdown', onPointerDown, true);
   document.addEventListener('pointermove', onPointerMove, true);
   document.addEventListener('pointerup', onPointerUp, true);
-  skipStyle = document.createElement('style');
-  skipStyle.id = 'winify-skipped';
-  document.head.appendChild(skipStyle);
   noDragStyle = document.createElement('style');
   noDragStyle.textContent = '.winify-no-drag, .winify-no-drag * { cursor: not-allowed !important; }' +
     ' #webamp .playlist-tracks { position: relative; }' +
@@ -1455,7 +1525,7 @@ export function init(c) {
     ' #webamp .winify-list-header .wh-name { overflow: hidden; text-overflow: ellipsis; min-width: 0; }' +
     ' #webamp .winify-list-header .wh-lead, #webamp .winify-list-header .wh-tail { flex: none; white-space: pre; }';
   document.head.appendChild(noDragStyle);
-  unsubscribe = ctx.webamp.store.subscribe(paintSkips);
+  unsubscribe = ctx.webamp.store.subscribe(paintRows);
   showStandIn();
 }
 
@@ -1488,8 +1558,6 @@ export function reset() {
   document.removeEventListener('keydown', onKeyDown);
   if (unsubscribe) unsubscribe();
   unsubscribe = null;
-  if (skipStyle) skipStyle.remove();
-  skipStyle = null;
   if (noDragStyle) noDragStyle.remove();
   noDragStyle = null;
   if (numberObserver) numberObserver.disconnect();
@@ -1503,6 +1571,9 @@ export function reset() {
   document.removeEventListener('pointerup', onPointerUp, true);
   onPointerUp();
   pending = [];
+  removeUndo = [];
+  removed = [];
+  removedPlaying = null;
   ownQueueing.length = 0;
   ctx = null;
   mode = 'standin';
@@ -1666,7 +1737,7 @@ export async function playEntry(id) {
 window.WinifyPlaylist = {
   noteQueued,
   state: () => ({ mode, listContext, listName, count: entries.length, currentIndex,
-    current: entries[currentIndex] && entries[currentIndex].name, autoplay,
+    current: playingEntry() && playingEntry().name, autoplay,
     label: entries[0] && entries[0].isLabel ? entries[0].name : null,
     header: hasHeader() ? entries[0].name : null,
     line: mode === 'single' ? entries[1].name : null,
@@ -1674,6 +1745,6 @@ window.WinifyPlaylist = {
     plan: plan && { uri: plan.uri, shown: plan.shown, jumping: !!plan.jumping, last: plan.last || null },
     loading: stillComing() ? { loaded: more.rows.length, total: more.total, hurry: more.hurry } : null,
     order: mode === 'list' ? { shuffle: shuffleOn, shuffleWaiting, pending: pending.slice(), ending,
-      skipped: entries.filter((e) => e.skipped).map((e) => e.name),
+      removed: removed.map((e) => e.name), removedPlaying: removedPlaying && removedPlaying.name,
       names: entries.map((e) => e.name) } : null }),
 };

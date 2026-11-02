@@ -145,6 +145,7 @@ async function playSong(r) {
   const deviceId = ctx.deviceId();
   if (!deviceId) { ctx.say('Winify device not ready'); return; }
   try {
+    playlist.willPlay(entry.uri);
     await ctx.api('PUT', '/me/player/play?device_id=' + encodeURIComponent(deviceId),
       { context_uri: entry.uri, offset: /:collection$/.test(entry.uri) ? { uri: r.uri } : { position: r.position } });
     ctx.say(r.name);
@@ -963,6 +964,7 @@ async function pick(entry) {
   const deviceId = ctx.deviceId();
   if (!deviceId) { ctx.say('Winify device not ready'); return; }
   try {
+    playlist.willPlay(entry.uri);
     await ctx.api('PUT', '/me/player/play?device_id=' + encodeURIComponent(deviceId),
       { context_uri: entry.uri, offset: { position: 0 } });
     ctx.log('picker: playing', '"' + entry.name + '"', 'from track 1');

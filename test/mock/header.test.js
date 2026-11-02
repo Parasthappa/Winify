@@ -82,7 +82,7 @@ h.open().then(async ({ win, js }) => {
   check('header cannot be dragged', v.header === '— ALBUM · Album a1 —' && /ALBUM/.test(v.rows[0]) && /^ ?1\. /.test(v.rows[1]), JSON.stringify(v.rows.slice(0, 3)));
   await key('Delete'); await h.click(win, js, '#webamp #playlist-remove-menu'); await h.wait(200);
   v = await V();
-  check('header cannot be skipped (Delete, REM)', v.state.order.skipped.length === 0, JSON.stringify(v.state.order.skipped));
+  check('header cannot be removed (Delete, REM)', v.state.order.removed.length === 0 && /ALBUM/.test(v.rows[0]), JSON.stringify(v.state.order.removed));
   const entry = await js(`(() => { const s = WinifyWebamp.getInstance().store.getState(); return WinifyPlaylist.state() && s.playlist.trackOrder[0]; })()`);
   check('header has no track behind it (nothing to queue)', await js(`(async () => { const m = await import('/webamp-playlist.js'); return m.entryById(${entry}) === null; })()`));
   // A track dragged above the header: the header goes back on top.
@@ -102,10 +102,8 @@ h.open().then(async ({ win, js }) => {
   // REM on track 2 (row 2).
   await js(`WinifyWebamp.getInstance().store.dispatch({ type: 'CLICKED_TRACK', index: 2 })`); await h.click(win, js, '#webamp #playlist-remove-menu'); await h.wait(200);
   v = await V();
-  check('REM on track 2 skips track 2 (2000), not the header or another', JSON.stringify(v.state.order.skipped) === JSON.stringify([N(2000)]), JSON.stringify(v.state.order.skipped));
-  const skipCss = await js(`document.getElementById('winify-skipped').textContent`);
-  check('...and it is the 3rd row on screen that is dimmed (header, track 1, track 2)', /nth-child\(3\)/.test(skipCss) && !/nth-child\(2\)/.test(skipCss), skipCss.slice(0, 120));
-  await h.click(win, js, '#webamp #playlist-remove-menu'); await h.wait(200);
+  check('REM on track 2 removes track 2 (2000), not the header or another', JSON.stringify(v.state.order.removed) === JSON.stringify([N(2000)]) && /ALBUM/.test(v.rows[0]) && v.rows[1].endsWith(N(2001)) && v.rows[2].endsWith(N(2002)) && /^ ?2\. /.test(v.rows[2]), JSON.stringify(v.rows.slice(0, 3)));
+  await key('Z', ['meta']); await h.wait(200);
   // Double-click track 4.
   const r4 = await js(`(() => { const c = document.querySelectorAll('#webamp .playlist-track-titles .track-cell')[4].getBoundingClientRect(); return { x: Math.round(c.left + 40), y: Math.round(c.top + 6) }; })()`);
   await take(); await dbl(r4.x, r4.y);

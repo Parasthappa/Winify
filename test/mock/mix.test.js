@@ -155,6 +155,24 @@ h.open().then(async ({ win, js }) => {
   check('...and stays (no reload of the mix)', p.state.label === '— AUTOPLAY · FROM SPOTIFY —', show(p));
   await js('mock.autoplayAfterUris = false');
 
+  console.log('8b. Removing songs from a mix changes only this list');
+  const savedTracks = () => js(`JSON.stringify(WinifyMix.saved().find((m) => m.id === ${JSON.stringify(left[0].id)}).tracks)`);
+  const keptTracks = await savedTracks();
+  await js(`WinifyMix.playSaved(${JSON.stringify(left[0].id)})`);
+  p = await until((v) => v.state.mix && v.state.mix.started && !v.state.mix.done && v.state.mode === 'list' && v.cur === 0, 10000);
+  const whole = p.state.count;
+  await h.click(win, js, '#playlist-window', 0.5, 0.02);
+  await js(`WinifyWebamp.getInstance().store.dispatch({ type: 'CLICKED_TRACK', index: 1 + __hdr() })`);
+  await h.click(win, js, '#webamp #playlist-remove-menu'); await h.wait(300);
+  p = await PL();
+  check('REM takes the song out of the list', p.state.count === whole - 1 && p.state.order.removed.length === 1, show(p));
+  check('...the saved mix keeps it', (await savedTracks()) === keptTracks);
+  const mixTip = await js(`document.querySelectorAll('#webamp .playlist-track-titles .track-cell')[2].title`);
+  check('...hover still names the source playlist', /^From /.test(mixTip), mixTip);
+  await js(`WinifyMix.playSaved(${JSON.stringify(left[0].id)})`);
+  p = await until((v) => v.state.count === whole && v.state.order && v.state.order.removed.length === 0 && v.cur === 0, 10000);
+  check('playing the saved mix again: every song back', p.state.count === whole && p.state.order.removed.length === 0, show(p));
+
   console.log('9. Another source ends the mix');
   await js('mock.setContext("spotify:album:a1", 0)');
   p = await until((v) => v.state.listContext === 'spotify:album:a1' && v.state.mode === 'list');

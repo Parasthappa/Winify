@@ -1,4 +1,4 @@
-// Winify's own running order: transitions, reorder, skip/undo, queue, Next/Previous, shuffle, Autoplay.
+// Winify's own running order: transitions, reorder, remove/undo, queue, Next/Previous, shuffle, Autoplay.
 const { app } = require('electron'); const h = require('../lib/harness');
 let fails = 0; setTimeout(() => { console.log('WATCHDOG'); app.exit(2); }, 420000);
 h.open().then(async ({ win, js }) => {
@@ -9,12 +9,12 @@ h.open().then(async ({ win, js }) => {
   const PL = () => js(`(() => { const s = WinifyWebamp.getInstance().store.getState(); const t = (id) => s.tracks[id] || {};
     const name = (id) => t(id).artist && t(id).title ? t(id).artist + ' - ' + t(id).title : t(id).defaultName;
     return { rows: s.playlist.trackOrder.slice(__hdr()).map(name), cur: s.playlist.trackOrder.indexOf(s.playlist.currentTrack) - __hdr(), state: WinifyPlaylist.state(),
-      track: mock.track, queue: mock.queue.slice(), shuffleBtn: s.media.shuffle, spotifyShuffle: mock.shuffle, css: document.getElementById('winify-skipped').textContent }; })()`);
+      track: mock.track, queue: mock.queue.slice(), shuffleBtn: s.media.shuffle, spotifyShuffle: mock.shuffle}; })()`);
   const until = async (fn, ms = 8000) => { const t0 = Date.now(); let v; while (Date.now() - t0 < ms) { v = await PL(); if (fn(v)) return v; await h.wait(150); } return v; };
   const N = (n) => 'Artist ' + n + ' - Song ' + n;
   // (The fake search names result 13, track 6013, "road song 13".)
   const nums = (p) => p.rows.map((r) => (/road song 13/.test(r) ? 6013 : +(r.match(/Song (\d+)/) || [0, 0])[1]));
-  const show = (p) => JSON.stringify({ order: nums(p).slice(0, 13), cur: p.cur, track: p.track, queue: p.queue, mode: p.state.mode, skipped: p.state.order && p.state.order.skipped });
+  const show = (p) => JSON.stringify({ order: nums(p).slice(0, 13), cur: p.cur, track: p.track, queue: p.queue, mode: p.state.mode, removed: p.state.order && p.state.order.removed });
   const nearEnd = (ms) => js(`(mock.position = ${200000 - ms}, mock.at = Date.now(), true)`);
   const press = (x, y, button = 'left', clickCount = 1) => { win.webContents.sendInputEvent({ type: 'mouseDown', x, y, button, clickCount }); win.webContents.sendInputEvent({ type: 'mouseUp', x, y, button, clickCount }); };
   const rowAt = (i) => js(`(() => { const c = [...document.querySelectorAll('#webamp .playlist-track-titles .track-cell')].find(c => parseInt(c.textContent.replace(/\\u00a0/g,''),10) === ${i + 1}); if (!c) return null; const r = c.getBoundingClientRect(); return { x: Math.round(r.left + 30), y: Math.round(r.top + r.height / 2) }; })()`);
@@ -54,21 +54,20 @@ h.open().then(async ({ win, js }) => {
   t = await transition();
   check('the reordered next (2005) is what gets queued and plays', t.q.length === 1 && t.q[0][1] === 'spotify:track:2005' && t.p.track === 2005 && t.p.rows[t.p.cur] === N(2005), show(t.p) + JSON.stringify(t.q));
 
-  console.log('3. Skip (Delete, REM) and undo (Cmd+Z)');
+  console.log('3. Remove (Delete, REM) and undo (Cmd+Z)');
   p = await PL(); const i2002 = nums(p).indexOf(2002);
   await h.click(win, js, '#playlist-window', 0.5, 0.02); await select(i2002); await h.wait(100);
   await key('Delete'); await h.wait(300);
   p = await PL();
-  check('Delete: 2002 marked skipped, still listed', p.rows.length === 12 && p.state.order.skipped.join() === N(2002), show(p));
-  check('...shown dimmed and struck through', /line-through/.test(p.css) && /opacity/.test(p.css), p.css);
+  check('Delete: 2002 leaves the list', p.rows.length === 11 && !nums(p).includes(2002) && p.state.order.removed.join() === N(2002), show(p));
   await select(nums(p).indexOf(2003)); await js(`WinifyWebamp.getInstance().store.dispatch({ type: 'REMOVE_TRACKS', ids: WinifyWebamp.getInstance().store.getState().playlist.selectedTracks.slice() })`); await h.wait(200);
   p = await PL();
-  check('REM > Remove selected: 2003 skipped too, not removed', p.rows.length === 12 && p.state.order.skipped.length === 2, show(p));
+  check('Webamp\'s own remove action: 2003 goes too', p.rows.length === 10 && !nums(p).includes(2003) && p.state.order.removed.length === 2, show(p));
   await key('Z', ['meta']); await h.wait(200);
   p = await PL();
-  check('Cmd+Z: undoes the last skip (2003 back), 2002 still skipped', p.state.order.skipped.join() === N(2002), show(p));
+  check('Cmd+Z: the last removal undone (2003 back in its place), 2002 still gone', p.state.order.removed.join() === N(2002) && p.rows.length === 11 && nums(p)[p.cur + 1] === 2003, show(p));
   t = await transition();
-  check('the skipped track is passed over: 2003 queued and plays', t.q.length === 1 && t.q[0][1] === 'spotify:track:2003' && t.p.track === 2003, show(t.p) + JSON.stringify(t.q));
+  check('the removed track is passed over: 2003 queued and plays', t.q.length === 1 && t.q[0][1] === 'spotify:track:2003' && t.p.track === 2003, show(t.p) + JSON.stringify(t.q));
 
   console.log('4. Add to queue: plays next, then the order carries on');
   p = await PL(); const i2010 = nums(p).indexOf(2010);
@@ -79,18 +78,18 @@ h.open().then(async ({ win, js }) => {
   const qc = await js(`(() => { const r = document.querySelectorAll('#webamp-context-menu li')[${qi}].getBoundingClientRect(); return { x: Math.round(r.left + 20), y: Math.round(r.top + r.height / 2) }; })()`);
   await take(); press(qc.x, qc.y); await h.wait(600);
   p = await PL();
-  check('right-click > Add to queue: 2010 inserted right after the current track', nums(p)[p.cur + 1] === 2010 && p.rows.length === 13 && p.queue.join() === '2010', show(p));
+  check('right-click > Add to queue: 2010 inserted right after the current track', nums(p)[p.cur + 1] === 2010 && p.rows.length === 12 && p.queue.join() === '2010', show(p));
   // ...and one from search (not on this album): Shift+Enter on result 13 (track 6013).
   await h.click(win, js, '#title-bar', 0.3, 0.5); await h.wait(150); await key('J'); await h.wait(400); await key('Tab'); await type('road'); await h.wait(900);
   for (let k = 0; k < 13; k++) await key('Down');
   await key('Return', ['shift']); await h.wait(900); await key('Escape'); await h.wait(200);
   p = await PL();
-  check('search Shift+Enter: 6013 inserted after 2010 (queued in that order)', nums(p)[p.cur + 1] === 2010 && nums(p)[p.cur + 2] === 6013 && p.rows.length === 14, show(p));
+  check('search Shift+Enter: 6013 inserted after 2010 (queued in that order)', nums(p)[p.cur + 1] === 2010 && nums(p)[p.cur + 2] === 6013 && p.rows.length === 13, show(p));
   t = await transition();
   check('at the end Winify adds nothing itself (your queue plays first); 2010 plays', t.q.filter((c) => c[1] !== 'spotify:track:6013').length === 0 && t.p.track === 2010, show(t.p) + JSON.stringify(t.cs));
   t = await transition();
   check('then 6013', t.p.track === 6013 && t.q.length === 0, show(t.p));
-  check('2010 played once, so its queued row is gone (the album\'s own stays)', nums(t.p).filter((n) => n === 2010).length === 1 && t.p.rows.length === 13, show(t.p));
+  check('2010 played once, so its queued row is gone (the album\'s own stays)', nums(t.p).filter((n) => n === 2010).length === 1 && t.p.rows.length === 12, show(t.p));
   const resume = nums(await PL())[(await PL()).cur + 1];
   t = await transition();
   check('then the order carries on where it was (' + resume + ', dragged there earlier)', t.q.length === 1 && nums(t.p)[t.p.cur] === resume && resume === 2008, show(t.p) + JSON.stringify(t.q));
@@ -124,25 +123,24 @@ h.open().then(async ({ win, js }) => {
   check('Shuffle on: current track, then the rest reordered (played queued tracks stay above it), same tracks', p.rows[p.cur] === curName && nums(p).slice(0, p.cur).every((n) => n === 6013 || n === 2010) && JSON.stringify(nums(p).slice().sort()) === JSON.stringify(nums(before).slice().sort()) && JSON.stringify(nums(p)) !== JSON.stringify(nums(before)), show(p));
   check('shuffle on: the header is still the first row', (await js('__hdr()')) === 1, show(p));
   check('...shuffle button on; Spotify\'s shuffle untouched (off)', p.shuffleBtn === true && p.spotifyShuffle === false && p.state.order.shuffle, show(p));
-  check('...skips kept (2002 still skipped)', p.state.order.skipped.join() === N(2002), show(p));
-  const shuffledNext = nums(p).slice(p.cur + 1).find((n) => n !== 2002);
+  check('...2002 stays out', p.state.order.removed.join() === N(2002) && !nums(p).includes(2002), show(p));
+  const shuffledNext = nums(p)[p.cur + 1];
   t = await transition();
   check('the shuffled order\'s next is queued and plays', t.q.length === 1 && t.q[0][1] === 'spotify:track:' + shuffledNext && t.p.track === shuffledNext, show(t.p) + JSON.stringify(t.q));
-  // Edit while shuffled: skip the next one.
-  p = await PL(); const isSkipped = (n) => p.state.order.skipped.includes(N(n));
-  const skipAt = nums(p).findIndex((n, i) => i > p.cur && !isSkipped(n)); const skipMe = nums(p)[skipAt];
-  const thenMe = nums(p).slice(skipAt + 1).find((n) => !isSkipped(n) && n !== skipMe);
+  // Edit while shuffled: remove the next one.
+  p = await PL();
+  const skipAt = p.cur + 1; const skipMe = nums(p)[skipAt]; const thenMe = nums(p)[skipAt + 1];
   await h.click(win, js, '#playlist-window', 0.5, 0.02); await select(skipAt); await key('Delete'); await h.wait(200);
   t = await transition();
-  check('skip while shuffled: ' + skipMe + ' passed over, ' + thenMe + ' plays', t.p.track === thenMe && t.q.length === 1 && t.q[0][1] === 'spotify:track:' + thenMe, show(t.p) + JSON.stringify(t.q));
+  check('remove while shuffled: ' + skipMe + ' gone, ' + thenMe + ' plays', t.p.track === thenMe && t.q.length === 1 && t.q[0][1] === 'spotify:track:' + thenMe && !nums(t.p).includes(skipMe), show(t.p) + JSON.stringify(t.q));
   const playing = (await PL()).track; const rowsBeforeOff = (await PL()).rows.slice().sort();
   await take(); await h.click(win, js, '#webamp #shuffle'); await h.wait(600);
   p = await PL();
   check('Shuffle off keeps every row, queued tracks included (' + rowsBeforeOff.length + ')', JSON.stringify(p.rows.slice().sort()) === JSON.stringify(rowsBeforeOff), show(p));
   // The album's own rows, leaving out the two queued ones (6013, and the queued copy of 2010).
   const albumRows = nums(p).filter((n) => n !== 6013); if (albumRows.filter((n) => n === 2010).length === 2) albumRows.splice(albumRows.indexOf(2010), 1);
-  check('Shuffle off: original album order back, current highlighted at its own place', JSON.stringify(albumRows) === JSON.stringify([2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011]) && nums(p)[p.cur] === playing, show(p));
-  check('...skips kept (2002 and ' + skipMe + ')', p.state.order.skipped.length === 2 && p.state.order.skipped.includes(N(skipMe)), show(p));
+  check('Shuffle off: original album order back, current highlighted at its own place', JSON.stringify(albumRows) === JSON.stringify([2000, 2001, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011].filter((n) => n !== skipMe)) && nums(p)[p.cur] === playing, show(p));
+  check('...2002 and ' + skipMe + ' stay out', p.state.order.removed.length === 2 && p.state.order.removed.includes(N(skipMe)), show(p));
   check('...shuffle button off', p.shuffleBtn === false, show(p));
   check('...the header is still the first row', (await js('__hdr()')) === 1, show(p));
   // Spotify's shuffle turned on elsewhere: Winify takes it over.
@@ -153,18 +151,13 @@ h.open().then(async ({ win, js }) => {
   await h.click(win, js, '#webamp #shuffle'); await h.wait(600);
 
   console.log('7. Running out: Spotify\'s Autoplay takes over');
-  // Skip everything after 2009 except nothing: play 2009 with 2010, 2011 skipped.
+  // Every row after 2009 removed, the album's last track among them, so the order ends with it.
   p = await PL();
   await h.click(win, js, '#playlist-window', 0.5, 0.02);
-  // Every row after 2009 skipped, so the order ends with it (Delete is a toggle: repeat until all are).
-  for (let tries = 0; tries < 2; tries++) {
-    const q = await PL(); const at = nums(q).indexOf(2009);
-    const after = nums(q).map((n, i) => (i > at ? i : -1)).filter((i) => i >= 0);
-    await js(`(() => { const st = WinifyWebamp.getInstance().store; st.dispatch({ type: 'CLICKED_TRACK', index: ${after[0]} + __hdr() }); ${after.slice(1).map((i) => `st.dispatch({ type: 'CTRL_CLICKED_TRACK', index: ${i} + __hdr() });`).join('')} })()`);
-    await key('Delete');
-    const done = await PL();
-    if (nums(done).slice(at + 1).every((n) => done.state.order.skipped.includes(N(n)))) break;
-  }
+  const at2009 = nums(p).indexOf(2009);
+  const after = nums(p).map((n, i) => (i > at2009 ? i : -1)).filter((i) => i >= 0);
+  await js(`(() => { const st = WinifyWebamp.getInstance().store; st.dispatch({ type: 'CLICKED_TRACK', index: ${after[0]} + __hdr() }); ${after.slice(1).map((i) => `st.dispatch({ type: 'CTRL_CLICKED_TRACK', index: ${i} + __hdr() });`).join('')} })()`);
+  await key('Delete');
   p = await PL(); const i2009 = nums(p).indexOf(2009);
   // Scroll it into the middle of the list (the top slot is under the pinned header).
   await js(`(() => { const st = WinifyWebamp.getInstance().store; const s = st.getState(); const shown = document.querySelectorAll('#webamp .playlist-track-titles .track-cell').length;
@@ -180,10 +173,54 @@ h.open().then(async ({ win, js }) => {
   check('order ends -> the album\'s last moment is played (2011 at 199.7 s)', body && body.offset.position === 11 && body.position_ms === 199700, JSON.stringify(cs));
   check('Spotify\'s Autoplay plays; window switches to the Autoplay list', p.track === 9000 && p.rows[0] === '— AUTOPLAY · FROM SPOTIFY —' && p.rows[p.cur] === N(9000), show(p));
 
+  console.log('7b. The playing song removed: it plays on, without a row');
+  const webampCurrent = () => js(`(() => { const s = WinifyWebamp.getInstance().store.getState(); const t = s.tracks[s.playlist.currentTrack] || {}; return t.artist && t.title ? t.artist + ' - ' + t.title : t.defaultName; })()`);
+  await js('(mock.autoplayOn = false, mock.setContext("spotify:album:a1", 0))');
+  p = await until((v) => v.state.listContext === 'spotify:album:a1' && v.state.mode === 'list' && v.rows.length === 12 && v.cur === 0);
+  await h.click(win, js, '#playlist-window', 0.5, 0.02); await take(); await select(0); await key('Delete'); await h.wait(300);
+  p = await PL(); cs = await take();
+  check('its row goes; nothing is sent to Spotify, it plays on', p.rows.length === 11 && !nums(p).includes(2000) && p.track === 2000 && p.state.order.removedPlaying === N(2000) && !cs.some((c) => /^(api:play|nextTrack|seek)$/.test(c[0])), show(p) + JSON.stringify(cs));
+  check('...the title and time still read from it', (await webampCurrent()) === N(2000) && p.state.current === N(2000), await webampCurrent());
+  await key('Z', ['meta']); await h.wait(200); p = await PL();
+  check('Cmd+Z: back at the top, current again', p.rows.length === 12 && nums(p)[0] === 2000 && p.cur === 0 && !p.state.order.removedPlaying, show(p));
+  await select(0); await key('Delete'); await h.wait(200);
+  await h.click(win, js, '#webamp #shuffle'); await h.wait(500); p = await PL();
+  check('Shuffle on while it plays: it stays out, still playing', p.rows.length === 11 && !nums(p).includes(2000) && p.state.order.removedPlaying === N(2000) && (await webampCurrent()) === N(2000) && (await js('__hdr()')) === 1, show(p));
+  await h.click(win, js, '#webamp #shuffle'); await h.wait(500); p = await PL();
+  check('Shuffle off: the album\'s order without it', JSON.stringify(nums(p)) === JSON.stringify([2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011]) && p.state.order.removedPlaying === N(2000), show(p));
+  t = await transition();
+  check('at its end the next song is queued and plays, as its row', t.q.length === 1 && t.q[0][1] === 'spotify:track:2001' && t.p.track === 2001 && t.p.cur === 0 && !t.p.state.order.removedPlaying && (await webampCurrent()) === N(2001), show(t.p) + JSON.stringify(t.q));
+  await key('Z', ['meta']); await h.wait(200); p = await PL();
+  check('Cmd+Z after it finished: back in its place, not current', p.rows.length === 12 && nums(p)[0] === 2000 && p.cur === 1 && p.track === 2001, show(p));
+  await h.click(win, js, '#playlist-window', 0.5, 0.02); await select(1); await key('Delete'); await h.wait(200);
+  await js('(mock.position = 0, mock.at = Date.now(), true)'); await h.wait(1300); await take();
+  await h.click(win, js, '#webamp #previous');
+  p = await until((v) => v.track === 2000 && v.cur === 0); cs = await take(); pl = cs.find((c) => c[0] === 'api:play'); body = pl && JSON.parse(pl[2]);
+  check('Previous from a removed song: the row before its place', p.track === 2000 && p.cur === 0 && body && body.offset.position === 0 && !p.state.order.removedPlaying, show(p));
+  await h.click(win, js, '#webamp #next');
+  p = await until((v) => v.track === 2002 && v.cur === 1); cs = await take(); pl = cs.find((c) => c[0] === 'api:play'); body = pl && JSON.parse(pl[2]);
+  check('Next passes over it; the source\'s own positions still hold', p.track === 2002 && body && body.offset.position === 2, show(p) + JSON.stringify(cs));
+
+  console.log('7c. A song already in Spotify\'s queue, removed');
+  await take(); await nearEnd(32000); await h.wait(4500); cs = await take();
+  check('the next song (2003) is in Spotify\'s queue', cs.some((c) => c[0] === 'api:addToQueue' && c[1] === 'spotify:track:2003'), JSON.stringify(cs));
+  p = await PL(); await h.click(win, js, '#playlist-window', 0.5, 0.02); await select(nums(p).indexOf(2003)); await key('Delete'); await h.wait(200);
+  await js('mock.trackEnded()');
+  p = await until((v) => v.track === 2004 && v.rows[v.cur] === N(2004)); cs = await take(); pl = cs.find((c) => c[0] === 'api:play'); body = pl && JSON.parse(pl[2]);
+  check('when Spotify plays it, Winify moves on to 2004 at once; its row does not come back', p.track === 2004 && !nums(p).includes(2003) && body && body.offset.position === 4, show(p) + JSON.stringify(cs));
+  await js(`(async () => { const m = await import('/webamp-playlist.js'); m.knowTrack('spotify:track:2003', ${JSON.stringify(N(2003))}, 200000, 'Album a1'); mock.queue.push(2003); await m.noteQueued('spotify:track:2003'); })()`);
+  p = await until((v) => nums(v)[v.cur + 1] === 2003);
+  check('added to the queue again: back in the list, after the current song', nums(p)[p.cur + 1] === 2003, show(p));
+  t = await transition();
+  check('...and it plays', t.p.track === 2003 && t.p.rows[t.p.cur] === N(2003), show(t.p));
+  await js(`(async () => { const m = await import('/webamp-playlist.js'); m.willPlay('spotify:album:a1'); mock.setContext('spotify:album:a1', 0); })()`);
+  p = await until((v) => v.rows.length === 12 && v.cur === 0 && v.state.order.removed.length === 0);
+  check('the album played again: every song back', JSON.stringify(nums(p)) === JSON.stringify([2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011]), show(p));
+
   console.log('8. A new source starts a fresh order');
   await js('mock.setContext("spotify:album:a1", 0)');
   p = await until((v) => v.state.mode === 'list' && v.cur === 0 && v.rows.length === 12);
-  check('album again: original order, no skips', JSON.stringify(nums(p)) === JSON.stringify([2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011]) && p.state.order.skipped.length === 0, show(p));
+  check('album again: original order, no skips', JSON.stringify(nums(p)) === JSON.stringify([2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011]) && p.state.order.removed.length === 0, show(p));
   await js('mock.setContext("spotify:playlist:big", 0)');
   p = await until((v) => v.state.listContext === 'spotify:playlist:big' && v.cur === 0 && v.rows.length === 500 && !v.state.loading, 30000);
   check('a playlist: its own order (all 500, read in the background)', p.rows.length === 500, show(p));

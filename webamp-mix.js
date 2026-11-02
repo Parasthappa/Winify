@@ -8,7 +8,7 @@
  * mix are passed over; a playlist that comes up short is read once more at
  * another offset. About one request per playlist, plus one to play.
  * The songs are shuffled and played on Winify as a list of their own
- * (webamp-playlist.js treats it as a source, so its play order, skipping,
+ * (webamp-playlist.js treats it as a source, so its play order, removing,
  * reordering, queue and shuffle work as usual).
  *
  * Songs come from the local playlist index (webamp-library-index.js) when

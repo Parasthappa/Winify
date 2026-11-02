@@ -178,6 +178,7 @@ async function start(r, body, what) {
   const deviceId = ctx.deviceId();
   if (!deviceId) { flash('NOT READY'); ctx.say('Winify device not ready'); return; }
   try {
+    if (body.context_uri) playlist.willPlay(body.context_uri);
     await ctx.api('PUT', '/me/player/play?device_id=' + encodeURIComponent(deviceId), body);
     ctx.log('jump to track: playing', what);
   } catch (err) {
@@ -249,7 +250,7 @@ export async function queue(uri, name) {
 
 function queueRow(r) {
   if (r && r.playable) {
-    playlist.knowTrack(r.uri, r.artist + ' - ' + r.title, r.durationMs);
+    playlist.knowTrack(r.uri, r.artist + ' - ' + r.title, r.durationMs, r.album);
     queue(r.uri, r.artist + ' - ' + r.title);
   } else if (r) flash('NOT PLAYABLE');
 }
@@ -263,7 +264,7 @@ async function queueChosen() {
   paintSelection();
   let added = 0;
   for (const r of list) {
-    playlist.knowTrack(r.uri, r.artist + ' - ' + r.title, r.durationMs);
+    playlist.knowTrack(r.uri, r.artist + ' - ' + r.title, r.durationMs, r.album);
     if (!(await queue(r.uri, r.artist + ' - ' + r.title))) break;
     added++;
   }

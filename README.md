@@ -188,7 +188,7 @@ outside its filter box (in the box, L just types).
 
 Click the Wi logo (bottom right of the main window). Winify picks 10 of
 your own playlists at random, takes 10 random songs from each, shuffles them
-and plays them. Skip, reorder, queue and shuffle work as with any playlist.
+and plays them. Remove, reorder, queue and shuffle work as with any playlist.
 Hover over a song to see which playlist it came from. Click the logo again
 for a fresh mix.
 
@@ -233,11 +233,16 @@ For albums, your own playlists and Liked Songs, the playlist window is
 Winify's own running order:
 
 - **Drag** tracks to change the order.
-- **REM** or **Delete** skips the selected tracks. They stay in the list,
-  struck through. Do it again to un-skip them. **Cmd+Z** undoes.
+- **REM** or **Delete** removes the selected tracks from the list and the
+  play order. **Cmd+Z** puts the last ones you removed back where they were.
+  Removing only changes the list you have loaded, never your Spotify playlists
+  or saved mixes: playing the playlist or mix again brings every song back,
+  and you can add a removed song again with search or **Add to queue**.
+  If you remove the song that is playing, it finishes first.
 - **Shuffle** shuffles the list where you can see it. Turn it off to get the
   original order back.
 - **Double-click** a track to play it. Right-click it to add it to the queue.
+- **Hover** over a song to see its album.
 - The first row names what is playing (the album, playlist or artist).
   Double-click it to play from the top.
 
@@ -398,6 +403,11 @@ window is closed, Winify is hidden or minimized, or the music is paused.
   there only once the track changes. They still play.
 - Spotify only shows about 20 upcoming songs in a queue, so a longer queue
   isn't listed in full.
+- Spotify can't take a song back out of its queue. If you remove a song you
+  queued, or the next song in the last seconds before it starts, you may hear a
+  moment of it before Winify moves on.
+- If you remove an album's or playlist's last song, you may hear a moment of it
+  when the list ends, because Spotify's Autoplay only starts after that song.
 
 ## Troubleshooting
 

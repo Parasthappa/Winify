@@ -160,14 +160,14 @@ h.open().then(async ({ win, js }) => {
   check('list reloaded exactly once (10 pages), not in a loop', cs.filter((c) => c[0] === 'api:playlistItems').length === 10, cs.filter((c) => c[0] === 'api:playlistItems').length);
   await m('(mock.active = "winify")');
 
-  console.log('7. Sorting stays inert; removing skips instead');
+  console.log('7. Sorting stays inert; removing takes rows out of the list');
   await m('(mock.setContext("spotify:playlist:big", 2))'); p = await until((v) => v.cur === 2 && v.pl.mode === 'list');
   const before = await P();
   await js(`(() => { const st = WinifyWebamp.getInstance().store; const o = st.getState().playlist.trackOrder;
     st.dispatch({ type: 'SET_TRACK_ORDER', trackOrder: [...o].reverse() }); st.dispatch({ type: 'REVERSE_LIST' }); st.dispatch({ type: 'RANDOMIZE_LIST' });
     st.dispatch({ type: 'REMOVE_TRACKS', ids: o.slice(__hdr(), __hdr() + 5) }); st.dispatch({ type: 'REMOVE_ALL_TRACKS' }); })()`);
-  p = await P(); check('sort / reverse / randomize / remove all leave the list as it was', p.rows === before.rows && p.names.join() === before.names.join(), p.rows);
-  check('remove selected marks those 5 as skipped instead', p.pl.order && p.pl.order.skipped.length === 5, JSON.stringify(p.pl.order && p.pl.order.skipped));
+  p = await P(); check('sort / reverse / randomize / remove all change nothing; remove selected takes those 5 out', p.rows === before.rows - 5 && p.names.join() === before.names.slice(5).join(), p.rows);
+  check('...and they are listed as removed for this list', p.pl.order && p.pl.order.removed.length === 5, JSON.stringify(p.pl.order && p.pl.order.removed));
 
   const errs = JSON.parse(await js('JSON.stringify(errors)'));
   check('no page errors or exceptions', errs.length === 0, JSON.stringify(errs));

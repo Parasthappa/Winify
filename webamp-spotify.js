@@ -655,7 +655,7 @@ export class SpotifyMedia {
 // move to another entry. Spotify decides what plays next, so those requests
 // are dropped -- except a double-clicked row, which plays that track. Sorting
 // and the like are dropped too; in Winify's running order (a full list),
-// dragging rows reorders it and removing rows skips them.
+// dragging rows reorders it and removing rows takes them out of it.
 const DISCARD = new Set([
   'PLAY_TRACK', 'BUFFER_TRACK', 'IS_STOPPED',
   'ADD_TRACK_FROM_URL', 'REMOVE_TRACKS', 'REMOVE_ALL_TRACKS',
@@ -675,14 +675,14 @@ export const middleware = (store) => (next) => (action) => {
     return undefined;
   }
   if (action.type === 'STOP' && stopIgnored) return undefined;
-  // Winify's own running order: rows can be dragged, and removing them skips them.
+  // Winify's own running order: rows can be dragged and removed.
   if (action.type === 'DRAG_SELECTED' && playlist.canDrag()) {
     const result = next(action);
     playlist.reordered();
     return result;
   }
   if (action.type === 'REMOVE_TRACKS' && playlist.canEdit()) {
-    playlist.skipIds(action.ids);
+    playlist.removeIds(action.ids);
     return undefined;
   }
   if (DISCARD.has(action.type)) return undefined;
