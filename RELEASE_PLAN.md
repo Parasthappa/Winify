@@ -133,19 +133,23 @@ Done means:
 - No public download. A .dmg DM'd to a friend is fine (no Apple signing, so
   they open it once via Privacy & Security > Open Anyway).
 
-## 5. Publish (the source code)
+## 5. Publish (the source code): done (3 Nov 2026)
 
 Done means:
 
-- [ ] The README is ready for strangers: what Winify is, how to build and
+- [x] The README is ready for strangers: what Winify is, how to build and
       run it from the source (Node, the castLabs Electron, their own EVS
       signing and Spotify Client ID), the visualizer setup, troubleshooting,
       privacy, and the "Not affiliated" section.
 - [x] Credits name everything Winify uses (THIRD_PARTY_NOTICES.md), down to
       each library inside Webamp's build (31 Oct 2026).
-- [ ] Screenshots of Winify are in the README.
-- [ ] The project is on GitHub, with nothing personal in it or its history.
-- [ ] A 1.0 tag and release notes on GitHub: source only, no built app.
+- [x] Screenshots of Winify are in the README.
+- [x] The project is on GitHub, with nothing personal in it or its history
+      (github.com/Parasthappa/Winify; history scanned). The user chose to keep
+      their real playlist names in docs/screenshots/windows.png.
+- [x] A 1.0 tag and release notes on GitHub: source only, no built app.
+      v1.0.0 is pushed; the notes are drafted and await the user's review
+      before they are published.
 - [x] Winify's menu links to the GitHub project (where Webamp's link used
       to be): "Winify..." at the top of the main menu (31 Oct 2026).
 - [x] LRCLIB: Winify's User-Agent includes the GitHub link (LRCLIB asks for
