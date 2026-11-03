@@ -170,15 +170,25 @@ function showSetup(error) {
   send('auth:setup', { current: maskClientId(clientId), error: error || null, firstRun: !clientId && !error, remember });
 }
 
-// Menu bar > Change Spotify Client ID...: a new app means new tokens. The page
-// starts over too, as after quitting and reopening, so the next sign-in gets a
-// fresh player library and device rather than whatever the old session left.
-let setupOnLoad = false;
-function changeClientId() {
+// Leaving a session on purpose: the page starts over, as after quitting and
+// reopening, so the next sign-in gets a fresh player library and device rather
+// than whatever the old session left. `onLoad` is what it shows then.
+let afterReload = null;
+function startPageOver(onLoad) {
   signOut();
-  showWindow();
-  setupOnLoad = true;
+  showWindow();     // so you can see where you landed
+  afterReload = onLoad;
   if (win && !win.isDestroyed()) win.webContents.reload();
+}
+
+// Menu bar > Change Spotify Client ID...: a new app means new tokens.
+function changeClientId() {
+  startPageOver(() => showSetup());
+}
+
+// Disconnect, on the chassis or in the menu bar: back to the sign-in screen.
+function disconnect() {
+  startPageOver(() => send('auth:signed-out', { remember }));
 }
 const REDIRECT_URI = 'http://127.0.0.1:8888/callback';
 const SCOPES = [
@@ -882,10 +892,7 @@ function buildTray() {
     {
       label: 'Disconnect',
       enabled: connected,
-      click: () => {
-        signOut();        // clears tokens + stored file, returns to the sign-in screen
-        showWindow();     // so you can see where you landed
-      },
+      click: disconnect,
     },
     { type: 'separator' },
     {
@@ -1046,7 +1053,7 @@ function signOut() {
   forgetTokens();
   setStatus('Not logged in');
   setConnected(false);
-  send('auth:signed-out');
+  send('auth:signed-out', { remember });
 }
 
 async function requestToken(params) {
@@ -1537,9 +1544,10 @@ ipcMain.on('ready', () => {
   // Send the current state once the renderer is listening, so it starts from
   // the truth rather than from whatever events happened before it loaded.
   send('window:visibility', isOnScreen());
-  if (setupOnLoad) {
-    setupOnLoad = false;
-    showSetup();
+  if (afterReload) {
+    const show = afterReload;
+    afterReload = null;
+    show();
     return;
   }
   restoreSession();
@@ -1563,7 +1571,7 @@ ipcMain.on('window-command', (_event, command) => {
 });
 ipcMain.on('login', login);
 ipcMain.on('cancel-login', cancelAuth);
-ipcMain.on('disconnect', signOut);
+ipcMain.on('disconnect', disconnect);
 
 // The lamp: on stores the refresh token, off wipes it.
 ipcMain.on('set-remember', (_event, value) => {

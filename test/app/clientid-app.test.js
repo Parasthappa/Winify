@@ -78,18 +78,22 @@ app.whenReady().then(async () => {
     await click('#login-screen .sa-cta');
     v = await until((x) => /READY TO SIGN IN/.test(x.status || ''));
     check('saved: "READY TO SIGN IN", "Continue with Spotify", and it waits for you', /READY TO SIGN IN/.test(v.status || '') && v.cta === 'Continue with Spotify' && opened.length === browserBefore, JSON.stringify(v));
+    await signInAndPlay(id);
+  };
+  const signInAndPlay = async (id) => {
+    const browserBefore = opened.length;
     await click('#login-screen .sa-cta');
     const t0 = Date.now(); while (opened.length === browserBefore && Date.now() - t0 < 5000) await wait(50);
     check('Continue opens Spotify\'s sign-in with this Client ID', opened.length > browserBefore && opened[opened.length - 1].includes('client_id=' + id), opened[opened.length - 1]);
     const state = new URL(opened[opened.length - 1]).searchParams.get('state');
     await realFetch('http://127.0.0.1:8888/callback?code=fake-code&state=' + state);
-    v = await until((x) => x.webamp && x.login === false);
+    const v = await until((x) => x.webamp && x.login === false);
     check('signed in: the player shows', v.webamp && v.login === false, JSON.stringify(v));
-    v = await until((x) => !!x.device, 3000);
-    check('...and Winify has a playback device of this page', v.device === 'device-' + pageLoads, JSON.stringify([v.device, pageLoads]));
+    const d = await until((x) => !!x.device, 3000);
+    check('...and Winify has a playback device of this page', d.device === 'device-' + pageLoads, JSON.stringify([d.device, pageLoads]));
     check('...the sign-in is remembered again', fs.existsSync(tokenFile));
     const sent = transfers.length;
-    await click('#webamp #play');
+    await js(`document.querySelector('#webamp #play').click()`);
     const t1 = Date.now(); while (transfers.length === sent && Date.now() - t1 < 18000) await wait(100);
     check('Play: playback moves to that device', transfers[sent] === 'device-' + pageLoads, JSON.stringify([transfers.slice(sent), await S()]));
   };
@@ -103,7 +107,18 @@ app.whenReady().then(async () => {
   await round('3. Change it to another Client ID', OTHER, 'a1b2…8f90');
   await round('4. And again to that same one', OTHER, '0f9e…b1a0');
 
-  console.log('5. A token refresh under way when the Client ID is changed');
+  for (const [n, how] of [[5, 'first time'], [6, 'and again']]) {
+    console.log(n + '. Disconnect, then sign in again (' + how + ')');
+    await js('window.spotify.disconnect()');
+    await wait(300);
+    v = await until((x) => x.login && x.cta === 'Continue with Spotify');
+    check('back on the sign-in screen, not the Client ID step, the player gone', v.login && !v.input && !v.webamp && !v.device && v.cta === 'Continue with Spotify', JSON.stringify(v));
+    check('...the old sign-in is off the disk', !fs.existsSync(tokenFile));
+    check('...Remember me still lit', v.lamp === true);
+    await signInAndPlay(OTHER);
+  }
+
+  console.log('7. A token refresh under way when the Client ID is changed');
   // A refresh is due: the next sign-in hands out a token that is close to expiring.
   await js('window.spotify.changeClientId()');
   await until((x) => x.input); await wait(300);

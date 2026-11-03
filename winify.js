@@ -580,8 +580,8 @@
       }, 0);
     });
 
-    IPC.onSignedOut(function () {
-      comp.setState({ status: 'idle', step: 0, failKind: null, track: null });
+    IPC.onSignedOut(function (info) {
+      comp.setState({ status: 'idle', step: 0, failKind: null, track: null, remember: !!(info && info.remember) });
       showApp(false);
     });
 
