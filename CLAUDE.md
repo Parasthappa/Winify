@@ -34,6 +34,7 @@ Where the 1.0 release stands, and what each stage needs: RELEASE_PLAN.md.
   and offered, not fixed on the side.
 - Never commit `.env`, a Client ID, tokens, or anything personal (emails,
   paths, account names). The README is user-facing: plain steps, no jargon.
+- Do not add a `Co-Authored-By: Claude` line to commit messages.
 
 ## Layout
 
