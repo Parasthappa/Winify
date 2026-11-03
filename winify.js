@@ -572,7 +572,7 @@
     IPC.onAuthSetup(function (info) {
       if (comp.timer) { clearInterval(comp.timer); comp.timer = null; }
       comp.setState({ setup: true, setupWelcome: !!(info && info.firstRun), setupFirstRun: !!(info && info.firstRun), setupBusy: false, setupError: (info && info.error) || null,
-        setupCurrent: (info && info.current) || null, setupSaved: false, status: 'idle', step: 0, failKind: null });
+        setupCurrent: (info && info.current) || null, setupSaved: false, remember: !!(info && info.remember), status: 'idle', step: 0, failKind: null });
       showApp(false);
       setTimeout(function () {
         var field = document.getElementById('sa-client-id');

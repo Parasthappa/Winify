@@ -167,14 +167,18 @@ app.commandLine.appendSwitch('enable-features', [
 // the stored one). A first run starts at the welcome screen ("Get started").
 function showSetup(error) {
   setStatus('Connect your Spotify app');
-  send('auth:setup', { current: maskClientId(clientId), error: error || null, firstRun: !clientId && !error });
+  send('auth:setup', { current: maskClientId(clientId), error: error || null, firstRun: !clientId && !error, remember });
 }
 
-// Menu bar > Change Spotify Client ID...: a new app means new tokens.
+// Menu bar > Change Spotify Client ID...: a new app means new tokens. The page
+// starts over too, as after quitting and reopening, so the next sign-in gets a
+// fresh player library and device rather than whatever the old session left.
+let setupOnLoad = false;
 function changeClientId() {
   signOut();
   showWindow();
-  showSetup();
+  setupOnLoad = true;
+  if (win && !win.isDestroyed()) win.webContents.reload();
 }
 const REDIRECT_URI = 'http://127.0.0.1:8888/callback';
 const SCOPES = [
@@ -1031,7 +1035,12 @@ function failAuth(kind) {
   send('auth:error', kind);
 }
 
+// One more at every sign-out: an answer for an earlier session is dropped, and
+// cannot put its tokens back or finish a sign-in nobody is waiting for.
+let signOuts = 0;
+
 function signOut() {
+  signOuts++;
   cancelAuth();
   tokens = null;
   forgetTokens();
@@ -1041,6 +1050,7 @@ function signOut() {
 }
 
 async function requestToken(params) {
+  const session = signOuts;
   const res = await fetch('https://accounts.spotify.com/api/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -1049,6 +1059,7 @@ async function requestToken(params) {
   });
   if (!res.ok) throw new Error(`Token request failed (${res.status})`);
   const data = await res.json();
+  if (session !== signOuts) return;
   tokens = {
     accessToken: data.access_token,
     refreshToken: data.refresh_token || (tokens && tokens.refreshToken),
@@ -1072,6 +1083,7 @@ function refreshTokens() {
     refresh_token: tokens.refreshToken,
   })
     .then(() => {
+      if (!tokens) return;   // signed out meanwhile
       console.log('[auth] access token refreshed, valid for',
         Math.round((tokens.expiresAt - Date.now()) / 1000), 'seconds');
     })
@@ -1171,6 +1183,7 @@ function login() {
 }
 
 async function completeLogin(code, verifier) {
+  const session = signOuts;
   // Step 1: trade the code for tokens.
   send('auth:step', STEP_TOKEN);
   try {
@@ -1181,9 +1194,10 @@ async function completeLogin(code, verifier) {
       code_verifier: verifier,
     });
   } catch {
-    failAuth('network');
+    if (session === signOuts) failAuth('network');
     return;
   }
+  if (session !== signOuts) return;
 
   const granted = String(tokens.scope || '').split(' ');
   const notGranted = SCOPES.filter((scope) => !granted.includes(scope));
@@ -1199,9 +1213,10 @@ async function completeLogin(code, verifier) {
     if (!res.ok) throw new Error(`Profile request failed (${res.status})`);
     profile = await res.json();
   } catch {
-    failAuth('network');
+    if (session === signOuts) failAuth('network');
     return;
   }
+  if (session !== signOuts) return;
 
   if (profile.product !== 'premium') {
     failAuth('free-account');
@@ -1211,6 +1226,7 @@ async function completeLogin(code, verifier) {
   // Step 3: first real read of what's playing.
   send('auth:step', STEP_LIBRARY);
   await pollCurrentSong();
+  if (session !== signOuts) return;
 
   setConnected(true);
   send('auth:connected');
@@ -1268,12 +1284,14 @@ async function pollCurrentSong() {
   if (Date.now() < pollPausedUntil) return;
 
   if (Date.now() > tokens.expiresAt - 30000) {
+    const session = signOuts;
     try {
       await refreshTokens();
     } catch {
-      signOut();
+      if (session === signOuts) signOut();
       return;
     }
+    if (session !== signOuts) return;
   }
 
   try {
@@ -1318,7 +1336,7 @@ async function accessToken() {
       return null;
     }
   }
-  return tokens.accessToken;
+  return tokens && tokens.accessToken;
 }
 ipcMain.handle('get-token', accessToken);
 
@@ -1519,6 +1537,11 @@ ipcMain.on('ready', () => {
   // Send the current state once the renderer is listening, so it starts from
   // the truth rather than from whatever events happened before it loaded.
   send('window:visibility', isOnScreen());
+  if (setupOnLoad) {
+    setupOnLoad = false;
+    showSetup();
+    return;
+  }
   restoreSession();
 });
 // Click-through: the page says whether the pointer is over something of
