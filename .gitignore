@@ -17,3 +17,6 @@ test/skins/
 
 # Built app (npm run package).
 dist/
+
+# Screenshots until chosen for the README: some show personal details.
+screenshots/

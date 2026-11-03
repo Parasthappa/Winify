@@ -83,9 +83,9 @@ Changes the rules call for (before publishing):
       Now "Make Your Player Yours Again".
 - [x] LRCLIB: wait as long as its Retry-After says before asking again
       (was a fixed 2 s).
-- [ ] LRCLIB: add the project's GitHub link to Winify's User-Agent, once the
+- [x] LRCLIB: add the project's GitHub link to Winify's User-Agent, once the
       repository exists (stage 5).
-- [ ] Ship THIRD_PARTY_NOTICES.md, Electron's LICENSE and
+- [x] Ship THIRD_PARTY_NOTICES.md, Electron's LICENSE and
       LICENSES.chromium.html with the packaged app (stage 4).
 
 Decisions (25 Oct 2026):
