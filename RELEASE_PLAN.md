@@ -124,8 +124,9 @@ Done means:
       Apple: ad-hoc signing only (no developer membership, no notarizing).
 - [x] THIRD_PARTY_NOTICES.md, Electron's LICENSE and LICENSES.chromium.html
       are inside the app.
-- [ ] Sign-in, playback, the visualizers and lyrics work from the built app
-      (the smoke test, run against it).
+- [x] Sign-in, playback, the visualizers and lyrics work from the built app
+      (the smoke test, run against it, 3 Nov 2026; LRCLIB was down for that run,
+      so lyrics were checked by the user in the app).
 - [x] Native system-audio capture is retested in the packaged app, to see
       whether BlackHole is still needed. The answer, either way, goes in the
       README's visualizer setup. Still needed: no audio track (30 Oct 2026).
