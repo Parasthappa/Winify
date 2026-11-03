@@ -148,8 +148,7 @@ Done means:
       (github.com/Parasthappa/Winify; history scanned). The user chose to keep
       their real playlist names in docs/screenshots/windows.png.
 - [x] A 1.0 tag and release notes on GitHub: source only, no built app.
-      v1.0.0 is pushed; the notes are drafted and await the user's review
-      before they are published.
+      Published 3 Nov 2026 (v1.0.0).
 - [x] Winify's menu links to the GitHub project (where Webamp's link used
       to be): "Winify..." at the top of the main menu (31 Oct 2026).
 - [x] LRCLIB: Winify's User-Agent includes the GitHub link (LRCLIB asks for
