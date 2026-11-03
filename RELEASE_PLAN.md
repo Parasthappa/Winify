@@ -15,8 +15,8 @@ are done (with the commit, where there is one).
 Done means:
 
 - [x] The random mixes are committed, after the full test suite and a smoke
-      run against the real Spotify both pass (027e871).
-- [x] The stray junk file from commit 54009af is removed.
+      run against the real Spotify both pass (805df73).
+- [x] The stray junk file from commit ad77644 is removed.
 - [x] The test mix "25 Oct, 7:17" is gone from the saved mixes (checked:
       it had already been deleted).
 - [x] The project has been checked for leftovers, scratch files and anything
@@ -102,9 +102,9 @@ Decisions (25 Oct 2026):
 Done means each works, has tests against the mocks, and is in the README:
 
 - [x] Always on top: Winify can stay above other apps (on or off, remembered).
-      The main window's A button (e05f38d).
+      The main window's A button (e4c1ba7).
 - [x] Behind other apps: Winify can sit on the desktop under other windows
-      (on or off, remembered). The menu-bar menu (a2cf6d3).
+      (on or off, remembered). The menu-bar menu (a306e2d).
 - [x] Milkdrop Desktop Mode: Milkdrop can fill the desktop behind
       everything, as Winamp's Desktop Mode did, and leave it again.
 - [x] Existing window behaviour still works: dragging, clicks passing
