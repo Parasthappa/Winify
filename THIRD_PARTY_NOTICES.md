@@ -132,8 +132,8 @@ Winamp is a trademark of Winamp Group.
   queried for the lyrics window. Lyrics belong to their songwriters and
   publishers; Winify shows them and stores none.
 - **Skins shown in Winify's pictures**, not included in the app and belonging to
-  their authors: Blue Jeans by Robson Moraes, EJL Classic by Edward J. Lackey,
-  Pup, Inc. (Grey) by Pup, Purple Glow by Homocianu Luis Gabriel and SoundLair
-  by Roman Kondratyev.
+  their authors: Cathode Noise by haste, EJL Classic by Edward J. Lackey,
+  Pup, Inc. (Grey) by Pup, Slick ReduX by GaretJax and Mike Bergstrom, and
+  SoundLair by Roman Kondratyev.
 - **Fonts**, loaded from Google Fonts: Archivo, JetBrains Mono, Saira
   Condensed and Source Code Pro, each under the SIL Open Font License 1.1.

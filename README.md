@@ -477,9 +477,9 @@ Winify is an independent fan project, and it wouldn't exist without these people
   Milkdrop visualizer, and the **Milkdrop preset authors**, credited by name in
   each preset's title.
 - **The skin authors**, whose skins appear in Winify's pictures. These are not
-  included with Winify and belong to their authors: **Blue Jeans** by Robson
-  Moraes, **EJL Classic** by Edward J. Lackey, **Pup, Inc. (Grey)** by Pup,
-  **Purple Glow** by Homocianu Luis Gabriel and **SoundLair** by Roman Kondratyev.
+  included with Winify and belong to their authors: **Cathode Noise** by haste,
+  **EJL Classic** by Edward J. Lackey, **Pup, Inc. (Grey)** by Pup, **Slick
+  ReduX** by GaretJax and Mike Bergstrom, and **SoundLair** by Roman Kondratyev.
 - **[LRCLIB](https://lrclib.net):** the free, community-made lyrics library.
 
 The same thanks are in the app, under **About Winify...** in the menu-bar menu.
