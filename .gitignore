@@ -19,4 +19,4 @@ test/skins/
 dist/
 
 # Screenshots until chosen for the README: some show personal details.
-screenshots/
+/screenshots/

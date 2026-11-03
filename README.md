@@ -6,6 +6,12 @@ Winify plays your Spotify music in its own window, with classic buttons,
 a playlist window and a visualizer. Spotify sees it as a device called **Winify**,
 just like a speaker or your phone.
 
+![Winify on a Mac: the player, playlist, Jump to track, lyrics, playlists and Milkdrop windows, with the Winify panel beside them](docs/screenshots/windows.png)
+
+Winify is free and open source. There is no download: you build your own copy
+from this page, with your own free Spotify and castLabs accounts. The steps below
+walk you through it, and you don't need to know how to code.
+
 ## What you need
 
 - A Mac
@@ -50,7 +56,7 @@ Open **Terminal** and run these, one at a time. They download Winify from
 go into it, and install what it needs:
 
 ```bash
-git clone https://github.com/Parasthappa/Winify.git
+git clone https://github.com/Parasthappa/Winify.git winify
 ```
 
 ```bash
@@ -117,6 +123,17 @@ The first start takes a little longer than later ones.
 3. Your browser opens Spotify's sign-in page. Log in and click **Agree**.
 4. Winify shows **CONNECTED** and opens the player.
 
+<table>
+  <tr>
+    <td><img src="docs/screenshots/client-id.png" width="360" alt="Pasting the Client ID"></td>
+    <td><img src="docs/screenshots/connecting.png" width="360" alt="Connecting to Spotify"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/connected.png" width="360" alt="Winify connected"></td>
+    <td><img src="docs/screenshots/welcome.png" width="360" alt="The sign-in screen on later launches, with Continue with Spotify"></td>
+  </tr>
+</table>
+
 Next time you open Winify, click **Continue with Spotify**. Turn on
 **Remember me** to stay signed in between launches.
 
@@ -162,6 +179,8 @@ Spotify's protected audio.
 ## Using Winify
 
 ### Playing music
+
+<img src="docs/screenshots/default-window.png" width="320" alt="The Winify main and playlist windows, before anything plays">
 
 Press **Play**. Winify continues whatever you were last listening to on
 Spotify, or starts your Liked Songs. You can also pick **Winify** from the
@@ -301,6 +320,16 @@ Winify then leaves it behind the other apps' windows. Only one of the two can
 be on: turning one on turns the other off. Winify remembers the setting. (The main
 window's title bar has no buttons of its own: double-click it to
 switch to the slim windowshade view and back.)
+
+### Skins
+
+Winify wears classic player skins (**.wsz** files). Choose **Load skin...** from
+Winify's menu-bar icon, or drag a skin onto the player. The side panels follow
+the skin. You can find thousands of them in the
+**Winamp Skin Museum** (linked under Credits & thanks). Some skins are drawn more
+carefully than others, so a few may look a little off in places.
+
+![Five classic skins in Winify: SoundLair, Slick ReduX, EJL Classic, Cathode Noise and Pup, Inc. (Grey)](docs/screenshots/skins.png)
 
 ### Menu-bar icon
 
@@ -480,6 +509,7 @@ Winify is an independent fan project, and it wouldn't exist without these people
   included with Winify and belong to their authors: **Cathode Noise** by haste,
   **EJL Classic** by Edward J. Lackey, **Pup, Inc. (Grey)** by Pup, **Slick
   ReduX** by GaretJax and Mike Bergstrom, and **SoundLair** by Roman Kondratyev.
+  You can find more in the [Winamp Skin Museum](https://skins.webamp.org).
 - **[LRCLIB](https://lrclib.net):** the free, community-made lyrics library.
 
 The same thanks are in the app, under **About Winify...** in the menu-bar menu.
@@ -492,9 +522,9 @@ Winify is an independent, free, open-source project. It is not affiliated
 with, endorsed by, or sponsored by Spotify or Winamp. Spotify is a trademark
 of Spotify AB, and Winamp is a trademark of its owner, Winamp Group. The
 classic skin Winify shows is Winamp's own, by Nullsoft, as included in
-Webamp, with its title text and logos redrawn for Winify. Music, cover art and song details come from Spotify; lyrics come
-from LRCLIB and belong to their songwriters and publishers. Everything else
-Winify uses is credited in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Webamp, with its title text and logos redrawn for Winify. Music, cover art and
+song details come from Spotify; lyrics come from LRCLIB and belong to their
+songwriters and publishers. Everything else Winify uses is credited in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## For developers
 
