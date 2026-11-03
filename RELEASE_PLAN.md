@@ -116,9 +116,9 @@ Done means:
 
 - [x] Winify.app is built from the project with one command, and opens from
       Finder like any app.
-- [ ] Its name is "Winify" everywhere: the menu bar, Finder, the Dock, the
+- [x] Its name is "Winify" everywhere: the menu bar, Finder, the Dock, the
       app switcher and Activity Monitor (not "Electron").
-- [ ] It has Winify's icon in Finder and the Dock.
+- [x] It has Winify's icon in Finder and the Dock.
 - [x] It is VMP-signed with the user's own EVS account, after any other
       signing step that changes the app, so Spotify plays in the packaged app.
       Apple: ad-hoc signing only (no developer membership, no notarizing).
